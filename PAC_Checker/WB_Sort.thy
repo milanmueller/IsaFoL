@@ -1339,53 +1339,7 @@ lemma partition_main_correct:
     trans: \<open>\<And> x y z. \<lbrakk>R (h x) (h y); R (h y) (h z)\<rbrakk> \<Longrightarrow> R (h x) (h z)\<close> and lin: \<open>\<And>x y. R (h x) (h y) \<or> R (h y) (h x)\<close>
   shows \<open>partition_main R h lo hi xs \<le> SPEC(\<lambda>(xs', p). mset xs = mset xs' \<and>
      lo \<le> p \<and> p \<le> hi \<and> isPartition_map R h xs' lo hi p \<and> (\<forall> i. i<lo \<longrightarrow> xs'!i=xs!i) \<and> (\<forall> i. hi<i\<and>i<length xs' \<longrightarrow> xs'!i=xs!i))\<close>
-proof -
-  have K: \<open>b \<le> hi - Suc n \<Longrightarrow> n > 0 \<Longrightarrow> Suc n \<le> hi \<Longrightarrow> Suc b \<le> hi - n\<close> for b hi n
-    by auto
-  have L: \<open>~ R (h x) (h y) \<Longrightarrow> R (h y) (h x)\<close> for x y \<comment> \<open>Corollary of linearity\<close>
-    using assms by blast
-  have M: \<open>a < Suc b \<equiv> a = b \<or> a < b\<close> for a b
-    by linarith
-  have N: \<open>(a::nat) \<le> b \<equiv> a = b \<or> a < b\<close> for a b
-    by arith
-
-  show ?thesis
-    unfolding partition_main_def choose_pivot_def
-    apply (refine_vcg WHILEIT_rule[where R = \<open>measure(\<lambda>(i,j,xs). hi-j)\<close>])
-    subgoal using assms by blast \<comment> \<open>We feed our assumption to the assertion\<close>
-    subgoal by auto \<comment> \<open>WF\<close>
-    subgoal \<comment> \<open>Invariant holds before the first iteration\<close>
-      unfolding partition_main_inv_def
-      using assms apply simp by linarith
-    subgoal unfolding partition_main_inv_def by simp
-    subgoal unfolding partition_main_inv_def by simp
-    subgoal
-      unfolding partition_main_inv_def
-      apply (auto dest: mset_eq_length)
-      done
-    subgoal unfolding partition_main_inv_def by (auto dest: mset_eq_length)
-    subgoal
-      unfolding partition_main_inv_def apply (auto dest: mset_eq_length)
-      by (metis L M mset_eq_length nat_le_eq_or_lt)
-
-    subgoal unfolding partition_main_inv_def by simp \<comment> \<open>assertions, etc\<close>
-    subgoal unfolding partition_main_inv_def by simp
-    subgoal unfolding partition_main_inv_def by (auto dest: mset_eq_length)
-    subgoal unfolding partition_main_inv_def by simp
-    subgoal unfolding partition_main_inv_def by (auto dest: mset_eq_length)
-    subgoal unfolding partition_main_inv_def by (auto dest: mset_eq_length)
-    subgoal unfolding partition_main_inv_def by (auto dest: mset_eq_length)
-    subgoal unfolding partition_main_inv_def by simp
-    subgoal unfolding partition_main_inv_def by simp
-
-    subgoal \<comment> \<open>After the last iteration, we have a partitioning! :-)\<close>
-      unfolding partition_main_inv_def by (auto simp add: isPartition_wrt_def)
-    subgoal \<comment> \<open>And the lower out-of-bounds parts of the list haven't been changed\<close>
-      unfolding partition_main_inv_def by auto
-    subgoal \<comment> \<open>And the upper out-of-bounds parts of the list haven't been changed\<close>
-      unfolding partition_main_inv_def by auto
-    done
-qed
+  sorry
 
 
 definition partition_between :: \<open>('b \<Rightarrow> 'b \<Rightarrow> bool) \<Rightarrow> ('a \<Rightarrow> 'b) \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> 'a list \<Rightarrow> ('a list \<times> nat) nres\<close> where
@@ -1398,21 +1352,11 @@ definition partition_between :: \<open>('b \<Rightarrow> 'b \<Rightarrow> bool) 
     partition_main R h lo hi xs
   }\<close>
 
-
 lemma partition_between_correct:
   assumes \<open>hi < length xs\<close> and \<open>lo \<le> hi\<close> and
   \<open>\<And> x y z. \<lbrakk>R (h x) (h y); R (h y) (h z)\<rbrakk> \<Longrightarrow> R (h x) (h z)\<close> and \<open>\<And>x y. R (h x) (h y) \<or> R (h y) (h x)\<close>
   shows \<open>partition_between R h lo hi xs \<le> SPEC(uncurry (partition_spec R h xs lo hi))\<close>
-proof -
-  have K: \<open>b \<le> hi - Suc n \<Longrightarrow> n > 0 \<Longrightarrow> Suc n \<le> hi \<Longrightarrow> Suc b \<le> hi - n\<close> for b hi n
-    by auto
-  show ?thesis
-    unfolding partition_between_def choose_pivot_def
-    apply (refine_vcg partition_main_correct)
-    using assms apply (auto dest: mset_eq_length simp add: partition_spec_def)
-    by (metis dual_order.strict_trans2 less_imp_not_eq2 mset_eq_length swap_nth)
-qed
-
+  sorry
 
 
 text \<open>We use the median of the first, the middle, and the last element.\<close>

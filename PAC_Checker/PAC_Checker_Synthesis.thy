@@ -4,8 +4,9 @@
   Maintainer:   Mathias Fleury, JKU
 *)
 theory PAC_Checker_Synthesis
-  imports PAC_Checker WB_Sort PAC_Checker_Relation
+  imports PAC_Checker PAC_Checker_Relation
     PAC_Checker_Init More_Loops PAC_Version
+    HashSet
 begin
 
 section \<open>Code Synthesis of the Complete Checker\<close>
@@ -15,7 +16,7 @@ adding more efficient data structures (mostly replacing the set of variables by 
 hash map).\<close>
 
 abbreviation vars_assn where
-  \<open>vars_assn \<equiv> hs.assn string_assn\<close>
+  \<open>vars_assn \<equiv> hset_assn string_assn\<close>
 
 fun vars_of_monom_in where
   \<open>vars_of_monom_in [] _ = True\<close> |
@@ -44,9 +45,21 @@ lemma vars_of_monom_in_alt_def2:
 
 sepref_definition vars_of_monom_in_impl
   is \<open>uncurry (RETURN oo vars_of_monom_in)\<close>
-  :: \<open>(list_assn string_assn)\<^sup>k *\<^sub>a vars_assn\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
+  :: \<open>monom_assn\<^sup>k *\<^sub>a vars_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   unfolding vars_of_monom_in_alt_def2
-  by sepref
+  unfolding lexord_eq_alt_def2
+  apply sepref_dbg_preproc
+  apply sepref_dbg_cons_init
+  apply sepref_dbg_id
+  apply sepref_dbg_monadify
+  apply sepref_dbg_opt_init
+  apply sepref_dbg_trans
+  apply sepref_dbg_opt
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve_cp
+  apply sepref_dbg_constraints
+  oops
 
 declare vars_of_monom_in_impl.refine[sepref_fr_rules]
 
@@ -57,12 +70,22 @@ lemma vars_of_poly_in_alt_def2:
   subgoal by (induction xs) auto
   done
 
-
 sepref_definition vars_of_poly_in_impl
   is \<open>uncurry (RETURN oo vars_of_poly_in)\<close>
-  :: \<open>(poly_assn)\<^sup>k *\<^sub>a vars_assn\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
+  :: \<open>(poly_assn)\<^sup>k *\<^sub>a vars_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   unfolding vars_of_poly_in_alt_def2
-  by sepref
+  apply sepref_dbg_preproc
+  apply sepref_dbg_cons_init
+  apply sepref_dbg_id
+  apply sepref_dbg_monadify
+  apply sepref_dbg_opt_init
+  apply sepref_dbg_trans
+  apply sepref_dbg_opt
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve_cp
+  apply sepref_dbg_constraints
+  oops
 
 declare vars_of_poly_in_impl.refine[sepref_fr_rules]
 
@@ -95,25 +118,55 @@ lemma union_vars_poly_alt_def:
      (auto simp: vars_llist_def union_vars_monom_alt_def)
    done
 
+ term union_vars_monom
+
 sepref_definition union_vars_monom_impl
   is \<open>uncurry (RETURN oo union_vars_monom)\<close>
   :: \<open>monom_assn\<^sup>k *\<^sub>a vars_assn\<^sup>d \<rightarrow>\<^sub>a vars_assn\<close>
   unfolding union_vars_monom_def
-  by sepref
+  apply sepref_dbg_preproc
+  apply sepref_dbg_cons_init
+  apply sepref_dbg_id
+  apply sepref_dbg_id_keep
+  apply sepref_dbg_monadify
+  apply sepref_dbg_opt_init
+  apply sepref_dbg_trans
+  apply sepref_dbg_opt
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve_cp
+  apply sepref_dbg_constraints
+  oops
 
 declare union_vars_monom_impl.refine[sepref_fr_rules]
+
+term union_vars_poly
+term poly_assn
+term vars_assn
 
 sepref_definition union_vars_poly_impl
   is \<open>uncurry (RETURN oo union_vars_poly)\<close>
   :: \<open>poly_assn\<^sup>k *\<^sub>a vars_assn\<^sup>d \<rightarrow>\<^sub>a vars_assn\<close>
   unfolding union_vars_poly_def
-  by sepref
+  apply sepref_dbg_preproc
+  apply sepref_dbg_cons_init
+  apply sepref_dbg_id
+  apply sepref_dbg_monadify
+  apply sepref_dbg_opt_init
+  apply sepref_dbg_trans
+  apply sepref_dbg_opt
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve_cp
+  apply sepref_dbg_constraints
+  oops
 
 declare union_vars_poly_impl.refine[sepref_fr_rules]
 
 
 hide_const (open) Autoref_Fix_Rel.CONSTRAINT
 
+(* Not sure if this still works with llvm *)
 fun status_assn where
   \<open>status_assn _ CSUCCESS CSUCCESS = emp\<close> |
   \<open>status_assn _ CFOUND CFOUND = emp\<close> |
@@ -158,10 +211,20 @@ sepref_definition add_poly_impl
   :: \<open>(poly_assn \<times>\<^sub>a poly_assn)\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
   supply [[goals_limit=1]]
   unfolding add_poly_l_def
-    HOL_list.fold_custom_empty
     term_order_rel'_def[symmetric]
     term_order_rel'_alt_def
-  by sepref
+  apply sepref_dbg_preproc
+  apply sepref_dbg_cons_init
+  apply sepref_dbg_id
+  apply sepref_dbg_monadify
+  apply sepref_dbg_opt_init
+  apply sepref_dbg_trans
+  apply sepref_dbg_opt
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve_cp
+  apply sepref_dbg_constraints
+  oops
 
 
 declare add_poly_impl.refine[sepref_fr_rules]
@@ -202,12 +265,22 @@ sepref_definition mult_monoms_impl
   :: \<open>(monom_assn)\<^sup>k *\<^sub>a (monom_assn)\<^sup>k \<rightarrow>\<^sub>a (monom_assn)\<close>
   supply [[goals_limit=1]]
   unfolding mult_poly_raw_def
-    HOL_list.fold_custom_empty
     var_order'_def[symmetric]
     term_order_rel'_alt_def
     mult_monoms_alt_def
     var_order_rel_var_order
-  by sepref
+  apply sepref_dbg_preproc
+  apply sepref_dbg_cons_init
+  apply sepref_dbg_id
+  apply sepref_dbg_monadify
+  apply sepref_dbg_opt_init
+  apply sepref_dbg_trans
+  apply sepref_dbg_opt
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve_cp
+  apply sepref_dbg_constraints
+  oops
 
 declare mult_monoms_impl.refine[sepref_fr_rules]
 
@@ -216,11 +289,20 @@ sepref_definition mult_monomials_impl
   :: \<open>(monomial_assn)\<^sup>k *\<^sub>a (monomial_assn)\<^sup>k \<rightarrow>\<^sub>a (monomial_assn)\<close>
   supply [[goals_limit=1]]
   unfolding mult_monomials_def
-    HOL_list.fold_custom_empty
     term_order_rel'_def[symmetric]
     term_order_rel'_alt_def
-  by sepref
-
+  apply sepref_dbg_preproc
+  apply sepref_dbg_cons_init
+  apply sepref_dbg_id
+  apply sepref_dbg_monadify
+  apply sepref_dbg_opt_init
+  apply sepref_dbg_trans
+  apply sepref_dbg_opt
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve_cp
+  apply sepref_dbg_constraints
+  oops
 
 lemma map_append_alt_def2:
   \<open>(RETURN o (map_append f b)) xs = REC\<^sub>T
@@ -246,7 +328,18 @@ sepref_definition map_append_poly_mult_impl
   :: \<open>monomial_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
   unfolding map_append_poly_mult_def
     map_append_alt_def2
-  by sepref
+  apply sepref_dbg_preproc
+  apply sepref_dbg_cons_init
+  apply sepref_dbg_id
+  apply sepref_dbg_monadify
+  apply sepref_dbg_opt_init
+  apply sepref_dbg_trans
+  apply sepref_dbg_opt
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve_cp
+  apply sepref_dbg_constraints
+  oops
 
 declare map_append_poly_mult_impl.refine[sepref_fr_rules]
 
@@ -257,14 +350,23 @@ sepref_definition mult_poly_raw_impl
   supply [[goals_limit=1]]
   supply [[eta_contract = false, show_abbrevs=false]]
   unfolding mult_poly_raw_def
-    HOL_list.fold_custom_empty
     term_order_rel'_def[symmetric]
     term_order_rel'_alt_def
     foldl_conv_fold
-    fold_eq_nfoldli
     map_append_poly_mult_def[symmetric]
     map_append_alt_def[symmetric]
-  by sepref
+  apply sepref_dbg_preproc
+  apply sepref_dbg_cons_init
+  apply sepref_dbg_id
+  apply sepref_dbg_monadify
+  apply sepref_dbg_opt_init
+  apply sepref_dbg_trans
+  apply sepref_dbg_opt
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve_cp
+  apply sepref_dbg_constraints
+  oops
 
 declare mult_poly_raw_impl.refine[sepref_fr_rules]
 
@@ -274,10 +376,20 @@ sepref_definition mult_poly_impl
   :: \<open>poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
   supply [[goals_limit=1]]
   unfolding mult_poly_full_def
-    HOL_list.fold_custom_empty
     term_order_rel'_def[symmetric]
     term_order_rel'_alt_def
-  by sepref
+  apply sepref_dbg_preproc
+  apply sepref_dbg_cons_init
+  apply sepref_dbg_id
+  apply sepref_dbg_monadify
+  apply sepref_dbg_opt_init
+  apply sepref_dbg_trans
+  apply sepref_dbg_opt
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve_cp
+  apply sepref_dbg_constraints
+  oops
 
 declare mult_poly_impl.refine[sepref_fr_rules]
 
@@ -296,10 +408,21 @@ lemma eq_poly_rel_eq[sepref_import_param]:
 
 sepref_definition weak_equality_l_impl
   is \<open>uncurry weak_equality_l\<close>
-  :: \<open>poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
+  :: \<open>poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   supply [[goals_limit=1]]
   unfolding weak_equality_l_def
-  by sepref
+  apply sepref_dbg_preproc
+  apply sepref_dbg_cons_init
+  apply sepref_dbg_id
+  apply sepref_dbg_monadify
+  apply sepref_dbg_opt_init
+  apply sepref_dbg_trans
+  apply sepref_dbg_opt
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve_cp
+  apply sepref_dbg_constraints
+  oops
 
 declare weak_equality_l_impl.refine[sepref_fr_rules]
 sepref_register add_poly_l mult_poly_full
@@ -349,14 +472,24 @@ sepref_definition check_addition_l_impl
         uint64_nat_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k  \<rightarrow>\<^sub>a status_assn raw_string_assn\<close>
   supply [[goals_limit=1]]
   unfolding mult_poly_full_def
-    HOL_list.fold_custom_empty
     term_order_rel'_def[symmetric]
     term_order_rel'_alt_def
     check_addition_l_def
     in_dom_m_lookup_iff
     fmlookup'_def[symmetric]
     vars_llist_alt_def
-  by sepref
+  apply sepref_dbg_preproc
+  apply sepref_dbg_cons_init
+  apply sepref_dbg_id
+  apply sepref_dbg_monadify
+  apply sepref_dbg_opt_init
+  apply sepref_dbg_trans
+  apply sepref_dbg_opt
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve_cp
+  apply sepref_dbg_constraints
+  oops
 
 declare check_addition_l_impl.refine[sepref_fr_rules]
 

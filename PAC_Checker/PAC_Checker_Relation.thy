@@ -4,7 +4,8 @@
   Maintainer:   Mathias Fleury, JKU
 *)
 theory PAC_Checker_Relation
-  imports PAC_Checker WB_Sort "Native_Word.Uint64" "Native_Word.Uint32" Collections.HashCode 
+  imports PAC_Checker HashMap "Native_Word.Uint64" "Native_Word.Uint32" Collections.HashCode
+    String_Assn
 begin
 
 section \<open>Various Refinement Relations\<close>
@@ -77,114 +78,120 @@ lemma [sepref_fr_rules]:
    (sep_auto simp: uint64_nat_rel_def br_def nat_of_uint64_uint64_of_nat_id)
 *)
 
-definition string_rel :: \<open>(String.literal \<times> string) set\<close> where
-  \<open>string_rel = {(x, y). y = String.explode x}\<close>
-
-abbreviation string_assn :: \<open>string \<Rightarrow> String.literal \<Rightarrow> assn\<close> where
-  \<open>string_assn \<equiv> pure string_rel\<close>
-
-lemma eq_string_eq:
-  \<open>((=), (=)) \<in> string_rel \<rightarrow> string_rel \<rightarrow> bool_rel\<close>
- by (auto intro!: frefI simp: string_rel_def String.less_literal_def
-    less_than_char_def rel2p_def literal.explode_inject)
-
+(*
 lemmas eq_string_eq_hnr =
    eq_string_eq[sepref_import_param]
+*)
 
-definition string2_rel :: \<open>(string \<times> string) set\<close> where
-  \<open>string2_rel \<equiv> \<langle>Id\<rangle>list_rel\<close>
-
-abbreviation string2_assn :: \<open>string \<Rightarrow> string \<Rightarrow> assn\<close> where
-  \<open>string2_assn \<equiv> pure string2_rel\<close>
+abbreviation \<open>string_assn \<equiv> larray_assn' TYPE(size_t) char_assn\<close>
+definition \<open>string_rel \<equiv> \<langle>char_rel\<rangle>list_rel\<close>
 
 abbreviation monom_rel where
   \<open>monom_rel \<equiv> \<langle>string_rel\<rangle>list_rel\<close>
 
-term "al_assn string_assn"
-term list_assn
-term string_assn
-
 abbreviation monom_assn where
-  \<open>monom_assn \<equiv> list_assn string_assn\<close>
+  \<open>monom_assn \<equiv> al_assn' TYPE(size_t) string_assn\<close>
 
+term aal_assn
+
+term \<open>unat_assn' TYPE(size_t)\<close>
+
+(* TODO: For now, we use sint_assn, but we want to eventually refine this to signed_big_int *)
 abbreviation monomial_rel where
   \<open>monomial_rel \<equiv> monom_rel \<times>\<^sub>r int_rel\<close>
 
 abbreviation monomial_assn where
-  \<open>monomial_assn \<equiv> monom_assn \<times>\<^sub>a int_assn\<close>
+  \<open>monomial_assn \<equiv> monom_assn \<times>\<^sub>a (sint_assn' TYPE(size_t))\<close>
 
 abbreviation poly_rel where
   \<open>poly_rel \<equiv> \<langle>monomial_rel\<rangle>list_rel\<close>
 
 abbreviation poly_assn where
-  \<open>poly_assn \<equiv> list_assn monomial_assn\<close>
+  \<open>poly_assn \<equiv> al_assn' TYPE(size_t) monomial_assn\<close>
 
+term poly_assn
+
+term \<open>aal_assn' TYPE(size_t) TYPE(size_t) char_assn\<close>
+
+definition \<open>monom_vars_assn \<equiv> aal_assn' TYPE(size_t) TYPE(size_t) char_assn\<close>
+definition \<open>monom_coeffs_assn \<equiv> aal_assn' TYPE(size_t) TYPE(size_t) sbi_aux_assn\<close>
+definition \<open>polys_lookup_assn \<equiv> aal_assn' TYPE(size_t) TYPE(size_t) (snat_assn' TYPE(size_t))\<close>
+
+
+term \<open>aal_assn' TYPE(size_t)\<close>
+
+(*
 lemma poly_assn_alt_def:
   \<open>poly_assn = pure poly_rel\<close>
   by (simp add: list_assn_pure_conv)
+*)
 
 abbreviation polys_assn where
-  \<open>polys_assn \<equiv> hm_fmap_assn uint64_nat_assn poly_assn\<close>
+  \<open>polys_assn \<equiv> hashmap_fmap_assn uint64_nat_assn poly_assn\<close>
 
+(*
 lemma string_rel_string_assn:
   \<open>(\<up> ((c, a) \<in> string_rel)) = string_assn a c\<close>
   by (auto simp: pure_app_eq)
+*)
 
-lemma single_valued_string_rel:
-   \<open>single_valued string_rel\<close>
-   by (auto simp: single_valued_def string_rel_def)
+
+lemma single_valued_string_rel: \<open>single_valued string_rel\<close>
+  unfolding single_valued_def string_rel_def list_rel_def
+  by (auto simp: list_all2_conv_all_nth br_def intro!: nth_equalityI)
 
 lemma IS_LEFT_UNIQUE_string_rel:
    \<open>IS_LEFT_UNIQUE string_rel\<close>
-   by (auto simp: IS_LEFT_UNIQUE_def single_valued_def string_rel_def
-     literal.explode_inject)
+  oops
 
 lemma IS_RIGHT_UNIQUE_string_rel:
    \<open>IS_RIGHT_UNIQUE string_rel\<close>
-   by (auto simp: single_valued_def string_rel_def
-     literal.explode_inject)
+  by (metis single_valued_string_rel)
 
+(*
 lemma single_valued_monom_rel: \<open>single_valued monom_rel\<close>
-  by (rule list_rel_sv)
-    (auto intro!: frefI simp: string_rel_def
-    rel2p_def single_valued_def p2rel_def)
+  by (simp add: list_rel_sv single_valued_string_rel)
+*)
 
-lemma single_valued_monomial_rel:
-  \<open>single_valued monomial_rel\<close>
+thm frefI
+(*
+lemma single_valued_monomial_rel: \<open>single_valued monomial_rel\<close>
   using single_valued_monom_rel
-  by (auto intro!: frefI simp:
-    rel2p_def single_valued_def p2rel_def)
-
+  by (auto intro!: frefI simp: rel2p_def single_valued_def 
+      p2rel_def in_br_conv signed_big_int_rel_def)
+*)
+(*
 lemma single_valued_monom_rel': \<open>IS_LEFT_UNIQUE monom_rel\<close>
   unfolding IS_LEFT_UNIQUE_def inv_list_rel_eq string2_rel_def
   by (rule list_rel_sv)+
    (auto intro!: frefI simp: string_rel_def
     rel2p_def single_valued_def p2rel_def literal.explode_inject)
+*)
 
-
+(*
 lemma single_valued_monomial_rel':
   \<open>IS_LEFT_UNIQUE monomial_rel\<close>
   using single_valued_monom_rel'
   unfolding IS_LEFT_UNIQUE_def inv_list_rel_eq
   by (auto intro!: frefI simp:
     rel2p_def single_valued_def p2rel_def)
+*)
 
+(*
 lemma [safe_constraint_rules]:
   \<open>Sepref_Constraints.CONSTRAINT single_valued string_rel\<close>
   \<open>Sepref_Constraints.CONSTRAINT IS_LEFT_UNIQUE string_rel\<close>
   by (auto simp: CONSTRAINT_def single_valued_def
     string_rel_def IS_LEFT_UNIQUE_def literal.explode_inject)
+*)
 
+(*
 lemma eq_string_monom_hnr[sepref_fr_rules]:
-  \<open>(uncurry (return oo (=)), uncurry (RETURN oo (=))) \<in> monom_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
+  \<open>(uncurry (Mreturn oo (=)), uncurry (RETURN oo (=))) \<in> monom_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   using single_valued_monom_rel' single_valued_monom_rel
-  unfolding list_assn_pure_conv
-  by sepref_to_hoare
-   (sep_auto simp: list_assn_pure_conv string_rel_string_assn
-       single_valued_def IS_LEFT_UNIQUE_def
-     dest!: mod_starD
-     simp flip: inv_list_rel_eq)
-
+  apply sepref_dbg_keep
+  oops
+*)
 
 definition term_order_rel' where
   [simp]: \<open>term_order_rel' x y = ((x, y) \<in> term_order_rel)\<close>
@@ -196,20 +203,6 @@ lemma term_order_rel[def_pat_rules]:
 lemma term_order_rel_alt_def:
   \<open>term_order_rel = lexord (p2rel char.lexordp)\<close>
   by (auto simp: p2rel_def char.lexordp_conv_lexord var_order_rel_def intro!: arg_cong[of _ _ lexord])
-
-
-instantiation char :: linorder
-begin
-  definition less_char where [symmetric, simp]: "less_char = PAC_Polynomials_Term.less_char"
-  definition less_eq_char where [symmetric, simp]: "less_eq_char = PAC_Polynomials_Term.less_eq_char"
-instance
-  apply standard
-  using char.linorder_axioms
-  by (auto simp: class.linorder_def class.order_def class.preorder_def
-       less_eq_char_def less_than_char_def class.order_axioms_def
-       class.linorder_axioms_def p2rel_def less_char_def)
-end
-
 
 instantiation list :: (linorder) linorder
 begin
@@ -258,12 +251,10 @@ lemma list_rel_list_rel_order_iff:
   assumes \<open>(a, b) \<in> \<langle>string_rel\<rangle>list_rel\<close> \<open>(a', b') \<in> \<langle>string_rel\<rangle>list_rel\<close>
   shows \<open>a < a' \<longleftrightarrow> b < b'\<close>
 proof
-  have H: \<open>(a, b) \<in> \<langle>string_rel\<rangle>list_rel \<Longrightarrow>
-       (a, cs) \<in> \<langle>string_rel\<rangle>list_rel \<Longrightarrow> b = cs\<close> for cs
-     using single_valued_monom_rel' IS_RIGHT_UNIQUE_string_rel
-     unfolding string2_rel_def
-     by (subst (asm)list_rel_sv_iff[symmetric])
-       (auto simp: single_valued_def)
+  have H: \<open>(xs, ys) \<in> \<langle>string_rel\<rangle>list_rel \<Longrightarrow>
+       (xs, zs) \<in> \<langle>string_rel\<rangle>list_rel \<Longrightarrow> ys = zs\<close> for xs ys zs
+     using list_rel_sv[OF single_valued_string_rel]
+     by (auto simp: single_valued_def)
   assume \<open>a < a'\<close>
   then consider
     u u' where \<open>a' = a @ u # u'\<close> |
@@ -281,12 +272,34 @@ proof
         list_rel_append1 list_rel_split_right_iff dest: H)
   next
     case 2
+    have \<open>\<exists>u' aa' v' w' aaa'.
+       b = u' @ aa' # v' \<and> b' = u' @ aaa' # w' \<and>
+       (aa, aa') \<in> string_rel \<and>
+       (aaa, aaa') \<in> string_rel\<close>
+    proof -
+      obtain cs y ys csa ya ysa where
+        \<open>b = cs @ y # ys\<close> \<open>b' = csa @ ya # ysa\<close>
+        \<open>(u, cs) \<in> \<langle>string_rel\<rangle>list_rel\<close>
+        \<open>(u, csa) \<in> \<langle>string_rel\<rangle>list_rel\<close>
+        \<open>(aa, y) \<in> string_rel\<close>
+        \<open>(aaa, ya) \<in> string_rel\<close>
+        using assms 2
+        by (auto simp: list_rel_append1 list_rel_split_right_iff)
+      have \<open>cs = csa\<close>
+        using \<open>(u, cs) \<in> \<langle>string_rel\<rangle>list_rel\<close>
+          \<open>(u, csa) \<in> \<langle>string_rel\<rangle>list_rel\<close>
+        by (rule H)
+      show ?thesis
+        using \<open>b = cs @ y # ys\<close> \<open>b' = csa @ ya # ysa\<close>
+          \<open>(aa, y) \<in> string_rel\<close> \<open>(aaa, ya) \<in> string_rel\<close>
+          \<open>cs = csa\<close>
+        by auto
+    qed
     then obtain u' aa' v' w' aaa' where
        \<open>b = u' @ aa' # v'\<close> \<open>b' = u' @ aaa' # w'\<close>
        \<open>(aa, aa') \<in> string_rel\<close>
        \<open>(aaa, aaa') \<in> string_rel\<close>
-      using assms
-      by (smt (verit) list_rel_append1 list_rel_split_right_iff single_valued_def single_valued_monom_rel)
+      by blast
     with \<open>aa < aaa\<close> have \<open>aa' < aaa'\<close>
       by (auto simp: string_rel_def less_literal.rep_eq less_list_def
         lexordp_conv_lexord lexordp_def char.lexordp_conv_lexord
@@ -300,7 +313,7 @@ proof
 next
   have H: \<open>(a, b) \<in> \<langle>string_rel\<rangle>list_rel \<Longrightarrow>
        (a', b) \<in> \<langle>string_rel\<rangle>list_rel \<Longrightarrow> a = a'\<close> for a a' b
-     using single_valued_monom_rel'
+     using list_rel_sv[of \<open>string_rel\<inverse>\<close>] IS_LEFT_UNIQUE_string_rel
      by (auto simp: single_valued_def IS_LEFT_UNIQUE_def
        simp flip: inv_list_rel_eq)
   assume \<open>b < b'\<close>
@@ -339,10 +352,30 @@ next
   qed
 qed
 
-
+(*
+lemma less_char_param[sepref_import_param]:
+  \<open>((<), (<)) \<in> char_rel \<rightarrow> char_rel \<rightarrow> bool_rel\<close>
+  sorry
+*)
+(*
+proof (intro fun_relI)
+  fix w1 w2 :: \<open>8 word\<close> and c1 c2 :: char
+  assume h1: \<open>(w1, c1) \<in> char_rel\<close> and h2: \<open>(w2, c2) \<in> char_rel\<close>
+  then have c1: \<open>c1 = char_of (unat w1)\<close> and c2: \<open>c2 = char_of (unat w2)\<close>
+    by (simp_all add: in_br_conv)
+  have b1: \<open>unat w1 < 256\<close> and b2: \<open>unat w2 < 256\<close>
+    using unat_lt2p[of w1] unat_lt2p[of w2] by simp_all
+  show \<open>(w1 < w2) = (c1 < c2)\<close>
+    unfolding c1 c2
+    by (simp only: word_less_nat_alt less_char_def PAC_Polynomials_Term.less_char_def
+                   of_char_of mod_less[OF b1] mod_less[OF b2])
+qed
+*)
+(*
 lemma string_rel_le[sepref_import_param]:
   shows \<open>((<), (<)) \<in> \<langle>string_rel\<rangle>list_rel \<rightarrow>  \<langle>string_rel\<rangle>list_rel \<rightarrow> bool_rel\<close>
   by (auto intro!: fun_relI simp: list_rel_list_rel_order_iff)
+*)
 
 (* TODO Move *)
 lemma [sepref_import_param]:
@@ -355,6 +388,7 @@ lemma [sepref_import_param]:
       (auto simp: IS_LEFT_UNIQUE_def single_valued_def)
   done
 
+(*
 instantiation pac_step :: (heap, heap, heap) heap
 begin
 
@@ -391,5 +425,6 @@ proof standard
 qed
 
 end
+*)
 
 end

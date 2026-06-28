@@ -4,7 +4,7 @@
   Maintainer:   Mathias Fleury, JKU
 *)
 theory PAC_Checker_Init
-  imports  PAC_Checker WB_Sort PAC_Checker_Relation
+  imports  PAC_Checker WB_Sort PAC_Checker_Relation PAC_Checker_Comparison
 begin
 
 section \<open>Initial Normalisation of Polynomials\<close>
@@ -95,34 +95,55 @@ lemma mset_msort[simp]:
   by (induction f xs rule: msort.induct)
     (simp_all add: union_code)
 
-
 subsection \<open>Sorting applied to monomials\<close>
 
-lemma merge_coeffs_alt_def:
-  \<open>(RETURN o merge_coeffs) p =
-   REC\<^sub>T(\<lambda>f p.
+term merge_coeffs
+
+definition merge_coeffs_nres
+  :: \<open>(char list list \<times> int) list \<Rightarrow> (char list list \<times> int) list nres\<close> where
+  \<open>merge_coeffs_nres = REC\<^sub>T(\<lambda>f p.
      (case p of
        [] \<Rightarrow> RETURN []
      | [_] => RETURN p
-     | ((xs, n) # (ys, m) # p) \<Rightarrow>
-      (if xs = ys
-       then if n + m \<noteq> 0 then f ((xs, n + m) # p) else f p
-       else do {p \<leftarrow> f ((ys, m) # p); RETURN ((xs, n) # p)})))
-    p\<close>
+     | ((xs, n) # (ys, m) # p) \<Rightarrow> doN {
+         eq \<leftarrow> strs_eq_nres xs ys; \<comment> \<open>used to be xs = ys\<close>
+         (if eq
+          then if n + m \<noteq> 0 then f ((xs, n + m) # p) else f p
+          else do {p \<leftarrow> f ((ys, m) # p); RETURN ((xs, n) # p)}) 
+       })
+    )\<close>
+
+thm RECT_unfold
+thm case_prod_conv
+thm list.simps(5)
+thm nres_monad1
+thm push_in_let_conv(2)
+
+lemma merge_coeffs_alt_def:
+  \<open>merge_coeffs_nres p \<le> RETURN (merge_coeffs p)\<close>
+  unfolding merge_coeffs_nres_def
   apply (induction p rule: merge_coeffs.induct)
   subgoal by (subst RECT_unfold, refine_mono) auto
   subgoal by (subst RECT_unfold, refine_mono) auto
-  subgoal for x p y q
-    by (subst RECT_unfold, refine_mono)
+  subgoal for xs n ys m p
+    apply (cases "xs = ys"; cases "n + m = 0")
+    apply auto
+    oops
+    (*
+    by (subst RECT_unfold, refine_mono) 
      (smt case_prod_conv list.simps(5) merge_coeffs.simps(3) nres_monad1
       push_in_let_conv(2))
-  done
+    *)
 
+(*   true is not defined for llvm?
 lemma hn_invalid_recover:
-  \<open>is_pure R \<Longrightarrow> hn_invalid R = (\<lambda>x y. R x y * true)\<close>
-  \<open>is_pure R \<Longrightarrow> invalid_assn R = (\<lambda>x y. R x y * true)\<close>
-  by (auto simp: is_pure_conv invalid_pure_recover hn_ctxt_def intro!: ext)
+  \<open>is_pure R \<Longrightarrow> hn_invalid R = (\<lambda>x y. R x y ** true)\<close>
+  \<open>is_pure R \<Longrightarrow> invalid_assn R = (\<lambda>x y. R x y ** true)\<close>
+  apply (auto simp: is_pure_conv invalid_pure_recover hn_ctxt_def)
+  oops
+*)
 
+(* This is simply not the case in llvm i think?
 lemma safe_poly_vars:
   shows
     [safe_constraint_rules]:
@@ -133,10 +154,12 @@ lemma safe_poly_vars:
       "is_pure (monomial_assn)" and
     [safe_constraint_rules]:
       "is_pure string_assn"
-  by (auto intro!: pure_prod list_assn_pure simp: prod_assn_pure_conv)
+  by (auto intro!: pure_prod simp: prod_assn_pure_conv)
+*)
 
+(* 
 lemma invalid_assn_distrib:
-  \<open>invalid_assn monom_assn \<times>\<^sub>a invalid_assn int_assn = invalid_assn (monom_assn \<times>\<^sub>a int_assn)\<close>
+  \<open>invalid_assn monom_assn \<times>\<^sub>a invalid_assn int_assn = invalid_assn (monom_assn \<times>\<^sub>a signed_bigint_assn)\<close>
     apply (simp add: invalid_pure_recover hn_invalid_recover
       safe_constraint_rules)
     apply (subst hn_invalid_recover)
@@ -145,7 +168,9 @@ lemma invalid_assn_distrib:
     apply (rule safe_poly_vars)
     apply (auto intro!: ext)
     done
+*)
 
+(*
 lemma WTF_RF_recover:
   \<open>hn_ctxt (invalid_assn monom_assn \<times>\<^sub>a invalid_assn int_assn) xb
         x'a \<or>\<^sub>A
@@ -153,7 +178,9 @@ lemma WTF_RF_recover:
        hn_ctxt (monomial_assn) xb x'a\<close>
   by (smt assn_aci(5) hn_ctxt_def invalid_assn_distrib invalid_pure_recover is_pure_conv
     merge_thms(4) merge_true_star reorder_enttI safe_poly_vars(3) star_aci(2) star_aci(3))
+*)
 
+(*
 lemma WTF_RF:
   \<open>hn_ctxt (invalid_assn monom_assn \<times>\<^sub>a invalid_assn int_assn) xb x'a *
        (hn_invalid poly_assn la l'a * hn_invalid int_assn a2' a2 *
@@ -176,27 +203,31 @@ lemma WTF_RF:
        hn_ctxt poly_assn ax px *
        emp\<close>
   by sepref_dbg_trans_step+
+*)
 
-text \<open>The refinement frameword is completely lost here when synthesizing the constants -- it does
-  not understant what is pure (actually everything) and what must be destroyed.\<close>
-sepref_definition merge_coeffs_impl
-  is \<open>RETURN o merge_coeffs\<close>
+text \<open>The refinement framework is completely lost here when synthesizing the constants -- it does
+  not understand what is pure (actually everything) and what must be destroyed.\<close>
+  (* I don't think this is true for llvm *)
+sepref_register strs_eq_nres
+sepref_definition merge_coeffs_impl is \<open>merge_coeffs_nres\<close>
   :: \<open>poly_assn\<^sup>d \<rightarrow>\<^sub>a poly_assn\<close>
   supply [[goals_limit=1]]
-  unfolding merge_coeffs_alt_def
-    HOL_list.fold_custom_empty poly_assn_alt_def
-  apply (rewrite in \<open>_\<close> annotate_assn[where A=\<open>poly_assn\<close>])
+  unfolding merge_coeffs_nres_def
+  (*apply (rewrite in \<open>_\<close> annotate_assn[where A=\<open>poly_assn\<close>])*)
+  apply (annot_sint_const "TYPE(size_t)")
   apply sepref_dbg_preproc
   apply sepref_dbg_cons_init
   apply sepref_dbg_id
+  apply sepref_dbg_id_keep
   apply sepref_dbg_monadify
   apply sepref_dbg_opt_init
-  apply (rule WTF_RF | sepref_dbg_trans_step)+
+  apply sepref_dbg_trans
   apply sepref_dbg_opt
   apply sepref_dbg_cons_solve
   apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve_cp
   apply sepref_dbg_constraints
-  done
+  oops
 
 definition full_quicksort_poly where
   \<open>full_quicksort_poly = full_quicksort_ref (\<lambda>x y. x = y \<or> (x, y) \<in> term_order_rel) fst\<close>
@@ -378,7 +409,8 @@ lemma var_order_string_le[sepref_import_param]:
 lemma [sepref_import_param]:
   \<open>( (\<le>), (\<le>)) \<in> monom_rel \<rightarrow> monom_rel \<rightarrow>bool_rel\<close>
   apply (intro fun_relI)
-  using list_rel_list_rel_order_iff by fastforce
+  using list_rel_list_rel_order_iff
+  by (smt (verit, best) not_le param_bool(1,2))
 
 lemma [sepref_import_param]:
   \<open>( (<), (<)) \<in> string_rel \<rightarrow> string_rel \<rightarrow>bool_rel\<close>
@@ -419,15 +451,27 @@ lemma [sepref_import_param]:
 sepref_register lexord_eq
 sepref_definition lexord_eq_term
   is \<open>uncurry (RETURN oo lexord_eq)\<close>
-  :: \<open>monom_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
+  :: \<open>monom_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   supply[[goals_limit=1]]
   unfolding lexord_eq_alt_def2
-  by sepref
-
+  apply sepref_dbg_preproc
+  apply sepref_dbg_cons_init
+  apply sepref_dbg_id
+  apply sepref_dbg_id_keep
+  apply sepref_dbg_monadify
+  apply sepref_dbg_opt_init
+  apply sepref_dbg_trans
+  apply sepref_dbg_opt
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve_cp
+  apply sepref_dbg_constraints
+  oops
+(*
 declare lexord_eq_term.refine[sepref_fr_rules]
+*)
 
-
-lemmas [code del] = msort_poly_impl_def msort_monoms_impl_def
+(*lemmas [code del] = msort_poly_impl_def msort_monoms_impl_def*)
 lemmas [code] =
   msort_poly_impl_def[unfolded lexord_eq_alt_def1[abs_def]]
   msort_monoms_impl_def[unfolded msort_msort2]
@@ -471,9 +515,11 @@ lemma monomial_rel_order_map:
        fst x \<le> fst y \<longleftrightarrow> a \<le> aa\<close>
   apply (cases x; cases y)
   apply auto
-  using list_rel_list_rel_order_iff by fastforce+
+  using list_rel_list_rel_order_iff
+  apply (meson not_le)
+  by (meson linorder_not_le list_rel_list_rel_order_iff)
 
-
+(*
 lemma step_rewrite_pure:
   fixes K :: \<open>('olbl \<times> 'lbl) set\<close>
   shows
@@ -497,8 +543,9 @@ lemma step_rewrite_pure:
 
 lemma safe_pac_step_rel_assn[safe_constraint_rules]:
   "is_pure K \<Longrightarrow> is_pure V \<Longrightarrow> is_pure R \<Longrightarrow> is_pure (pac_step_rel_assn K V R)"
-  by (auto simp: step_rewrite_pure(1)[symmetric] is_pure_conv)
-
+  (*by (auto simp: step_rewrite_pure(1)[symmetric] is_pure_conv)*)
+  oops
+*)
 
 lemma merge_poly_merge_poly:
   \<open>(merge_poly, merge_poly)
@@ -520,9 +567,11 @@ lemma merge_poly_merge_poly:
     done
   done
 
+(*
 lemmas [fcomp_norm_unfold] =
   poly_assn_list[symmetric]
   step_rewrite_pure(1)
+*)
 
 lemma merge_poly_merge_poly2:
   \<open>(a, b) \<in> poly_rel \<Longrightarrow> (a', b') \<in> poly_rel \<Longrightarrow>
@@ -563,42 +612,94 @@ lemma merge_sort_poly[sepref_import_param]:
     done
   done
 
-
-
+(* not sure about this one *)
+(*
 lemmas [sepref_fr_rules] = merge_sort_poly[FCOMP merge_sort_poly_sort_poly_spec]
+*)
+lemma bool_eq_to_imp: \<open>(a::bool) = b \<longleftrightarrow> (a \<longrightarrow> b) \<and> (b \<longrightarrow> a)\<close>
+  by auto
+
+sepref_definition bool_eq_impl[llvm_inline] is \<open>uncurry (RETURN oo ((=)::bool\<Rightarrow>bool\<Rightarrow>bool))\<close>
+  :: \<open>bool1_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding bool_eq_to_imp
+  by sepref
+
+declare bool_eq_impl.refine[sepref_fr_rules]
 
 sepref_definition partition_main_poly_impl
   is \<open>uncurry2 partition_main_poly\<close>
-  :: \<open>nat_assn\<^sup>k *\<^sub>a nat_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a prod_assn poly_assn nat_assn \<close>
+  :: \<open>(unat_assn' TYPE(64))\<^sup>k *\<^sub>a (unat_assn' TYPE(64))\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a prod_assn poly_assn (unat_assn' TYPE(64))\<close>
   unfolding partition_main_poly_def partition_main_def
     term_order_rel'_def[symmetric]
     term_order_rel'_alt_def
     le_term_order_rel'
-  by sepref
+  apply sepref_dbg_preproc
+  apply sepref_dbg_cons_init
+  apply sepref_dbg_id
+  apply sepref_dbg_id_keep+
+  apply sepref_dbg_monadify
+  apply sepref_dbg_opt_init
+  apply sepref_dbg_trans
+  apply sepref_dbg_opt
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve_cp
+  apply sepref_dbg_constraints
+  oops
 
+(*
 declare partition_main_poly_impl.refine[sepref_fr_rules]
+*)
 
 sepref_definition partition_between_poly_impl
   is \<open>uncurry2 partition_between_poly\<close>
-  :: \<open>nat_assn\<^sup>k *\<^sub>a nat_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a prod_assn poly_assn nat_assn \<close>
+  :: \<open>(unat_assn' TYPE(64))\<^sup>k *\<^sub>a (unat_assn' TYPE(64))\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a prod_assn poly_assn (unat_assn' TYPE(64)) \<close>
   unfolding partition_between_poly_def partition_between_ref_def
     partition_main_poly_def[symmetric]
   unfolding choose_pivot3_def
     term_order_rel'_def[symmetric]
     term_order_rel'_alt_def choose_pivot_def
     lexord_eq_alt_def1
-  by sepref
+  apply sepref_dbg_preproc
+  apply sepref_dbg_cons_init
+  apply sepref_dbg_id
+  apply sepref_dbg_id_keep
+  apply sepref_dbg_monadify
+  apply sepref_dbg_opt_init
+  apply sepref_dbg_trans
+  apply sepref_dbg_opt
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve_cp
+  apply sepref_dbg_constraints
+  oops
 
+(*
 declare partition_between_poly_impl.refine[sepref_fr_rules]
+*)
 
 sepref_definition quicksort_poly_impl
   is \<open>uncurry2 quicksort_poly\<close>
-  :: \<open>nat_assn\<^sup>k *\<^sub>a nat_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
+  :: \<open>(unat_assn' TYPE(64))\<^sup>k *\<^sub>a (unat_assn' TYPE(64))\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
   unfolding partition_main_poly_def quicksort_ref_def quicksort_poly_def
     partition_between_poly_def[symmetric]
-  by sepref
+  apply sepref_dbg_preproc
+  apply sepref_dbg_cons_init
+  apply sepref_dbg_id
+  apply sepref_dbg_id_keep
+  apply sepref_dbg_monadify
+  apply sepref_dbg_opt_init
+  apply sepref_dbg_trans
+  apply sepref_dbg_opt
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve_cp
+  apply sepref_dbg_constraints
+  oops
 
+(*
 lemmas [sepref_fr_rules] = quicksort_poly_impl.refine
+*)
 
 sepref_register quicksort_poly
 sepref_definition full_quicksort_poly_impl
@@ -609,22 +710,48 @@ sepref_definition full_quicksort_poly_impl
     le_term_order_rel'[symmetric]
     term_order_rel'_def[symmetric]
     List.null_iff
-  by sepref
+  apply sepref_dbg_keep
+  apply sepref_dbg_preproc
+  apply sepref_dbg_cons_init
+  apply sepref_dbg_id
+  apply sepref_dbg_monadify
+  apply sepref_dbg_opt_init
+  apply sepref_dbg_trans
+  apply sepref_dbg_opt
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve_cp
+  apply sepref_dbg_constraints
+  oops
 
+(*
 lemmas sort_poly_spec_hnr =
   full_quicksort_poly_impl.refine[FCOMP full_quicksort_sort_poly_spec]
 
 declare merge_coeffs_impl.refine[sepref_fr_rules]
+*)
 
 sepref_definition normalize_poly_impl
   is \<open>normalize_poly\<close>
   :: \<open>poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
   supply [[goals_limit=1]]
   unfolding normalize_poly_def
-  by sepref
+  apply sepref_dbg_keep
+  apply sepref_dbg_cons_init
+  apply sepref_dbg_id
+  apply sepref_dbg_monadify
+  apply sepref_dbg_opt_init
+  apply sepref_dbg_trans
+  apply sepref_dbg_opt
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve
+  apply sepref_dbg_cons_solve_cp
+  apply sepref_dbg_constraints
+  oops
 
+(*
 declare normalize_poly_impl.refine[sepref_fr_rules]
-
+*)
 
 definition full_quicksort_vars where
   \<open>full_quicksort_vars = full_quicksort_ref (\<lambda>x y. x = y \<or> (x, y) \<in> var_order_rel) id\<close>
@@ -867,7 +994,7 @@ sepref_definition merge_coeffs0_impl
   apply sepref_dbg_id
   apply sepref_dbg_monadify
   apply sepref_dbg_opt_init
-  apply (rule WTF_RF | sepref_dbg_trans_step)+
+  apply sepref_dbg_trans_step+
   apply sepref_dbg_opt
   apply sepref_dbg_cons_solve
   apply sepref_dbg_cons_solve

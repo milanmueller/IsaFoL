@@ -71,28 +71,28 @@ fun pac_step_rel_raw :: \<open>('olbl \<times> 'lbl) set \<Rightarrow> ('a \<tim
 \<open>pac_step_rel_raw R1 R2 R3 _ _ \<longleftrightarrow> False\<close>
 
 fun pac_step_rel_assn :: \<open>('olbl \<Rightarrow> 'lbl \<Rightarrow> assn) \<Rightarrow> ('a \<Rightarrow> 'b \<Rightarrow> assn) \<Rightarrow> ('c \<Rightarrow> 'd \<Rightarrow> assn) \<Rightarrow> ('a, 'c, 'olbl) pac_step \<Rightarrow> ('b, 'd, 'lbl) pac_step \<Rightarrow> assn\<close> where
-\<open>pac_step_rel_assn R1 R2 R3 (Add p1 p2 i r) (Add p1' p2' i' r') =
-   R1 p1 p1' * R1 p2 p2' * R1 i i' *
-   R2 r r'\<close> |
-\<open>pac_step_rel_assn R1 R2 R3 (Mult p1 p2 i r) (Mult p1' p2' i' r') =
-   R1 p1 p1' * R2 p2 p2' * R1 i i' *
-   R2 r r'\<close> |
+\<open>pac_step_rel_assn R1 R2 R3 (Add p1 p2 i r) (Add p1' p2' i' r') = (
+   R1 p1 p1' ** R1 p2 p2' ** R1 i i' **
+   R2 r r')\<close> |
+\<open>pac_step_rel_assn R1 R2 R3 (Mult p1 p2 i r) (Mult p1' p2' i' r') = (
+   R1 p1 p1' ** R2 p2 p2' ** R1 i i' **
+   R2 r r')\<close> |
 \<open>pac_step_rel_assn R1 R2 R3 (Del p1) (Del p1') =
    R1 p1 p1'\<close> |
 \<open>pac_step_rel_assn R1 R2 R3 (Extension i x p1) (Extension i' x' p1') =
-   R1 i i' * R3 x x' * R2 p1 p1'\<close> |
-\<open>pac_step_rel_assn R1 R2 _ _ _ = false\<close>
+   (R1 i i' ** R3 x x' ** R2 p1 p1')\<close> |
+\<open>pac_step_rel_assn R1 R2 _ _ _ = \<up>False\<close>
 
 lemma pac_step_rel_assn_alt_def:
   \<open>pac_step_rel_assn R1 R2 R3 x y = (
   case (x, y) of
       (Add p1 p2 i r, Add p1' p2' i' r') \<Rightarrow>
-        R1 p1 p1' * R1 p2 p2' * R1 i i' * R2 r r'
+        R1 p1 p1' ** R1 p2 p2' ** R1 i i' ** R2 r r'
     | (Mult p1 p2 i r, Mult p1' p2' i' r') \<Rightarrow>
-        R1 p1 p1' * R2 p2 p2' * R1 i i' * R2 r r'
+        R1 p1 p1' ** R2 p2 p2' ** R1 i i' ** R2 r r'
     | (Del p1, Del p1') \<Rightarrow> R1 p1 p1'
-    | (Extension i x p1, Extension i' x' p1') \<Rightarrow> R1 i i' * R3 x x' * R2 p1 p1'
-    | _ \<Rightarrow> false)\<close>
+    | (Extension i x p1, Extension i' x' p1') \<Rightarrow> R1 i i' ** R3 x x' ** R2 p1 p1'
+    | _ \<Rightarrow> \<up>False)\<close>
     by (auto split: pac_step.splits)
 
 
@@ -1021,7 +1021,7 @@ lemma insort_key_rel_decomp:
 
 lemma list_rel_append_same_length:
    \<open>length xs = length xs' \<Longrightarrow> (xs @ ys, xs' @ ys') \<in> \<langle>R\<rangle>list_rel \<longleftrightarrow> (xs, xs') \<in> \<langle>R\<rangle>list_rel \<and> (ys, ys') \<in> \<langle>R\<rangle>list_rel\<close>
-  by (auto simp: list_rel_def list_all2_append2 dest: list_all2_lengthD)
+  by (auto simp: list_rel_def list_all2_iff nth_append)
 
 lemma term_poly_list_rel_list_relD: \<open>(ys, cs) \<in> \<langle>term_poly_list_rel \<times>\<^sub>r int_rel\<rangle>list_rel \<Longrightarrow>
        cs = map (\<lambda>(a, y). (mset a, y)) ys\<close>
