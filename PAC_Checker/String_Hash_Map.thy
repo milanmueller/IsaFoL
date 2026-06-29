@@ -1,5 +1,5 @@
 ﻿theory String_Hash_Map
-  imports String_Assn BigInt_LLVM.LLVM_CodeGen_Auxiliary
+  imports String_Assn BigInt_LLVM.LLVM_CodeGen_Auxiliary Isabelle_LLVM.Array_of_Array_List
 
 begin
 
@@ -64,6 +64,13 @@ sepref_def fnv_1a_of_str_impl is \<open>fnv_1a_of_str_imp\<close>
 
 section \<open>Hashmap implementation\<close>
 
-text \<open>We implement (a subset of) the Hash Map interface from @{theory "Isabelle_LLVM.IICF_Map"} for strings\<close>
+text \<open>We implement (a subset of) the Hash Map interface from @{theory "Isabelle_LLVM.IICF_Map"}. We use \<close>
+
+term aal_assn
+term nao_assn
+term Array_of_Array_List.nao_assn
+term nao_rejoin
+term os_list_assn
+term larray_assn
 
 end

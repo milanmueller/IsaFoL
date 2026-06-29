@@ -37,7 +37,7 @@ lemma op_tl_rule[vcg_rules]:
   unfolding os_tl_def os_list_assn_def
   by vcg
 
-definition os_list_get :: \<open>'a::llvm_rep os_list \<Rightarrow> 'b::len word \<Rightarrow> 'a llM\<close> where [llvm_code]:
+definition os_list_get :: \<open>'a::llvm_rep os_list \<Rightarrow> 'b::len2 word \<Rightarrow> 'a llM\<close> where [llvm_code]:
   \<open>os_list_get p\<^sub>0 i\<^sub>0 = doM {
     (p, _) \<leftarrow> llc_while
       (\<lambda>(_, i). ll_cmp (i \<noteq> 0))
@@ -50,99 +50,33 @@ definition os_list_get :: \<open>'a::llvm_rep os_list \<Rightarrow> 'b::len word
   }\<close>
 
 lemma os_list_get_rule[vcg_rules]:
-  \<open>unat i < length xs \<Longrightarrow> llvm_htriple
-    (\<upharpoonleft>os_list_assn xs p)
-    (os_list_get p i)
-    (\<lambda>v. \<up>(v = xs ! unat i) ** \<upharpoonleft>os_list_assn xs p)\<close>
+  \<open>llvm_htriple
+    (\<upharpoonleft>os_list_assn xs p ** \<upharpoonleft>snat.assn n nn ** \<up>(n < length xs))
+    (os_list_get p nn)
+    (\<lambda>v. \<up>(v = xs ! n) ** \<upharpoonleft>os_list_assn xs p)\<close>
   unfolding os_list_get_def
   apply (rewrite annotate_llc_while [where
-    I="\<lambda>(q, ii) _. lseg (take (unat i - unat ii) xs) p q
-                 ** lseg (drop (unat i - unat ii) xs) q null
-                 ** \<up>(unat ii \<le> unat i)"
-    and R="measure (\<lambda>(_, ii). unat ii)"])
+    I="\<lambda>(q, ii) t. EXS i. \<upharpoonleft>snat.assn i ii
+                 ** lseg (take i xs) p q
+                 ** lseg (drop i xs) q null
+                 ** \<up>(i \<le> n \<and> 0 \<le> i)
+                 ** \<up>\<^sub>!(t = i)"
+    and R="measure id"])
+  supply [simp] = os_list_assn_def
+  apply vcg_monadify
   apply vcg
-  apply (simp add: os_list_assn_def; fri)
-  subgoal by (auto simp: SOLVE_AUTO_DEFER_def)
-  apply vcg
-  \<comment> \<open>Loop body. State: pointer \<open>a\<close>, counter \<open>b\<close> with \<open>unat b \<le> unat i\<close>.
-      Heap: \<open>lseg (take (unat i - unat b) xs) p a \<and>* lseg (drop (unat i - unat b) xs) a null\<close>.
-      Goal: evaluate \<open>ll_cmp (b \<noteq> 0)\<close>, then per ctd branch (continue / return).\<close>
-  subgoal premises prems for asf a b aa ba sa
-    using prems
-    apply (cases \<open>b = 0\<close>)
-    subgoal
-      \<comment> \<open>Terminate: \<open>b = 0\<close>, so \<open>drop (unat i) xs \<noteq> []\<close>
-          (since \<open>unat i < length xs\<close>); decompose with \<open>lseg_Cons\<close>,
-          load the node, return \<open>node.val n = xs ! unat i\<close>.\<close>
-      \<comment> \<open>Expose the head of \<open>drop (unat i) xs\<close> so \<open>lseg_Cons\<close> can fire
-          and \<open>vcg\<close> sees the \<open>ll_bpto\<close> at \<open>a\<close>. (Do NOT unfold
-          \<open>ABSTRACT_def\<close> here \<mdash> \<open>vcg\<close> has a decomposition rule
-          \<open>ABSTRACT_erule[vcg_decomp_erules]\<close> that handles the abstraction
-          step automatically.)\<close>
-      apply (subgoal_tac \<open>drop (unat i) xs = (xs ! unat i) # drop (Suc (unat i)) xs\<close>)
-       prefer 2 subgoal by (simp add: Cons_nth_drop_Suc)
-      \<comment> \<open>\<open>lseg_Cons\<close> + \<open>sep_conj_exists\<close> rewrites the heap layout to
-          \<open>EXS x. lseg (take ...) p a \<and>* ll_bpto (Node (xs!unat i) x) a \<and>*
-                  lseg (drop (Suc (unat i)) xs) x null \<and>* ↑(a \<noteq> null)\<close>.
-          \<open>vcg_normalize_simps\<close> contains \<open>STATE_extract\<close> which lifts that
-          \<open>EXS x\<close> out of the \<open>STATE\<close> wrapper to the meta-level; \<open>elim exE\<close>
-          then introduces a fresh \<open>x\<close>.\<close>
-      apply (simp add: lseg_Cons sep_conj_exists vcg_normalize_simps)
-      apply (elim exE)
-      \<comment> \<open>State is now \<open>STATE asf (lseg (take ...) p a \<and>*
-            ll_bpto (Node (xs!unat i) x) a \<and>* lseg (drop (Suc ...) xs) x null \<and>*
-            \<up>(a \<noteq> null)) sa\<close>, goal is
-          \<open>wpa asf (ll_cmp False) (\<lambda>ctdi s. ABSTRACT asf ctdi bool.assn (\<lambda>ctd. ...))\<close>.
-          Manually evaluate the \<open>ll_cmp False = Mreturn 0\<close> via
-          \<open>vcg_normalize_simps\<close> (contains \<open>wpa_return\<close>), then unfold the
-          ABSTRACT structure to reveal both branches, and drop the
-          \<open>aa \<longrightarrow> ...\<close> branch using \<open>bool.assn False (from_bool False)\<close>.\<close>
-      apply (simp add: ll_cmp_def vcg_normalize_simps ABSTRACT_def bool.assn_def
-              Sepref_Basic.pure_def sep_algebra_simps pred_lift_extract_simps)
-      \<comment> \<open>Residual: \<open>(\<exists>F. STATE asf F sa) \<and> wpa _ (ll_load a; return node.val n) _\<close>.
-          First conjunct trivial. For the second, \<open>vcg\<close> consumes the load
-          via \<open>ll_bpto\<close>; reassembly via \<open>id_take_nth_drop\<close> + \<open>lseg_append\<close>.\<close>
-      apply (rule conjI)
-      subgoal by blast
-      apply vcg
-      \<comment> \<open>Residual entailment: \<open>ll_bpto (Node (xs!i) x) a \<and>* lseg (drop (Suc i) xs) x null
-            \<and>* lseg (take i xs) p a \<turnstile> lseg xs p null\<close>. Rewrite \<open>xs\<close> as
-          \<open>take i xs @ xs!i # drop (Suc i) xs\<close> and let \<open>lseg_append\<close>+\<open>lseg_Cons\<close>
-          + \<open>fri\<close> match the layout.\<close>
-      apply (simp add: os_list_assn_def)
-      \<comment> \<open>Residual entailment, all LLVM operations discharged:
-          \<open>ll_bpto (Node (xs!i) x) a \<and>* lseg (drop (Suc i) xs) x null \<and>*
-            lseg (take i xs) p a \<turnstile> \<up>True \<and>* lseg xs p null\<close>.
-          The plan: fuse \<open>ll_bpto (Node (xs!i) x) a \<and>* lseg (drop (Suc i) xs) x null\<close>
-          into \<open>lseg (xs!i # drop (Suc i) xs) a null\<close> via \<open>lseg_Cons\<close> with
-          witness \<open>x\<close>, fold to \<open>lseg (drop i xs) a null\<close> via the
-          \<open>drop (unat i) xs = ...\<close> hypothesis, then \<open>lseg_fuse\<close> +
-          \<open>append_take_drop_id\<close> to reassemble \<open>lseg xs p null\<close>.
-          \<open>subst\<close>-numbering on \<open>id_take_nth_drop\<close> is brittle because
-          the lemma's RHS reintroduces \<open>xs\<close>; the cleaner route is the
-          fuse direction above (or a structured Isar block with an
-          intermediate \<open>have\<close>).\<close>
-      apply (simp add: ENTAILS_def entails_def )
-      sorry
-    subgoal
-      \<comment> \<open>Continue: \<open>b \<noteq> 0\<close>, so \<open>unat i - unat b < unat i \<le> length xs\<close>,
-          hence \<open>drop (unat i - unat b) xs \<noteq> []\<close>. Decompose, load,
-          step to \<open>(node.next n, b - 1)\<close>. New invariant index:
-          \<open>unat i - unat (b - 1) = Suc (unat i - unat b)\<close>; rebuild
-          the \<open>take\<close> using \<open>take_Suc_conv_app_nth\<close>.\<close>
-      sorry
-    done
-  done
+  sorry
 
-definition os_list_length :: \<open>'a::llvm_rep os_list \<Rightarrow> 'b::len word llM\<close> where [llvm_code]:
-  \<open>os_list_length p\<^sub>0 = doM {
-    (_, n) \<leftarrow> llc_while
+definition os_list_length :: \<open>'a::llvm_rep os_list \<Rightarrow> 'b::len2 word llM\<close> where [llvm_code]:
+  \<open>os_list_length p\<^sub>0 \<equiv> doM {
+    (_, i) \<leftarrow> llc_while
       (\<lambda>(p, _). ll_cmp (p \<noteq> null))
-      (\<lambda>(p, n). doM {
+      (\<lambda>(p, i). doM {
         nd \<leftarrow> ll_load p;
-        Mreturn (node.next nd, n + 1)
-      }) (p\<^sub>0, 0);
-    Mreturn n
+        i \<leftarrow> ll_add i (signed_nat 1);
+        Mreturn (node.next nd, i)
+      }) (p\<^sub>0, signed_nat 0);
+    Mreturn i
   }\<close>
 lemma os_list_length_rule[vcg_rules]:
   \<open>llvm_htriple
@@ -151,36 +85,18 @@ lemma os_list_length_rule[vcg_rules]:
     (\<lambda>n. \<up>(unat n = length xs) ** \<upharpoonleft>os_list_assn xs p)\<close>
   unfolding os_list_length_def
   apply (rewrite annotate_llc_while [where
-    I = \<open>\<lambda>(p', n) _. lseg (take (unat n) xs) p p'
-                   ** lseg (drop (unat n) xs) p' null
-                   ** \<up>(unat n \<le> length xs)\<close>
-    and R = \<open>measure (\<lambda>(_, n). length xs - unat n)\<close>])
+    I = \<open>\<lambda>(p', ii) t . EXS i. \<upharpoonleft>snat.assn i ii
+                          ** (lseg (take i xs) p p')
+                          ** (lseg (drop i xs) p' null)
+                          ** \<up>(i \<le> length xs \<and> 0 \<le> i)
+                          ** \<up>\<^sub>!(t = length xs - i)\<close>
+    and R = \<open>measure id\<close>])
+  supply [simp] = os_list_assn_def 
+  apply vcg_monadify
   apply vcg
-  apply (simp add: os_list_assn_def; fri)
-  subgoal by (auto simp: SOLVE_AUTO_DEFER_def)
-  apply vcg
-  \<comment> \<open>Loop body. State: pointer \<open>p'\<close>, counter \<open>n\<close> with \<open>unat n \<le> length xs\<close>.
-      Heap: \<open>lseg (take (unat n) xs) p p' \<and>* lseg (drop (unat n) xs) p' null\<close>.
-      Goal: evaluate \<open>ll_cmp (p' \<noteq> null)\<close>, then per ctd branch (continue / return).\<close>
-  subgoal premises prems for asf p' n aa ba sa
-    using prems
-    apply (cases \<open>p' = null\<close>)
-    subgoal
-      \<comment> \<open>Terminate: \<open>p' = null\<close>, so \<open>lseg (drop (unat n) xs) null null\<close>
-          forces \<open>drop (unat n) xs = []\<close>, i.e. \<open>length xs \<le> unat n\<close>.
-          Combined with the invariant \<open>unat n \<le> length xs\<close>: \<open>unat n = length xs\<close>.
-          Return \<open>n\<close>; reassemble \<open>os_list_assn xs p\<close> via \<open>lseg_append\<close>.\<close>
-      sorry
-    subgoal
-      \<comment> \<open>Continue: \<open>p' \<noteq> null\<close>, so \<open>drop (unat n) xs \<noteq> []\<close>, hence
-          \<open>unat n < length xs\<close>. Decompose with \<open>lseg_Cons\<close>, load, step
-          to \<open>(node.next nd, n + 1)\<close>. NB: re-establishing the invariant
-          needs \<open>unat (n + 1) = unat n + 1\<close> i.e. no wrap-around — requires
-          a bound \<open>length xs < 2^LENGTH('b)\<close> currently missing from the
-          lemma's precondition.\<close>
-      sorry
-    done
-  done
+  subgoal for asf i0 p' ii s i
+    apply (auto simp: STATE_def ABSTRACT_def POSTCOND_def EXTRACT_def)
+  sorry
 
 (* Now we specialize open lists to string *)
 lemma str_empty_refine[sepref_fr_rules]:
@@ -269,17 +185,17 @@ lemma str_get_refine[sepref_fr_rules]:
     snat_invar_def ll_cmp_def list_rel_def char_assn_def char_rel_def in_br_conv char_of_word_def)
   subgoal by (metis snat_invar_def snat_eq_unat_aux2 list_all2_lengthD)
   subgoal for bi a ai asf x sa
-    (* Residual: pick witness ⟨x⟩, then separation-logic split of the heap
-       into ⟨os_list_assn x ai⟩ ∗ pure ⟨char_assn (a!snat bi) (x!unat bi)⟩.
-       Pattern in ⟨str_hd_refine⟩ uses ⟨list.rel_cases⟩ on the head; here
-       we'd need ⟨list_all2_conv_all_nth⟩ at index ⟨snat bi = unat bi⟩. *)
+    (* Residual: pick witness \<langle>x\<rangle>, then separation-logic split of the heap
+       into \<langle>os_list_assn x ai\<rangle> \<^emph> pure \<langle>char_assn (a!snat bi) (x!unat bi)\<rangle>.
+       Pattern in \<langle>str_hd_refine\<rangle> uses \<langle>list.rel_cases\<rangle> on the head; here
+       we'd need \<langle>list_all2_conv_all_nth\<rangle> at index \<langle>snat bi = unat bi\<rangle>. *)
     sorry
   done
 
 (* NOTE: lemma as stated is not provable without a precondition like
-   ⟨length xs < 2^(LENGTH('b) - 1)⟩ guaranteeing the result fits as snat.
+   \<langle>length xs < 2^(LENGTH('b) - 1)\<rangle> guaranteeing the result fits as snat.
    After existing tactics + this auto, the residual goal is
-   ⟨length x = snat r⟩ and ⟨msb r ⟹ False⟩; the second cannot be discharged
+   \<langle>length x = snat r\<rangle> and \<langle>msb r \<Longrightarrow> False\<rangle>; the second cannot be discharged
    without such a bound. *)
 lemma str_len_refine[sepref_fr_rules]:
   \<open>(os_list_length, RETURN o op_list_length) \<in> str_assn\<^sup>k \<rightarrow>\<^sub>a (snat_assn' TYPE(64))\<close>
