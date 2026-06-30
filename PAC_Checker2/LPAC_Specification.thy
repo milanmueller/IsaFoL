@@ -4,8 +4,9 @@
   Maintainer:   Mathias Fleury, JKU
 *)
 theory LPAC_Specification
-imports PAC_Checker.PAC_More_Poly
-  PAC_Checker.PAC_Specification
+  imports
+  PAC_Checker_LLVM.PAC_More_Poly
+  PAC_Checker_LLVM.PAC_Specification
 begin
 
 end

@@ -1,7 +1,8 @@
 theory LPAC_Perfectly_Shared
-  imports LPAC_Checker_Specification
-    PAC_Checker.PAC_Checker (*for vars_llist*)
+  imports
+    LPAC_Checker_Specification
     LPAC_Checker (*for vars_llist*)
+    PAC_Checker_LLVM.PAC_Checker (*for vars_llist*)
 begin
 
 text \<open>We now introduce sharing of variables to make a more efficient representation possible.\<close>

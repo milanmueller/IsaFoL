@@ -1,7 +1,8 @@
 theory LPAC_Perfectly_Shared_Vars
-  imports LPAC_Perfectly_Shared
-    PAC_Checker.PAC_Checker_Relation
-    PAC_Checker.PAC_Map_Rel
+  imports
+    LPAC_Perfectly_Shared
+    PAC_Checker_LLVM.PAC_Checker_Relation
+    PAC_Checker_LLVM.PAC_Map_Rel
 begin
 thm import_variableS_def
   term hm.assn

@@ -4,12 +4,15 @@
   Maintainer:   Mathias Fleury, JKU
 *)
 theory LPAC_Checker_Synthesis
-  imports LPAC_Checker LPAC_Version
+  imports
+    LPAC_Checker
+    LPAC_Version
     LPAC_Checker_Init
     LPAC_Steps_Refine
-    PAC_Checker.More_Loops
-    PAC_Checker.WB_Sort PAC_Checker.PAC_Checker_Relation
-    PAC_Checker.PAC_Checker_Synthesis
+    PAC_Checker_LLVM.More_Loops
+    PAC_Checker_LLVM.WB_Sort
+    PAC_Checker_LLVM.PAC_Checker_Relation
+    PAC_Checker_LLVM.PAC_Checker_Synthesis
 begin
 hide_fact (open) PAC_Checker.PAC_checker_l_def
 hide_const (open) PAC_Checker.PAC_checker_l
@@ -375,27 +378,27 @@ export_code PAC_checker_l_impl PAC_update_impl PAC_empty_impl the_error is_cfail
   file_prefix checker
 
 
-compile_generated_files _
-  external_files
-    \<open>code/no_sharing/parser.sml\<close>
-    \<open>code/no_sharing/pasteque.sml\<close>
-    \<open>code/no_sharing/pasteque.mlb\<close>
-  where \<open>fn dir =>
-  let
-
-    val exec = Generated_Files.execute (Path.append (Path.append dir (Path.basic "code")) (Path.basic "no_sharing"));
-    val _ = exec \<open>Copy files\<close> "ls" |> @{print}
-    val _ = exec \<open>Copy files\<close> "ls .." |> @{print}
-    val _ = exec \<open>Copy files\<close> "pwd" |> @{print}
-    val _ = exec \<open>Copy files\<close> ("cp ../checker.ML .");
-    val _ = exec \<open>Copy files\<close>
-      ("cp ../checker.ML " ^ ((File.bash_path \<^path>\<open>$ISAFOL\<close>) ^ "/PAC_Checker2/code/no_sharing/checker.ML"));
-(*       val _ =
-        exec \<open>Compilation\<close>
-          (File.bash_path \<^path>\<open>$ISABELLE_MLTON\<close> ^ " " ^
-            "-const 'MLton.safe false' -verbose 1 -default-type int64 -output pasteque " ^
-            "-codegen native -inline 700 -cc-opt -O3 pasteque.mlb"); *)
-    in () end\<close> 
+(* compile_generated_files _
+ *   external_files
+ *     \<open>code/no_sharing/parser.sml\<close>
+ *     \<open>code/no_sharing/pasteque.sml\<close>
+ *     \<open>code/no_sharing/pasteque.mlb\<close>
+ *   where \<open>fn dir =>
+ *   let
+ * 
+ *     val exec = Generated_Files.execute (Path.append (Path.append dir (Path.basic "code")) (Path.basic "no_sharing"));
+ *     val _ = exec \<open>Copy files\<close> "ls" |> @{print}
+ *     val _ = exec \<open>Copy files\<close> "ls .." |> @{print}
+ *     val _ = exec \<open>Copy files\<close> "pwd" |> @{print}
+ *     val _ = exec \<open>Copy files\<close> ("cp ../checker.ML .");
+ *     val _ = exec \<open>Copy files\<close>
+ *       ("cp ../checker.ML " ^ ((File.bash_path \<^path>\<open>$ISAFOL\<close>) ^ "/PAC_Checker2/code/no_sharing/checker.ML"));
+ * (\*       val _ =
+ *         exec \<open>Compilation\<close>
+ *           (File.bash_path \<^path>\<open>$ISABELLE_MLTON\<close> ^ " " ^
+ *             "-const 'MLton.safe false' -verbose 1 -default-type int64 -output pasteque " ^
+ *             "-codegen native -inline 700 -cc-opt -O3 pasteque.mlb"); *\)
+ *     in () end\<close>  *)
 
 
 end

@@ -7,7 +7,7 @@
 Correctness proof contributed by Maximilian Wuttke *)
 theory WB_Sort
   imports
-    Isabelle_LLVM.IICF
+    Refine_Imperative_HOL.IICF
     "HOL-Library.Rewrite"
     Nested_Multisets_Ordinals.Duplicate_Free_Multiset
 begin
@@ -101,18 +101,12 @@ lemma sublist_map: \<open>sublist (map f xs) i j = map f (sublist xs i j)\<close
   apply (auto simp add: sublist_def)
   by (simp add: drop_map take_map)
 
-(* Taken from Hash_Map in Separation_Logic_Imperative_HOL/Examples *)
-lemma take_set': "set (take n l) = { l!i | i. i<n \<and> i<length l }"
-  apply (auto simp add: set_conv_nth)
-  apply (rule_tac x=i in exI)
-  apply auto
-  done
 
 lemma take_set: \<open>j \<le> length xs \<Longrightarrow> x \<in> set (take j xs) \<equiv> (\<exists> k. k < j \<and> xs!k = x)\<close>
-  by (rule eq_reflection) (auto simp add: take_set')
+  by (rule eq_reflection) (auto simp add: take_set)
 
-lemma drop_set: \<open>j \<le> length xs \<Longrightarrow> x \<in> set (drop j xs) \<equiv> (\<exists>k. j\<le>k\<and>k<length xs \<and> xs!k=x)\<close>
-  by (smt (verit) Misc.in_set_drop_conv_nth) (* lemma found by sledgehammer *)
+(* lemma drop_set: \<open>j \<le> length xs \<Longrightarrow> x \<in> set (drop j xs) \<equiv> (\<exists>k. j\<le>k\<and>k<length xs \<and> xs!k=x)\<close>
+ *   by (smt (verit) Misc.in_set_drop_conv_nth) (\* lemma found by sledgehammer *\) *)
 
 lemma sublist_el: \<open>i \<le> j \<Longrightarrow> j < length xs \<Longrightarrow> x \<in> set (sublist xs i j) \<equiv> (\<exists> k. k < Suc j-i \<and> xs!(i+k)=x)\<close>
   by (auto simp add: take_set sublist_def)
@@ -1294,7 +1288,10 @@ proof -
   then show ?thesis unfolding post_def  by auto
 qed
 
+
+
 (* TODO: Show that our (abstract) partition satisifies the specification *)
+
 
 definition partition_main_inv :: \<open>('b \<Rightarrow> 'b \<Rightarrow> bool) \<Rightarrow> ('a \<Rightarrow> 'b) \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> 'a list \<Rightarrow> (nat\<times>nat\<times>'a list) \<Rightarrow> bool\<close> where
   \<open>partition_main_inv R h lo hi xs0 p \<equiv>
@@ -1339,7 +1336,53 @@ lemma partition_main_correct:
     trans: \<open>\<And> x y z. \<lbrakk>R (h x) (h y); R (h y) (h z)\<rbrakk> \<Longrightarrow> R (h x) (h z)\<close> and lin: \<open>\<And>x y. R (h x) (h y) \<or> R (h y) (h x)\<close>
   shows \<open>partition_main R h lo hi xs \<le> SPEC(\<lambda>(xs', p). mset xs = mset xs' \<and>
      lo \<le> p \<and> p \<le> hi \<and> isPartition_map R h xs' lo hi p \<and> (\<forall> i. i<lo \<longrightarrow> xs'!i=xs!i) \<and> (\<forall> i. hi<i\<and>i<length xs' \<longrightarrow> xs'!i=xs!i))\<close>
-  sorry
+proof -
+  have K: \<open>b \<le> hi - Suc n \<Longrightarrow> n > 0 \<Longrightarrow> Suc n \<le> hi \<Longrightarrow> Suc b \<le> hi - n\<close> for b hi n
+    by auto
+  have L: \<open>~ R (h x) (h y) \<Longrightarrow> R (h y) (h x)\<close> for x y \<comment> \<open>Corollary of linearity\<close>
+    using assms by blast
+  have M: \<open>a < Suc b \<equiv> a = b \<or> a < b\<close> for a b
+    by linarith
+  have N: \<open>(a::nat) \<le> b \<equiv> a = b \<or> a < b\<close> for a b
+    by arith
+
+  show ?thesis
+    unfolding partition_main_def choose_pivot_def
+    apply (refine_vcg WHILEIT_rule[where R = \<open>measure(\<lambda>(i,j,xs). hi-j)\<close>])
+    subgoal using assms by blast \<comment> \<open>We feed our assumption to the assertion\<close>
+    subgoal by auto \<comment> \<open>WF\<close>
+    subgoal \<comment> \<open>Invariant holds before the first iteration\<close>
+      unfolding partition_main_inv_def
+      using assms apply simp by linarith
+    subgoal unfolding partition_main_inv_def by simp
+    subgoal unfolding partition_main_inv_def by simp
+    subgoal
+      unfolding partition_main_inv_def
+      apply (auto dest: mset_eq_length)
+      done
+    subgoal unfolding partition_main_inv_def by (auto dest: mset_eq_length)
+    subgoal
+      unfolding partition_main_inv_def apply (auto dest: mset_eq_length)
+      by (metis L M mset_eq_length nat_le_eq_or_lt)
+
+    subgoal unfolding partition_main_inv_def by simp \<comment> \<open>assertions, etc\<close>
+    subgoal unfolding partition_main_inv_def by simp
+    subgoal unfolding partition_main_inv_def by (auto dest: mset_eq_length)
+    subgoal unfolding partition_main_inv_def by simp
+    subgoal unfolding partition_main_inv_def by (auto dest: mset_eq_length)
+    subgoal unfolding partition_main_inv_def by (auto dest: mset_eq_length)
+    subgoal unfolding partition_main_inv_def by (auto dest: mset_eq_length)
+    subgoal unfolding partition_main_inv_def by simp
+    subgoal unfolding partition_main_inv_def by simp
+
+    subgoal \<comment> \<open>After the last iteration, we have a partitioning! :-)\<close>
+      unfolding partition_main_inv_def by (auto simp add: isPartition_wrt_def)
+    subgoal \<comment> \<open>And the lower out-of-bounds parts of the list haven't been changed\<close>
+      unfolding partition_main_inv_def by auto
+    subgoal \<comment> \<open>And the upper out-of-bounds parts of the list haven't been changed\<close>
+      unfolding partition_main_inv_def by auto
+    done
+qed
 
 
 definition partition_between :: \<open>('b \<Rightarrow> 'b \<Rightarrow> bool) \<Rightarrow> ('a \<Rightarrow> 'b) \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> 'a list \<Rightarrow> ('a list \<times> nat) nres\<close> where
@@ -1352,11 +1395,21 @@ definition partition_between :: \<open>('b \<Rightarrow> 'b \<Rightarrow> bool) 
     partition_main R h lo hi xs
   }\<close>
 
+
 lemma partition_between_correct:
   assumes \<open>hi < length xs\<close> and \<open>lo \<le> hi\<close> and
   \<open>\<And> x y z. \<lbrakk>R (h x) (h y); R (h y) (h z)\<rbrakk> \<Longrightarrow> R (h x) (h z)\<close> and \<open>\<And>x y. R (h x) (h y) \<or> R (h y) (h x)\<close>
   shows \<open>partition_between R h lo hi xs \<le> SPEC(uncurry (partition_spec R h xs lo hi))\<close>
-  sorry
+proof -
+  have K: \<open>b \<le> hi - Suc n \<Longrightarrow> n > 0 \<Longrightarrow> Suc n \<le> hi \<Longrightarrow> Suc b \<le> hi - n\<close> for b hi n
+    by auto
+  show ?thesis
+    unfolding partition_between_def choose_pivot_def
+    apply (refine_vcg partition_main_correct)
+    using assms apply (auto dest: mset_eq_length simp add: partition_spec_def)
+    by (metis dual_order.strict_trans2 less_imp_not_eq2 mset_eq_length swap_nth)
+qed
+
 
 
 text \<open>We use the median of the first, the middle, and the last element.\<close>

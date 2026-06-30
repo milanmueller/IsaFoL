@@ -5,7 +5,7 @@
 *)
 theory PAC_Checker_Specification
   imports PAC_Specification
-    Isabelle_LLVM.IICF
+    Refine_Imperative_HOL.IICF
     Finite_Map_Multiset
 begin
 

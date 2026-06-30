@@ -1,5 +1,5 @@
 theory PAC_Polynomials_Operations
-  imports PAC_Polynomials_Term PAC_Checker_Specification BigInt_LLVM.Arithmetics
+  imports PAC_Polynomials_Term PAC_Checker_Specification
 begin
 
 subsection \<open>Addition\<close>
@@ -12,7 +12,6 @@ former, coefficients can be zero and monomials can appear several times. This ma
 reason on intermediate representation where this has not yet been sanitized.
 \<close>
 
-text "This will not work, since we only have addition of bigints inside `nres`"
 fun add_poly_l' :: \<open>llist_polynomial \<times> llist_polynomial \<Rightarrow> llist_polynomial\<close> where
   \<open>add_poly_l' (p, []) = p\<close> |
   \<open>add_poly_l' ([], q) = q\<close> |
@@ -94,7 +93,9 @@ lemma sorted_poly_list_rel_Cons_iff:
         term_poly_list_rel_def add_mset_eq_add_mset eq_commute[of _ \<open>mset _\<close>]
         nonzero_coeffs_def
       dest!: multi_member_split)
-  done
+    done
+
+
 
 lemma sorted_repeat_poly_list_rel_ConsD:
   \<open>((ys, n) # p, a) \<in> sorted_repeat_poly_list_rel S \<Longrightarrow> (p, remove1_mset (mset ys, n) a) \<in> sorted_repeat_poly_list_rel S \<and>
@@ -713,43 +714,6 @@ lemma distinct_var_order_Id_var_order:
   \<open>distinct a \<Longrightarrow> sorted_wrt (rel2p (Id \<union> var_order_rel)) a \<Longrightarrow>
           sorted_wrt var_order a\<close>
   by (induction a) (auto simp: rel2p_def)
-
-(* `monaic_nfoldli and lemmas for it are taken from Refine_Imperative_HOL/Sepref_Foreach.thy *)
-definition "monadic_nfoldli l c f s \<equiv> RECT (\<lambda>D (l,s). case l of 
-    [] \<Rightarrow> RETURN s
-  | x#ls \<Rightarrow> do {
-      b \<leftarrow> c s;
-      if b then do { s'\<leftarrow>f x s; D (ls,s')} else RETURN s
-    }
-  ) (l,s)"
-
-lemma monadic_nfoldli_eq:
-  "monadic_nfoldli l c f s = (
-    case l of 
-      [] \<Rightarrow> RETURN s 
-    | x#ls \<Rightarrow> do {
-        b\<leftarrow>c s; 
-        if b then f x s \<bind> monadic_nfoldli ls c f else RETURN s
-      }
-  )"
-  apply (subst monadic_nfoldli_def)
-  apply (subst RECT_unfold)
-  apply (tagged_solver)
-  apply (subst monadic_nfoldli_def[symmetric])
-  apply simp
-  done
-
-lemma monadic_nfoldli_simp[simp]:
-  "monadic_nfoldli [] c f s = RETURN s"
-  "monadic_nfoldli (x#ls) c f s = do {
-    b\<leftarrow>c s;
-    if b then f x s \<bind> monadic_nfoldli ls c f else RETURN s
-  }"
-  apply (subst monadic_nfoldli_eq, simp)
-  apply (subst monadic_nfoldli_eq, simp)
-  done
-
-(* From here, it's the old PAC code again *)
 
 definition sort_all_coeffs :: \<open>llist_polynomial \<Rightarrow> llist_polynomial nres\<close> where
 \<open>sort_all_coeffs xs = monadic_nfoldli xs (\<lambda>_. RETURN True) (\<lambda>(a, n) b. do {a \<leftarrow> sort_coeff a; RETURN ((a, n) # b)}) []\<close>

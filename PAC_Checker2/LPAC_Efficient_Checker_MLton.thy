@@ -10,21 +10,21 @@ export_code
   in SML_imp module_name PAC_Checker
   file_prefix "checker"
 
-compile_generated_files _
-  external_files
-  \<open>code/parser.sml\<close>
-  \<open>code/pasteque.sml\<close>
-  \<open>code/pasteque.mlb\<close>
-  where \<open>fn dir =>
-  let
-    val exec = Generated_Files.execute (Path.append dir (Path.basic "code"));
-    val _ = exec \<open>Copy files\<close>
-    ("cp checker.ML " ^ ((File.bash_path \<^path>\<open>$ISAFOL\<close>) ^ "/PAC_Checker2/code/checker.ML"));
-    val _ =
-    exec \<open>Compilation\<close>
-    (File.bash_path \<^path>\<open>$ISABELLE_MLTON\<close> ^ " " ^
-    "-const 'MLton.safe false' -verbose 1 -default-type int64 -output pasteque " ^
-    "-codegen native -inline 700 -cc-opt -O3 pasteque.mlb");
-    in () end\<close>
+(* compile_generated_files _
+ *   external_files
+ *   \<open>code/parser.sml\<close>
+ *   \<open>code/pasteque.sml\<close>
+ *   \<open>code/pasteque.mlb\<close>
+ *   where \<open>fn dir =>
+ *   let
+ *     val exec = Generated_Files.execute (Path.append dir (Path.basic "code"));
+ *     val _ = exec \<open>Copy files\<close>
+ *     ("cp checker.ML " ^ ((File.bash_path \<^path>\<open>$ISAFOL\<close>) ^ "/PAC_Checker2/code/checker.ML"));
+ *     val _ =
+ *     exec \<open>Compilation\<close>
+ *     (File.bash_path \<^path>\<open>$ISABELLE_MLTON\<close> ^ " " ^
+ *     "-const 'MLton.safe false' -verbose 1 -default-type int64 -output pasteque " ^
+ *     "-codegen native -inline 700 -cc-opt -O3 pasteque.mlb");
+ *     in () end\<close> *)
 
 end

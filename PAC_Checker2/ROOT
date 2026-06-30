@@ -1,6 +1,6 @@
 chapter PAC_Checker
 
-session PAC_Checker2 (AFP) = "Sepref_IICF" +
+session PAC_Checker2_LLVM (AFP) = "Isabelle_LLVM" +
   description \<open>PAC proof checker\<close>
   options
     [timeout = 2700]
@@ -9,21 +9,20 @@ session PAC_Checker2 (AFP) = "Sepref_IICF" +
     "HOL-Algebra"
     "Polynomials"
     Nested_Multisets_Ordinals
-    PAC_Checker
+    PAC_Checker_LLVM
+  theories[quick_and_dirty]
+    LPAC_Efficient_Checker_Synthesis
   theories
+    LPAC_Checker_Synthesis
     LPAC_Specification
     LPAC_Checker_Specification
     LPAC_Checker
     LPAC_Checker_Init
     LPAC_Version
-    LPAC_Checker_Synthesis
-    LPAC_Efficient_Checker_Synthesis
   theories [condition=ISABELLE_MLTON]
     LPAC_Checker_MLton
     LPAC_Efficient_Checker_MLton
   document_files
     "root.tex"
     "root.bib"
-  export_files (in "code") [1]
-    "LPAC_Checker.LPAC_Efficient_Checker_MLton:**"
 

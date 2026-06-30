@@ -5,7 +5,7 @@
 *)
 theory PAC_Polynomials_Term
   imports PAC_Polynomials
-    Isabelle_LLVM.IICF BigInt_LLVM.Basic
+    Refine_Imperative_HOL.IICF
 begin
 
 
@@ -49,8 +49,11 @@ definition less_char :: \<open>char \<Rightarrow> char \<Rightarrow> bool\<close
 
 global_interpretation char: linorder less_eq_char less_char
   using linorder_char
-  unfolding
+  unfolding linorder_class_def class.linorder_def
     less_eq_char_def[symmetric] less_char_def[symmetric]
+    class.order_def order_class_def
+    class.preorder_def preorder_class_def
+    ord_class_def
   apply auto
   done
 
@@ -93,9 +96,6 @@ definition term_poly_list_rel :: \<open>(term_poly_list \<times> term_poly) set\
 definition unsorted_term_poly_list_rel :: \<open>(term_poly_list \<times> term_poly) set\<close> where
   \<open>unsorted_term_poly_list_rel = {(xs, ys).
      ys = mset xs \<and> distinct xs}\<close>
-
-(* Taken from old Sepref *)
-definition "list_mset_rel \<equiv> br mset (\<lambda>_. True)"
 
 definition poly_list_rel :: \<open>_ \<Rightarrow> (('a \<times> int) list \<times> mset_polynomial) set\<close> where
   \<open>poly_list_rel R = {(xs, ys).

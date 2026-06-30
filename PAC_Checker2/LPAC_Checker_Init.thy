@@ -4,7 +4,10 @@
   Maintainer:   Mathias Fleury, JKU
 *)
 theory LPAC_Checker_Init
-  imports LPAC_Checker PAC_Checker.WB_Sort PAC_Checker.PAC_Checker_Relation
+  imports
+    LPAC_Checker
+    PAC_Checker_LLVM.WB_Sort
+    PAC_Checker_LLVM.PAC_Checker_Relation
 begin
 
 section \<open>Initial Normalisation of Polynomials\<close>

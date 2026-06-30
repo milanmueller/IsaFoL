@@ -6,9 +6,9 @@
 theory LPAC_Checker
   imports
     LPAC_Checker_Specification
-    PAC_Checker.PAC_Map_Rel
-    PAC_Checker.PAC_Polynomials_Operations
-    PAC_Checker.PAC_Checker
+    PAC_Checker_LLVM.PAC_Map_Rel
+    PAC_Checker_LLVM.PAC_Polynomials_Operations
+    PAC_Checker_LLVM.PAC_Checker
     Show.Show
     Show.Show_Instances
 begin

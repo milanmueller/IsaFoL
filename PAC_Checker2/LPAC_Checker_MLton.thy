@@ -7,6 +7,10 @@ theory LPAC_Checker_MLton
   imports LPAC_Checker_Synthesis
 begin
 
+unused_thms 
+  IICF Rewrite Duplicate_Free_Multiset
+  - WB_Sort
+
 export_code PAC_checker_l_impl PAC_update_impl PAC_empty_impl the_error is_cfailed is_cfound
   int_of_integer Del CL nat_of_integer String.implode remap_polys_l_impl
   fully_normalize_poly_impl union_vars_poly_impl empty_vars_impl

@@ -4,10 +4,11 @@
   Maintainer:   Mathias Fleury, JKU
 *)
 theory LPAC_Checker_Specification
-  imports LPAC_Specification
-    Isabelle_LLVM.IICF
-    PAC_Checker.Finite_Map_Multiset
-    PAC_Checker.PAC_Checker_Specification
+  imports
+    LPAC_Specification
+    Refine_Imperative_HOL.IICF
+    PAC_Checker_LLVM.Finite_Map_Multiset
+    PAC_Checker_LLVM.PAC_Checker_Specification
 begin
 
 section \<open>Checker Algorithm\<close>

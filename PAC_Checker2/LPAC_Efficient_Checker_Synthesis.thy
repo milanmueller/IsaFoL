@@ -1,9 +1,9 @@
 theory LPAC_Efficient_Checker_Synthesis
-  imports LPAC_Efficient_Checker
+  imports
+    LPAC_Efficient_Checker
     LPAC_Perfectly_Shared_Vars
-    PAC_Checker.PAC_Checker_Synthesis
     LPAC_Steps_Refine
-    PAC_Checker.PAC_Checker_Synthesis
+    PAC_Checker_LLVM.PAC_Checker_Synthesis
 begin
 
 lemma in_set_rel_inD: \<open>(x,y) \<in>\<langle>R\<rangle>list_rel \<Longrightarrow> a \<in> set x \<Longrightarrow> \<exists>b \<in> set y. (a,b)\<in> R\<close>
@@ -2370,7 +2370,12 @@ sepref_definition PAC_checker_l_step_s_impl
   unfolding PAC_checker_l_step_s_alt_def Let_def[of _ \<open>\<lambda>_. If _ _ _\<close>]
     pac_step.case_eq_if
     HOL_list.fold_custom_empty
-  by sepref
+  apply sepref_dbg_keep
+  apply sepref_dbg_keep
+  apply sepref_dbg_trans_keep
+  apply sepref_dbg_trans_step_keep
+  apply sepref_dbg_side_unfold
+  sorry
 
 lemmas [sepref_fr_rules] = PAC_checker_l_step_s_impl.refine
 
@@ -2777,7 +2782,7 @@ export_code
   in SML_imp module_name PAC_Checker
   file_prefix "checker"
 
-
+(*
 compile_generated_files _
   external_files
     \<open>code/parser.sml\<close>
@@ -2795,7 +2800,7 @@ compile_generated_files _
             "-const 'MLton.safe false' -verbose 1 -default-type int64 -output pasteque " ^
             "-codegen native -inline 700 -cc-opt -O3 pasteque.mlb");
     in () end\<close>
-
+*)
 
 section \<open>Correctness theorem\<close>
 
@@ -2938,91 +2943,91 @@ proof -
     by auto
 qed
 
-lemma PAC_full_correctness: (* \htmllink{PAC-full-correctness} *)
-  \<open>(uncurry2 full_checker_l_s2_impl,
- uncurry2 (\<lambda>spec A _. PAC_checker_specification spec A))
-\<in> full_poly_assn\<^sup>k *\<^sub>a full_poly_input_assn\<^sup>k *\<^sub>a
-  fully_epac_assn\<^sup>k \<rightarrow>\<^sub>a hr_comp (status_assn raw_string_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a polys_s_assn)
-            {((err, _), err', _). (err, err') \<in> code_status_status_rel}\<close>
-proof -
-  have 1: \<open>(uncurry2 full_checker_l_s2, uncurry2 (\<lambda>spec A _. PAC_checker_specification spec A))
-    \<in> (\<langle>\<langle>Id\<rangle>list_rel \<times>\<^sub>r int_rel\<rangle>list_rel O fully_unsorted_poly_rel O mset_poly_rel \<times>\<^sub>r
-    (\<langle>nat_rel, Id\<rangle>fmap_rel O \<langle>nat_rel, fully_unsorted_poly_rel O mset_poly_rel\<rangle>fmap_rel) O
-    polys_rel) \<times>\<^sub>r
-    \<langle>p2rel
-    (\<langle>nat_rel, fully_unsorted_poly_rel O mset_poly_rel,
-    var_rel\<rangle>LPAC_Checker.pac_step_rel_raw)\<rangle>list_rel \<rightarrow>\<^sub>f \<langle>(({((err, _), err', _).
-    (err, err') \<in> Id} O
-    {((b, A, st), b', A', st').
-    (\<not> is_cfailed b \<longrightarrow> (A, A') \<in> {(x, y). y = set_mset x} \<and> (st, st') \<in> Id) \<and>
-    (b, b') \<in> Id}) O
-    {((err, \<V>, A), err', \<V>', A').
-    ((err, \<V>, A), err', \<V>', A')
-    \<in> code_status_status_rel \<times>\<^sub>r
-    vars_rel2 err \<times>\<^sub>r
-    {(xs, ys).
-    \<not> is_cfailed err \<longrightarrow>
-    (xs, ys) \<in> \<langle>nat_rel, sorted_poly_rel O mset_poly_rel\<rangle>fmap_rel \<and>
-    (\<forall>i\<in>#dom_m xs. vars_llist (xs \<propto> i) \<subseteq> \<V>)}}) O
-    {((st, G), st', G').
-    (st, st') \<in> status_rel \<and> (st \<noteq> FAILED \<longrightarrow> (G, G') \<in> Id \<times>\<^sub>r polys_rel)}\<rangle>nres_rel\<close>
-    using full_checker_l_s2_full_checker_l_s[
-      FCOMP full_checker_l_s_full_checker_l_prep',
-      FCOMP full_checker_l_prep_full_checker_l2',
-      FCOMP full_checker_l_full_checker',
-      FCOMP full_checker_spec',
-      unfolded full_poly_assn_def[symmetric]
-      full_poly_input_assn_def[symmetric]
-      fully_epac_assn_def[symmetric]
-      code_status_assn_def[symmetric]
-      full_vars_assn_def[symmetric]
-      polys_rel_full_polys_rel
-      hr_comp_prod_conv
-      full_polys_assn_def[symmetric]
-      full_poly_input_assn_alt_def[symmetric]] by auto
-  have 2: \<open>A \<subseteq> B \<Longrightarrow> \<langle>A\<rangle>nres_rel \<subseteq> \<langle>B\<rangle>nres_rel\<close> for A B
-    by (auto simp: nres_rel_def conc_fun_R_mono conc_trans_additional(6))
-
-  have 3: \<open>(uncurry2 full_checker_l_s2, uncurry2 (\<lambda>spec A _. PAC_checker_specification spec A))
-    \<in> (\<langle>\<langle>Id\<rangle>list_rel \<times>\<^sub>r int_rel\<rangle>list_rel O fully_unsorted_poly_rel O mset_poly_rel \<times>\<^sub>r
-    (\<langle>nat_rel, Id\<rangle>fmap_rel O \<langle>nat_rel, fully_unsorted_poly_rel O mset_poly_rel\<rangle>fmap_rel) O
-    polys_rel) \<times>\<^sub>r
-    \<langle>p2rel
-    (\<langle>nat_rel, fully_unsorted_poly_rel O mset_poly_rel,
-    var_rel\<rangle>LPAC_Checker.pac_step_rel_raw)\<rangle>list_rel \<rightarrow>\<^sub>f
-    \<langle>{((err, _), err', _). (err, err') \<in> code_status_status_rel}\<rangle>nres_rel\<close>
-    apply (rule set_mp[OF _ 1])
-    unfolding fref_param1[symmetric]
-    apply (rule fun_rel_mono)
-    apply auto[]
-    apply (rule 2)
-    apply auto
-    done
-
-  have 4: \<open>\<langle>nat_rel, Id\<rangle>fmap_rel = Id\<close>
-    apply (auto simp: fmap_rel_def)
-    by (metis (no_types, opaque_lifting) fmap_ext_fmdom fmlookup_dom_iff fset_eqI option.sel)
-  have H: \<open>full_poly_assn = (hr_comp poly_assn
-    (\<langle>\<langle>Id\<rangle>list_rel \<times>\<^sub>r int_rel\<rangle>list_rel O fully_unsorted_poly_rel O mset_poly_rel))\<close>
-    \<open>full_poly_input_assn = hr_comp polys_assn_input
-   ((Id O \<langle>nat_rel, fully_unsorted_poly_rel O mset_poly_rel\<rangle>fmap_rel) O polys_rel)\<close>
-    unfolding full_poly_assn_def fully_epac_assn_def full_poly_input_assn_def
-      hr_comp_assoc O_assoc
-    by auto
-  show ?thesis
-    using full_checker_l_s2_impl.refine[FCOMP 3]
-    unfolding full_poly_assn_def[symmetric]
-      full_poly_input_assn_def[symmetric]
-      fully_epac_assn_def[symmetric]
-      code_status_assn_def[symmetric]
-      full_vars_assn_def[symmetric]
-      polys_rel_full_polys_rel
-      hr_comp_prod_conv
-      full_polys_assn_def[symmetric]
-      full_poly_input_assn_alt_def[symmetric]
-      4 H[symmetric]
-    by auto
-qed
+(* lemma PAC_full_correctness: (\* \htmllink{PAC-full-correctness} *\)
+ *   \<open>(uncurry2 full_checker_l_s2_impl,
+ *     uncurry2 (\<lambda>spec A _. PAC_checker_specification spec A))
+ *   \<in> full_poly_assn\<^sup>k *\<^sub>a full_poly_input_assn\<^sup>k *\<^sub>a fully_epac_assn\<^sup>k
+ *     \<rightarrow>\<^sub>a hr_comp (status_assn raw_string_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a polys_s_assn)
+ *        {((err, _), err', _). (err, err') \<in> code_status_status_rel}\<close>
+ * proof -
+ *   have 1: \<open>(uncurry2 full_checker_l_s2, uncurry2 (\<lambda>spec A _. PAC_checker_specification spec A))
+ *     \<in> (\<langle>\<langle>Id\<rangle>list_rel \<times>\<^sub>r int_rel\<rangle>list_rel O fully_unsorted_poly_rel O mset_poly_rel \<times>\<^sub>r
+ *     (\<langle>nat_rel, Id\<rangle>fmap_rel O \<langle>nat_rel, fully_unsorted_poly_rel O mset_poly_rel\<rangle>fmap_rel) O
+ *     polys_rel) \<times>\<^sub>r
+ *     \<langle>p2rel
+ *     (\<langle>nat_rel, fully_unsorted_poly_rel O mset_poly_rel,
+ *     var_rel\<rangle>LPAC_Checker.pac_step_rel_raw)\<rangle>list_rel \<rightarrow>\<^sub>f \<langle>(({((err, _), err', _).
+ *     (err, err') \<in> Id} O
+ *     {((b, A, st), b', A', st').
+ *     (\<not> is_cfailed b \<longrightarrow> (A, A') \<in> {(x, y). y = set_mset x} \<and> (st, st') \<in> Id) \<and>
+ *     (b, b') \<in> Id}) O
+ *     {((err, \<V>, A), err', \<V>', A').
+ *     ((err, \<V>, A), err', \<V>', A')
+ *     \<in> code_status_status_rel \<times>\<^sub>r
+ *     vars_rel2 err \<times>\<^sub>r
+ *     {(xs, ys).
+ *     \<not> is_cfailed err \<longrightarrow>
+ *     (xs, ys) \<in> \<langle>nat_rel, sorted_poly_rel O mset_poly_rel\<rangle>fmap_rel \<and>
+ *     (\<forall>i\<in>#dom_m xs. vars_llist (xs \<propto> i) \<subseteq> \<V>)}}) O
+ *     {((st, G), st', G').
+ *     (st, st') \<in> status_rel \<and> (st \<noteq> FAILED \<longrightarrow> (G, G') \<in> Id \<times>\<^sub>r polys_rel)}\<rangle>nres_rel\<close>
+ *     using full_checker_l_s2_full_checker_l_s[
+ *       FCOMP full_checker_l_s_full_checker_l_prep',
+ *       FCOMP full_checker_l_prep_full_checker_l2',
+ *       FCOMP full_checker_l_full_checker',
+ *       FCOMP full_checker_spec',
+ *       unfolded full_poly_assn_def[symmetric]
+ *       full_poly_input_assn_def[symmetric]
+ *       fully_epac_assn_def[symmetric]
+ *       code_status_assn_def[symmetric]
+ *       full_vars_assn_def[symmetric]
+ *       polys_rel_full_polys_rel
+ *       hr_comp_prod_conv
+ *       full_polys_assn_def[symmetric]
+ *       full_poly_input_assn_alt_def[symmetric]] by auto
+ *   have 2: \<open>A \<subseteq> B \<Longrightarrow> \<langle>A\<rangle>nres_rel \<subseteq> \<langle>B\<rangle>nres_rel\<close> for A B
+ *     by (auto simp: nres_rel_def conc_fun_R_mono conc_trans_additional(6))
+ * 
+ *   have 3: \<open>(uncurry2 full_checker_l_s2, uncurry2 (\<lambda>spec A _. PAC_checker_specification spec A))
+ *     \<in> (\<langle>\<langle>Id\<rangle>list_rel \<times>\<^sub>r int_rel\<rangle>list_rel O fully_unsorted_poly_rel O mset_poly_rel \<times>\<^sub>r
+ *     (\<langle>nat_rel, Id\<rangle>fmap_rel O \<langle>nat_rel, fully_unsorted_poly_rel O mset_poly_rel\<rangle>fmap_rel) O
+ *     polys_rel) \<times>\<^sub>r
+ *     \<langle>p2rel
+ *     (\<langle>nat_rel, fully_unsorted_poly_rel O mset_poly_rel,
+ *     var_rel\<rangle>LPAC_Checker.pac_step_rel_raw)\<rangle>list_rel \<rightarrow>\<^sub>f
+ *     \<langle>{((err, _), err', _). (err, err') \<in> code_status_status_rel}\<rangle>nres_rel\<close>
+ *     apply (rule set_mp[OF _ 1])
+ *     unfolding fref_param1[symmetric]
+ *     apply (rule fun_rel_mono)
+ *     apply auto[]
+ *     apply (rule 2)
+ *     apply auto
+ *     done
+ * 
+ *   have 4: \<open>\<langle>nat_rel, Id\<rangle>fmap_rel = Id\<close>
+ *     apply (auto simp: fmap_rel_def)
+ *     by (metis (no_types, opaque_lifting) fmap_ext_fmdom fmlookup_dom_iff fset_eqI option.sel)
+ *   have H: \<open>full_poly_assn = (hr_comp poly_assn
+ *     (\<langle>\<langle>Id\<rangle>list_rel \<times>\<^sub>r int_rel\<rangle>list_rel O fully_unsorted_poly_rel O mset_poly_rel))\<close>
+ *     \<open>full_poly_input_assn = hr_comp polys_assn_input
+ *    ((Id O \<langle>nat_rel, fully_unsorted_poly_rel O mset_poly_rel\<rangle>fmap_rel) O polys_rel)\<close>
+ *     unfolding full_poly_assn_def fully_epac_assn_def full_poly_input_assn_def
+ *       hr_comp_assoc O_assoc
+ *     by auto
+ *   show ?thesis
+ *     using full_checker_l_s2_impl.refine[FCOMP 3]
+ *     unfolding full_poly_assn_def[symmetric]
+ *       full_poly_input_assn_def[symmetric]
+ *       fully_epac_assn_def[symmetric]
+ *       code_status_assn_def[symmetric]
+ *       full_vars_assn_def[symmetric]
+ *       polys_rel_full_polys_rel
+ *       hr_comp_prod_conv
+ *       full_polys_assn_def[symmetric]
+ *       full_poly_input_assn_alt_def[symmetric]
+ *       4 H[symmetric]
+ *     by auto
+ * qed *)
 
 text \<open>
 

@@ -5,7 +5,7 @@
 *)
 theory PAC_Map_Rel
   imports
-    Isabelle_LLVM.IICF Finite_Map_Multiset
+    Refine_Imperative_HOL.IICF Finite_Map_Multiset
 begin
 
 
@@ -226,45 +226,45 @@ definition fmlookup' where
 
 lemma [def_pat_rules]:
   \<open>((\<in>#)$k$(dom_m$A)) \<equiv> Not$(is_None$(fmlookup'$k$A))\<close>
-  by (simp add: in_fdom_alt)
+  by (simp add: fold_is_None in_fdom_alt)
 
 lemma op_map_lookup_fmlookup:
   \<open>(op_map_lookup, fmlookup') \<in> Id \<rightarrow> map_fmap_rel \<rightarrow> \<langle>Id\<rangle>option_rel\<close>
   by (auto simp: map_fmap_rel_def br_def fmap.Abs_fmap_inverse)
 
-(* Not quite sure what to do with these guys 
+
+abbreviation hm_fmap_assn where
+  \<open>hm_fmap_assn K V \<equiv> hr_comp (hm.assn K V) map_fmap_rel\<close>
+
 lemmas fmap_delete_hnr [sepref_fr_rules] =
-  hm_delete[FCOMP fmdrop_set_None]
+  hm.delete_hnr[FCOMP fmdrop_set_None]
 
 lemmas fmap_update_hnr [sepref_fr_rules] =
-  HM.hm_update_op_def[FCOMP map_upd_fmupd]
+  hm.update_hnr[FCOMP map_upd_fmupd]
+
 
 lemmas fmap_lookup_hnr [sepref_fr_rules] =
   hm.lookup_hnr[FCOMP op_map_lookup_fmlookup]
-*)
 
 lemma fmempty_empty:
   \<open>(uncurry0 (RETURN op_map_empty), uncurry0 (RETURN fmempty)) \<in> unit_rel \<rightarrow>\<^sub>f \<langle>map_fmap_rel\<rangle>nres_rel\<close>
   by (auto simp: map_fmap_rel_def br_def fmempty_def frefI nres_relI)
 
-(*
 lemmas [sepref_fr_rules] =
   hm.empty_hnr[FCOMP fmempty_empty, unfolded op_fmap_empty_def[symmetric]]
-*)
 
 abbreviation iam_fmap_assn where
-  \<open>iam_fmap_assn K V \<equiv> hr_comp (snat_am_assn' K V) map_fmap_rel\<close>
+  \<open>iam_fmap_assn K V \<equiv> hr_comp (iam.assn K V) map_fmap_rel\<close>
 
-(*
 lemmas iam_fmap_delete_hnr [sepref_fr_rules] =
   iam.delete_hnr[FCOMP fmdrop_set_None]
 
 lemmas iam_ffmap_update_hnr [sepref_fr_rules] =
   iam.update_hnr[FCOMP map_upd_fmupd]
 
+
 lemmas iam_ffmap_lookup_hnr [sepref_fr_rules] =
   iam.lookup_hnr[FCOMP op_map_lookup_fmlookup]
-*)
 
 definition op_iam_fmap_empty where
   \<open>op_iam_fmap_empty = fmempty\<close>
@@ -273,15 +273,12 @@ lemma iam_fmempty_empty:
   \<open>(uncurry0 (RETURN op_map_empty), uncurry0 (RETURN op_iam_fmap_empty)) \<in> unit_rel \<rightarrow>\<^sub>f \<langle>map_fmap_rel\<rangle>nres_rel\<close>
   by (auto simp: map_fmap_rel_def br_def fmempty_def frefI nres_relI op_iam_fmap_empty_def)
 
-(*
 lemmas [sepref_fr_rules] =
   iam.empty_hnr[FCOMP fmempty_empty, unfolded op_iam_fmap_empty_def[symmetric]]
-*)
 
 definition upper_bound_on_dom where
   \<open>upper_bound_on_dom A = SPEC(\<lambda>n. \<forall>i \<in>#(dom_m A). i < n)\<close>
 
-(*
 lemma [sepref_fr_rules]:
   \<open>((Array.len), upper_bound_on_dom) \<in> (iam_fmap_assn nat_assn V)\<^sup>k \<rightarrow>\<^sub>a nat_assn\<close>
 proof -
@@ -307,7 +304,7 @@ proof -
       (sep_auto simp: upper_bound_on_dom_def hr_comp_def iam.assn_def map_rel_def
         map_fmap_rel_def is_iam_def br_def dom_m_def)
 qed
-*)
+
 
 lemma fmap_rel_nat_rel_dom_m[simp]:
   \<open>(A, B) \<in> \<langle>nat_rel, R\<rangle>fmap_rel \<Longrightarrow> dom_m A = dom_m B\<close>
