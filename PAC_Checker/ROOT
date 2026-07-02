@@ -21,14 +21,11 @@ session PAC_Checker_LLVM = "Sepref_IICF" +
     PAC_Polynomials
     PAC_Polynomials_Term
     PAC_Polynomials_Operations
-    PAC_Assoc_Map_Rel
     PAC_Map_Rel
     PAC_Checker
     PAC_Checker_Init
     PAC_Version
     PAC_Checker_Synthesis
-  theories [condition=ISABELLE_MLTON]
-    PAC_Checker_MLton
   document_files
     "root.tex"
     "root.bib"

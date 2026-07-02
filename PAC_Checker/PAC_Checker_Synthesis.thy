@@ -761,6 +761,7 @@ lemma [code]: \<open>hashcode s = hashcode_literal' s\<close>
      String.asciis_of_literal_def hashcode_literal_def hashcode_literal'_def)
   done
 
+(*
 text \<open>We compile Pastèque in \<^file>\<open>PAC_Checker_MLton.thy\<close>.\<close>
 export_code PAC_checker_l_impl PAC_update_impl PAC_empty_impl the_error is_cfailed is_cfound
   int_of_integer Del Add Mult nat_of_integer String.implode remap_polys_l_impl
@@ -768,7 +769,7 @@ export_code PAC_checker_l_impl PAC_update_impl PAC_empty_impl the_error is_cfail
   full_checker_l_impl check_step_impl CSUCCESS
   Extension hashcode_literal' version
   in SML_imp module_name PAC_Checker
-
+*)
 
 section \<open>Correctness theorem\<close>
 

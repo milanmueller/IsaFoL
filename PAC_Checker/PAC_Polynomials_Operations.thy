@@ -1,5 +1,8 @@
 theory PAC_Polynomials_Operations
-  imports PAC_Polynomials_Term PAC_Checker_Specification
+  imports 
+    PAC_Polynomials_Term 
+    PAC_Checker_Specification
+    (*Refine_Imperative_HOL.IICF*)
 begin
 
 subsection \<open>Addition\<close>

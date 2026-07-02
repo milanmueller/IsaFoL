@@ -4,8 +4,10 @@
   Maintainer:   Mathias Fleury, JKU
 *)
 theory PAC_Polynomials_Term
-  imports PAC_Polynomials
-    Refine_Imperative_HOL.IICF
+  imports 
+    PAC_Polynomials
+    Aux_Lemmas
+    (*Refine_Imperative_HOL.IICF*)
 begin
 
 

@@ -14,10 +14,8 @@ session PAC_Checker2_LLVM (AFP) = "Isabelle_LLVM" +
     LPAC_Efficient_Checker_Synthesis
   theories
     LPAC_Checker_Synthesis
-    LPAC_Specification
     LPAC_Checker_Specification
     LPAC_Checker
-    LPAC_Checker_Init
     LPAC_Version
   theories [condition=ISABELLE_MLTON]
     LPAC_Checker_MLton

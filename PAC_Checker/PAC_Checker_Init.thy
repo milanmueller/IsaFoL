@@ -118,11 +118,14 @@ lemma merge_coeffs_alt_def:
       push_in_let_conv(2))
   done
 
+(*
 lemma hn_invalid_recover:
   \<open>is_pure R \<Longrightarrow> hn_invalid R = (\<lambda>x y. R x y * true)\<close>
   \<open>is_pure R \<Longrightarrow> invalid_assn R = (\<lambda>x y. R x y * true)\<close>
   by (auto simp: is_pure_conv invalid_pure_recover hn_ctxt_def intro!: ext)
+*)
 
+(* this is not true for llvm
 lemma safe_poly_vars:
   shows
     [safe_constraint_rules]:
@@ -176,6 +179,7 @@ lemma WTF_RF:
        hn_ctxt poly_assn ax px *
        emp\<close>
   by sepref_dbg_trans_step+
+*)
 
 text \<open>The refinement frameword is completely lost here when synthesizing the constants -- it does
   not understant what is pure (actually everything) and what must be destroyed.\<close>
@@ -184,19 +188,8 @@ sepref_definition merge_coeffs_impl
   :: \<open>poly_assn\<^sup>d \<rightarrow>\<^sub>a poly_assn\<close>
   supply [[goals_limit=1]]
   unfolding merge_coeffs_alt_def
-    HOL_list.fold_custom_empty poly_assn_alt_def
-  apply (rewrite in \<open>_\<close> annotate_assn[where A=\<open>poly_assn\<close>])
-  apply sepref_dbg_preproc
-  apply sepref_dbg_cons_init
-  apply sepref_dbg_id
-  apply sepref_dbg_monadify
-  apply sepref_dbg_opt_init
-  apply (rule WTF_RF | sepref_dbg_trans_step)+
-  apply sepref_dbg_opt
-  apply sepref_dbg_cons_solve
-  apply sepref_dbg_cons_solve
-  apply sepref_dbg_constraints
-  done
+  apply sepref_dbg_keep
+  oops
 
 definition full_quicksort_poly where
   \<open>full_quicksort_poly = full_quicksort_ref (\<lambda>x y. x = y \<or> (x, y) \<in> term_order_rel) fst\<close>
@@ -221,6 +214,7 @@ lemma string_list_trans:
     (xa, z) \<in> lexord (lexord {(x, y). x < y})\<close>
   by (smt (verit) less_char_def char.less_trans less_than_char_def lexord_partial_trans p2rel_def)
 
+(*
 lemma full_quicksort_sort_poly_spec:
   \<open>(full_quicksort_poly, sort_poly_spec) \<in> \<langle>Id\<rangle>list_rel \<rightarrow>\<^sub>f \<langle>\<langle>Id\<rangle>list_rel\<rangle>nres_rel\<close>
 proof -
@@ -254,7 +248,7 @@ proof -
     by (auto simp: rel2p_def p2rel_def)
    done
 qed
-
+*)
 
 subsection \<open>Lifting to polynomials\<close>
 
@@ -372,8 +366,10 @@ lemma var_order_string_le[sepref_import_param]:
       unfolded less_eq_char_def] var_order_rel_def
       p2rel_def
       simp flip: PAC_Polynomials_Term.less_char_def)
-  using char.lexordp_conv_lexord apply auto
-  done
+  using char.lexordp_conv_lexord 
+  apply auto
+  apply (simp add: List.lexordp_def less_list_def lexord_char_rel_mono_iff)
+  by (simp add: List.lexordp_def less_list_def lexord_char_rel_mono_iff)
 
 lemma [sepref_import_param]:
   \<open>( (\<le>), (\<le>)) \<in> monom_rel \<rightarrow> monom_rel \<rightarrow>bool_rel\<close>
@@ -386,18 +382,16 @@ proof -
   have [iff]: \<open>ord.lexordp (<) (literal.explode a) (literal.explode aa) \<longleftrightarrow>
        List.lexordp (<) (literal.explode a) (literal.explode aa)\<close> for a aa
     apply (rule iffI)
-     apply (metis PAC_Checker_Relation.less_char_def char.lexordp_conv_lexord less_list_def
-        p2rel_def var_order_rel'' var_order_rel_def)
-    apply (metis PAC_Checker_Relation.less_char_def char.lexordp_conv_lexord less_list_def
-        p2rel_def var_order_rel'' var_order_rel_def)
-    done
+    using List.lexordp_def char.lexordp_conv_lexord apply auto[1]
+    using List.lexordp_def char.lexordp_conv_lexord by auto
   show ?thesis
     unfolding string_rel_def less_literal.rep_eq less_than_char_def
       less_eq_list_def PAC_Polynomials_Term.less_char_def[symmetric]
-    by (intro fun_relI)
-     (auto simp: string_rel_def less_literal.rep_eq
+    apply (auto simp: string_rel_def less_literal.rep_eq
         less_list_def char.lexordp_conv_lexord lexordp_eq_refl
         lexordp_eq_conv_lexord)
+    apply (simp add: List.lexordp_def lexord_char_rel_mono_iff)
+    by (meson List.lexordp_def lexord_char_rel_mono_iff)
 qed
 
 
@@ -410,32 +404,38 @@ lemma [sepref_import_param]:
   \<open>( (\<le>), (\<le>)) \<in> string_rel \<rightarrow> string_rel \<rightarrow>bool_rel\<close>
   unfolding string_rel_def less_eq_literal.rep_eq less_than_char_def
     less_eq_list_def PAC_Polynomials_Term.less_char_def[symmetric]
-  by (intro fun_relI)
-   (auto simp: string_rel_def less_eq_literal.rep_eq less_than_char_def
+  apply (auto simp: string_rel_def less_eq_literal.rep_eq less_than_char_def
     less_eq_list_def char.lexordp_eq_conv_lexord lexordp_eq_refl
     lexordp_eq_conv_lexord lexordp_char_char
     simp flip: less_char_def[abs_def])
+  apply (metis single_valued_def single_valued_string_rel string_rel_def)
+  using char.lexordp_conv_lexord lexord_char_rel_mono_iff lexordp_conv_lexord apply fastforce
+  apply (meson lexord_char_rel_mono_iff lexordp_conv_lexord lexordp_linear)
+  using char.lexordp_conv_lexord lexord_char_rel_mono_iff lexordp_conv_lexord by fastforce
 
 sepref_register lexord_eq
 sepref_definition lexord_eq_term
   is \<open>uncurry (RETURN oo lexord_eq)\<close>
-  :: \<open>monom_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
+  :: \<open>monom_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   supply[[goals_limit=1]]
   unfolding lexord_eq_alt_def2
-  by sepref
+  apply sepref_dbg_keep
+  oops
 
+(* Have to fix refinment first
 declare lexord_eq_term.refine[sepref_fr_rules]
+*)
 
-
+(*
 lemmas [code del] = msort_poly_impl_def msort_monoms_impl_def
 lemmas [code] =
   msort_poly_impl_def[unfolded lexord_eq_alt_def1[abs_def]]
   msort_monoms_impl_def[unfolded msort_msort2]
+*)
 
 lemma term_order_rel_trans:
-  \<open>(a, aa) \<in> term_order_rel \<Longrightarrow>
-       (aa, ab) \<in> term_order_rel \<Longrightarrow> (a, ab) \<in> term_order_rel\<close>
-  by (metis PAC_Checker_Relation.less_char_def p2rel_def string_list_trans var_order_rel_def)
+  \<open>(a, aa) \<in> term_order_rel \<Longrightarrow> (aa, ab) \<in> term_order_rel \<Longrightarrow> (a, ab) \<in> term_order_rel\<close>
+  by (metis Char_Assn.less_char_def p2rel_def string_list_trans var_order_rel_def)
 
 lemma merge_sort_poly_sort_poly_spec:
   \<open>(RETURN o merge_sort_poly, sort_poly_spec) \<in> \<langle>Id\<rangle>list_rel \<rightarrow>\<^sub>f \<langle>\<langle>Id\<rangle>list_rel\<rangle>nres_rel\<close>
@@ -466,14 +466,13 @@ lemma msort_alt_def:
   done
 
 lemma monomial_rel_order_map:
-  \<open>(x, a, b) \<in> monomial_rel \<Longrightarrow>
-       (y, aa, bb) \<in> monomial_rel \<Longrightarrow>
-       fst x \<le> fst y \<longleftrightarrow> a \<le> aa\<close>
+  \<open>(x, a, b) \<in> monomial_rel \<Longrightarrow>  (y, aa, bb) \<in> monomial_rel \<Longrightarrow> fst x \<le> fst y \<longleftrightarrow> a \<le> aa\<close>
   apply (cases x; cases y)
   apply auto
-  using list_rel_list_rel_order_iff by fastforce+
+  apply (meson list_rel_list_rel_order_iff not_less)
+  by (meson list_rel_list_rel_order_iff not_less)
 
-
+(* This is simply not provable in llvm i think
 lemma step_rewrite_pure:
   fixes K :: \<open>('olbl \<times> 'lbl) set\<close>
   shows
@@ -498,12 +497,12 @@ lemma step_rewrite_pure:
 lemma safe_pac_step_rel_assn[safe_constraint_rules]:
   "is_pure K \<Longrightarrow> is_pure V \<Longrightarrow> is_pure R \<Longrightarrow> is_pure (pac_step_rel_assn K V R)"
   by (auto simp: step_rewrite_pure(1)[symmetric] is_pure_conv)
+*)
 
 
 lemma merge_poly_merge_poly:
-  \<open>(merge_poly, merge_poly)
-   \<in> poly_rel \<rightarrow> poly_rel \<rightarrow> poly_rel\<close>
-   unfolding merge_poly_def
+  \<open>(merge_poly, merge_poly) \<in> poly_rel \<rightarrow> poly_rel \<rightarrow> poly_rel\<close>
+  unfolding merge_poly_def
   apply (intro fun_relI)
   subgoal for a a' aa a'a
     apply (induction \<open>(\<lambda>(a :: String.literal list \<times> int)
@@ -519,10 +518,13 @@ lemma merge_poly_merge_poly:
       by (auto elim!: list_relE3 list_relE4 list_relE list_relE2)
     done
   done
+*)
 
+(*
 lemmas [fcomp_norm_unfold] =
   poly_assn_list[symmetric]
   step_rewrite_pure(1)
+*)
 
 lemma merge_poly_merge_poly2:
   \<open>(a, b) \<in> poly_rel \<Longrightarrow> (a', b') \<in> poly_rel \<Longrightarrow>
@@ -611,8 +613,10 @@ sepref_definition full_quicksort_poly_impl
     List.null_iff
   by sepref
 
+(*
 lemmas sort_poly_spec_hnr =
   full_quicksort_poly_impl.refine[FCOMP full_quicksort_sort_poly_spec]
+*)
 
 declare merge_coeffs_impl.refine[sepref_fr_rules]
 
@@ -657,6 +661,7 @@ lemma string_trans:
   (xa, z) \<in> lexord {(x::char, y::char). x < y}\<close>
   by (smt (verit) less_char_def char.less_trans less_than_char_def lexord_partial_trans p2rel_def)
 
+(*
 lemma full_quicksort_sort_vars_spec:
   \<open>(full_quicksort_vars, sort_coeff) \<in> \<langle>Id\<rangle>list_rel \<rightarrow>\<^sub>f \<langle>\<langle>Id\<rangle>list_rel\<rangle>nres_rel\<close>
 proof -
@@ -689,7 +694,7 @@ proof -
     by (auto simp: rel2p_def p2rel_def rel2p_def[abs_def])
    done
 qed
-
+*)
 
 sepref_definition partition_main_vars_impl
   is \<open>uncurry2 partition_main_vars\<close>
@@ -746,8 +751,10 @@ sepref_definition full_quicksort_vars_impl
     List.null_iff
     by sepref
 
+(*
 lemmas sort_vars_spec_hnr =
   full_quicksort_vars_impl.refine[FCOMP full_quicksort_sort_vars_spec]
+*)
 
 lemma string_rel_order_map:
   \<open>(x, a) \<in> string_rel \<Longrightarrow>

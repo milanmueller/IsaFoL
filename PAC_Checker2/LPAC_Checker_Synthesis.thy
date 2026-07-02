@@ -7,10 +7,8 @@ theory LPAC_Checker_Synthesis
   imports
     LPAC_Checker
     LPAC_Version
-    LPAC_Checker_Init
     LPAC_Steps_Refine
     PAC_Checker_LLVM.More_Loops
-    PAC_Checker_LLVM.WB_Sort
     PAC_Checker_LLVM.PAC_Checker_Relation
     PAC_Checker_LLVM.PAC_Checker_Synthesis
 begin
@@ -118,7 +116,6 @@ sepref_decl_intf ('k) acode_status is "('k) code_status"
 sepref_decl_intf ('k, 'b, 'lbl) apac_step is "('k, 'b, 'lbl) pac_step"
 
 sepref_register merge_cstatus full_normalize_poly new_var is_Add
-find_theorems is_CL RETURN
 
 sepref_register check_linear_combi_l check_extension_l2
     term check_extension_l2
@@ -297,7 +294,6 @@ where
   }\<close>
 
 sepref_register remap_polys_l
-find_theorems full_checker_l2
 sepref_definition full_checker_l_impl
   is \<open>uncurry2 full_checker_l2\<close>
   :: \<open>poly_assn\<^sup>k *\<^sub>a polys_assn_input\<^sup>d *\<^sub>a (list_assn (pac_step_rel_assn (uint64_nat_assn) poly_assn string_assn))\<^sup>k \<rightarrow>\<^sub>a

@@ -72,29 +72,29 @@ fun pac_step_rel_raw :: \<open>('olbl \<times> 'lbl) set \<Rightarrow> ('a \<tim
 
 fun pac_step_rel_assn :: \<open>('olbl \<Rightarrow> 'lbl \<Rightarrow> assn) \<Rightarrow> ('a \<Rightarrow> 'b \<Rightarrow> assn) \<Rightarrow> ('c \<Rightarrow> 'd \<Rightarrow> assn) \<Rightarrow> ('a, 'c, 'olbl) pac_step \<Rightarrow> ('b, 'd, 'lbl) pac_step \<Rightarrow> assn\<close> where
 \<open>pac_step_rel_assn R1 R2 R3 (Add p1 p2 i r) (Add p1' p2' i' r') =
-   R1 p1 p1' * R1 p2 p2' * R1 i i' *
-   R2 r r'\<close> |
+   (R1 p1 p1' ** R1 p2 p2' ** R1 i i' **
+   R2 r r')\<close> |
 \<open>pac_step_rel_assn R1 R2 R3 (Mult p1 p2 i r) (Mult p1' p2' i' r') =
-   R1 p1 p1' * R2 p2 p2' * R1 i i' *
-   R2 r r'\<close> |
+   (R1 p1 p1' ** R2 p2 p2' ** R1 i i' **
+   R2 r r')\<close> |
 \<open>pac_step_rel_assn R1 R2 R3 (Del p1) (Del p1') =
    R1 p1 p1'\<close> |
 \<open>pac_step_rel_assn R1 R2 R3 (Extension i x p1) (Extension i' x' p1') =
-   R1 i i' * R3 x x' * R2 p1 p1'\<close> |
-\<open>pac_step_rel_assn R1 R2 _ _ _ = false\<close>
+   (R1 i i' ** R3 x x' ** R2 p1 p1')\<close> |
+\<open>pac_step_rel_assn R1 R2 _ _ _ = sep_false\<close>
+
 
 lemma pac_step_rel_assn_alt_def:
   \<open>pac_step_rel_assn R1 R2 R3 x y = (
   case (x, y) of
       (Add p1 p2 i r, Add p1' p2' i' r') \<Rightarrow>
-        R1 p1 p1' * R1 p2 p2' * R1 i i' * R2 r r'
+        R1 p1 p1' ** R1 p2 p2' ** R1 i i' ** R2 r r'
     | (Mult p1 p2 i r, Mult p1' p2' i' r') \<Rightarrow>
-        R1 p1 p1' * R2 p2 p2' * R1 i i' * R2 r r'
+        R1 p1 p1' ** R2 p2 p2' ** R1 i i' ** R2 r r'
     | (Del p1, Del p1') \<Rightarrow> R1 p1 p1'
-    | (Extension i x p1, Extension i' x' p1') \<Rightarrow> R1 i i' * R3 x x' * R2 p1 p1'
-    | _ \<Rightarrow> false)\<close>
+    | (Extension i x p1, Extension i' x' p1') \<Rightarrow> R1 i i' ** R3 x x' ** R2 p1 p1'
+    | _ \<Rightarrow> sep_false)\<close>
     by (auto split: pac_step.splits)
-
 
 paragraph \<open>Addition checking\<close>
 

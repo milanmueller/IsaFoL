@@ -58,9 +58,6 @@ The development is organised as follows:
   \<^item> \<^file>\<open>PAC_Checker.thy\<close> contains the refined version where polynomials are represented as lists.
   \<^item> \<^file>\<open>PAC_Checker_Synthesis.thy\<close> contains the efficient implementation with imperative data
   structure like a hash set.
-  \<^item> \<^file>\<open>PAC_Checker_MLton.thy\<close> contains the code generation and the command to compile the file with
-  the ML compiler MLton.
-
 
 Here is an example of a proof and an input file (taken from the appendix of our FMCAD
 paper~\<^cite>\<open>"KaufmannFleuryBiere-FMCAD20"\<close>, available at \<^url>\<open>http://fmv.jku.at/pacheck_pasteque\<close>):
