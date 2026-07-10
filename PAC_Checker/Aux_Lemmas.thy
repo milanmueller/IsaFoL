@@ -2,6 +2,30 @@ theory Aux_Lemmas
   imports Main Isabelle_LLVM.IICF
 begin
 
+(* TODO: Move and properly implement.
+   Placeholder until Isabelle LLVM gains a hashmap implementation.
+   The concrete representation is fixed to \<^typ>\<open>unit\<close> and the body to
+   \<^const>\<open>sep_false\<close> so the definition type-checks but admits no concrete
+   value (no synthesis rules should fire on this yet). *)
+definition hm_assn ::
+  \<open>('k \<Rightarrow> 'ck \<Rightarrow> assn) \<Rightarrow>
+   ('v \<Rightarrow> 'cv \<Rightarrow> assn) \<Rightarrow>
+   ('k \<Rightarrow> 'v option) \<Rightarrow> unit \<Rightarrow> assn\<close> where
+  \<open>hm_assn K V \<equiv> \<lambda>_ _. sep_false\<close>
+
+(* TODO: Move and properly implement.
+   Placeholder until Isabelle LLVM gains a hashset implementation.
+   Mirrors \<^const>\<open>hm_assn\<close>: the concrete representation is fixed to \<^typ>\<open>unit\<close>
+   and the body to \<^const>\<open>sep_false\<close> so the definition type-checks but admits
+   no concrete value (no synthesis rules should fire on this yet).
+   In Refine_Imperative_HOL this was the \<open>hs.assn\<close> of the \<open>bind_set\<close> locale,
+   with \<open>hs.assn A \<equiv> hr_comp is_set (\<langle>the_pure A\<rangle>set_rel)\<close> of type
+   \<open>('a \<Rightarrow> 'ai \<Rightarrow> assn) \<Rightarrow> 'a set \<Rightarrow> 'm \<Rightarrow> assn\<close>. *)
+definition hs_assn ::
+  \<open>('a \<Rightarrow> 'ca \<Rightarrow> assn) \<Rightarrow>
+   'a set \<Rightarrow> unit \<Rightarrow> assn\<close> where
+  \<open>hs_assn A \<equiv> \<lambda>_ _. sep_false\<close>
+
 text \<open>Lemmas and Definitions that are not available in Isabelle LLVM, but where
 (possibly indirectly) available in Refine_Imperative HOL\<close>
 

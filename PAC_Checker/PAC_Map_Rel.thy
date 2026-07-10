@@ -7,6 +7,7 @@ theory PAC_Map_Rel
   imports
     Isabelle_LLVM.IICF
     (*Refine_Imperative_HOL.IICF*)
+    Aux_Lemmas
     Finite_Map_Multiset
 begin
 
@@ -234,17 +235,6 @@ lemma [def_pat_rules]:
 lemma op_map_lookup_fmlookup:
   \<open>(op_map_lookup, fmlookup') \<in> Id \<rightarrow> map_fmap_rel \<rightarrow> \<langle>Id\<rangle>option_rel\<close>
   by (auto simp: map_fmap_rel_def br_def fmap.Abs_fmap_inverse)
-
-(* TODO: Move and properly implement.
-   Placeholder until Isabelle LLVM gains a hashmap implementation.
-   The concrete representation is fixed to \<^typ>\<open>unit\<close> and the body to
-   \<^const>\<open>sep_false\<close> so the definition type-checks but admits no concrete
-   value (no synthesis rules should fire on this yet). *)
-definition hm_assn ::
-  \<open>('k \<Rightarrow> 'ck \<Rightarrow> assn) \<Rightarrow>
-   ('v \<Rightarrow> 'cv \<Rightarrow> assn) \<Rightarrow>
-   ('k \<Rightarrow> 'v option) \<Rightarrow> unit \<Rightarrow> assn\<close> where
-  \<open>hm_assn K V \<equiv> \<lambda>_ _. sep_false\<close>
 
 abbreviation hm_fmap_assn where
   \<open>hm_fmap_assn K V \<equiv> hr_comp (hm_assn K V) map_fmap_rel\<close>

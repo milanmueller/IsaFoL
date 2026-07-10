@@ -11,7 +11,8 @@ definition char_rel :: \<open>(8 word \<times> char) set\<close> where
   \<open>char_rel \<equiv> br char_of_word (\<lambda>_. True)\<close>
 
 definition \<open>char_assn \<equiv> pure char_rel\<close>
-lemma char_assn_pure: \<open>is_pure char_assn\<close> unfolding char_assn_def by simp (* nice to know *)
+lemma char_assn_pure[safe_constraint_rules]: \<open>is_pure char_assn\<close>
+  unfolding char_assn_def by simp
 
 interpretation char_word: standard_opr_abstraction
   "char_of_word :: 8 word \<Rightarrow> char"

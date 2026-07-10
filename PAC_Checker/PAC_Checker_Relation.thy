@@ -10,7 +10,7 @@ theory PAC_Checker_Relation
     "Native_Word.Uint64" 
     "Native_Word.Uint32" 
     Collections.HashCode
-    String_Array_Assn
+    Monom_Assn
     BigInt_LLVM.LLVM_CodeGen_Signed
 begin
 
@@ -83,15 +83,9 @@ lemma [sepref_fr_rules]:
   by sepref_to_hoare
    (sep_auto simp: uint64_nat_rel_def br_def nat_of_uint64_uint64_of_nat_id)
 *)
-definition \<open>string_rel \<equiv> \<langle>char_rel\<rangle>list_rel\<close>
 
-abbreviation monom_rel where
-  \<open>monom_rel \<equiv> \<langle>string_rel\<rangle>list_rel\<close>
-
-abbreviation monom_assn where
-  \<open>monom_assn \<equiv> larray_assn' TYPE(size_t) string_assn\<close>
-
-abbreviation monomial_rel where
+    
+definition  monomial_rel where
   \<open>monomial_rel \<equiv> monom_rel \<times>\<^sub>r signed_big_int_rel\<close>
 
 abbreviation monomial_assn where
@@ -101,64 +95,30 @@ abbreviation poly_rel where
   \<open>poly_rel \<equiv> \<langle>monomial_rel\<rangle>list_rel\<close>
 
 abbreviation poly_assn where
-  \<open>poly_assn \<equiv> al_assn' TYPE(size_t) monomial_assn\<close>
+  \<open>poly_assn \<equiv> ol_assn monomial_assn\<close>
 
 abbreviation polys_assn where
   \<open>polys_assn \<equiv> hm_fmap_assn uint64_nat_assn poly_assn\<close>
 
-lemma single_valued_string_rel:
-  \<open>single_valued string_rel\<close>
-  unfolding string_rel_def
-  by (rule list_rel_sv) (auto simp: single_valued_def char_rel_def br_def)
-
-lemma IS_LEFT_UNIQUE_string_rel:
-  \<open>IS_LEFT_UNIQUE string_rel\<close>
-  unfolding IS_LEFT_UNIQUE_def string_rel_def inv_list_rel_eq
-  apply (rule list_rel_sv)
-  apply (auto simp: single_valued_def char_rel_def br_def char_of_word_def
-       word_unat_eq_iff)
-  by (simp add: unat_of_char_mod)
-
-lemmas IS_RIGHT_UNIQUE_string_rel = single_valued_string_rel
-
-lemma single_valued_monom_rel: \<open>single_valued monom_rel\<close>
-  by (rule list_rel_sv) (rule single_valued_string_rel)
-
 lemma single_valued_monomial_rel:
   \<open>single_valued monomial_rel\<close>
-  using single_valued_monom_rel
-  by (auto intro!: frefI simp:
-    rel2p_def single_valued_def p2rel_def)
+  unfolding monomial_rel_def signed_big_int_rel_def
+  by (intro prod_rel_sv single_valued_monom_rel br_sv)
 
-lemma single_valued_monom_rel': \<open>IS_LEFT_UNIQUE monom_rel\<close>
-  unfolding IS_LEFT_UNIQUE_def inv_list_rel_eq
-  by (rule list_rel_sv) (rule IS_LEFT_UNIQUE_string_rel[unfolded IS_LEFT_UNIQUE_def])
-
+lemma IS_LEFT_UNIQUE_signed_big_int_rel:
+  \<open>IS_LEFT_UNIQUE signed_big_int_rel\<close>
+  unfolding IS_LEFT_UNIQUE_def signed_big_int_rel_def single_valued_def
+  by (metis converse_iff in_br_conv signed_big_int_to_int_unique)
 
 lemma single_valued_monomial_rel':
   \<open>IS_LEFT_UNIQUE monomial_rel\<close>
-  using single_valued_monom_rel'
-  unfolding IS_LEFT_UNIQUE_def inv_list_rel_eq
-  by (auto intro!: frefI simp:
-    rel2p_def single_valued_def p2rel_def)
+  unfolding monomial_rel_def IS_LEFT_UNIQUE_def inv_prod_rel_eq
+  by (rule prod_rel_sv)
+     (use single_valued_monom_rel' IS_LEFT_UNIQUE_signed_big_int_rel
+        in \<open>simp_all add: IS_LEFT_UNIQUE_def\<close>)
 
-lemma [safe_constraint_rules]:
-  \<open>Sepref_Constraints.CONSTRAINT single_valued string_rel\<close>
-  \<open>Sepref_Constraints.CONSTRAINT IS_LEFT_UNIQUE string_rel\<close>
-  using single_valued_string_rel IS_LEFT_UNIQUE_string_rel
-  by (auto simp: CONSTRAINT_def)
-
-(* TODO: Probably needs more setup for string equality
-lemma eq_string_monom_hnr[sepref_fr_rules]:
-  \<open>(uncurry (Mreturn oo (=)), uncurry (RETURN oo (=))) \<in> monom_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
-  using single_valued_monom_rel' single_valued_monom_rel
-  unfolding list_assn_pure_conv
-  by sepref_to_hoare
-   (sep_auto simp: list_assn_pure_conv string_rel_string_assn
-       single_valued_def IS_LEFT_UNIQUE_def
-     dest!: mod_starD
-     simp flip: inv_list_rel_eq)
-*)
+text \<open>String/monomial relations, assertions and equality (replacing the AFP's
+  \<open>eq_string_monom_hnr\<close>) have moved to \<open>Monom_Assn\<close>.\<close>
 
 definition term_order_rel' where
   [simp]: \<open>term_order_rel' x y = ((x, y) \<in> term_order_rel)\<close>
@@ -173,34 +133,10 @@ lemma term_order_rel_alt_def:
   apply (rule arg_cong[where f=lexord])
   by (auto simp: p2rel_def char.lexordp_conv_lexord less_than_char_def)
 
-instantiation list :: (linorder) linorder
-begin
-  definition less_list where  "less_list = lexordp (<)"
-  definition less_eq_list where "less_eq_list = lexordp_eq"
-
-instance
-proof standard
-  have [dest]: \<open>\<And>x y :: 'a :: linorder list. (x, y) \<in> lexord {(x, y). x < y} \<Longrightarrow>
-           lexordp_eq y x \<Longrightarrow> False\<close>
-    by (metis lexordp_antisym lexordp_conv_lexord lexordp_eq_conv_lexord)
-  have [simp]: \<open>\<And>x y :: 'a :: linorder list. lexordp_eq x y \<Longrightarrow>
-           \<not> lexordp_eq y x \<Longrightarrow>
-           (x, y) \<in> lexord {(x, y). x < y}\<close>
-    using lexordp_conv_lexord lexordp_conv_lexordp_eq by blast
-  show
-   \<open>(x < y) = Restricted_Predicates.strict (\<le>) x y\<close>
-   \<open>x \<le> x\<close>
-   \<open>x \<le> y \<Longrightarrow> y \<le> z \<Longrightarrow> x \<le> z\<close>
-   \<open>x \<le> y \<Longrightarrow> y \<le> x \<Longrightarrow> x = y\<close>
-   \<open>x \<le> y \<or> y \<le> x\<close>
-   for x y z :: \<open>'a :: linorder list\<close>
-    by (auto simp: less_list_def less_eq_list_def List.lexordp_def
-    lexordp_conv_lexord lexordp_into_lexordp_eq lexordp_antisym
-    antisym_def lexordp_eq_refl lexordp_eq_linear intro: lexordp_eq_trans
-    dest: lexordp_eq_antisym)
-qed
-
-end
+text \<open>The \<open>list :: linorder\<close> instantiation (\<open>less_list = lexordp (<)\<close>,
+  \<open>less_eq_list = lexordp_eq\<close>) has moved upstream to \<open>String_Assn\<close> so that the
+  refinement rule for \<open>strl_lt\<close> can be stated against \<open>(<)\<close>; it is inherited here
+  via \<open>Monom_Assn\<close>.\<close>
 
 
 lemma term_order_rel'_alt_def_lexord:

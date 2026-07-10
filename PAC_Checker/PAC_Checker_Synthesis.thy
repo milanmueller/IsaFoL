@@ -15,8 +15,10 @@ adding more efficient data structures (mostly replacing the set of variables by 
 hash map).\<close>
 
 abbreviation vars_assn where
-  \<open>vars_assn \<equiv> hs.assn string_assn\<close>
+  \<open>vars_assn \<equiv> hs_assn string_assn\<close>
 
+(* Not needed in new Version *)
+(*
 fun vars_of_monom_in where
   \<open>vars_of_monom_in [] _ = True\<close> |
   \<open>vars_of_monom_in (x # xs) \<V> \<longleftrightarrow> x \<in> \<V> \<and> vars_of_monom_in xs \<V>\<close>
@@ -44,9 +46,10 @@ lemma vars_of_monom_in_alt_def2:
 
 sepref_definition vars_of_monom_in_impl
   is \<open>uncurry (RETURN oo vars_of_monom_in)\<close>
-  :: \<open>(list_assn string_assn)\<^sup>k *\<^sub>a vars_assn\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
+  :: \<open>monom_assn\<^sup>k *\<^sub>a vars_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   unfolding vars_of_monom_in_alt_def2
-  by sepref
+  apply sepref_dbg_keep
+  oops
 
 declare vars_of_monom_in_impl.refine[sepref_fr_rules]
 
@@ -57,15 +60,15 @@ lemma vars_of_poly_in_alt_def2:
   subgoal by (induction xs) auto
   done
 
-
 sepref_definition vars_of_poly_in_impl
   is \<open>uncurry (RETURN oo vars_of_poly_in)\<close>
-  :: \<open>(poly_assn)\<^sup>k *\<^sub>a vars_assn\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
+  :: \<open>(poly_assn)\<^sup>k *\<^sub>a vars_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   unfolding vars_of_poly_in_alt_def2
-  by sepref
+  apply sepref_dbg_keep
+  oops
 
 declare vars_of_poly_in_impl.refine[sepref_fr_rules]
-
+*)
 
 definition union_vars_monom :: \<open>string list \<Rightarrow> string set \<Rightarrow> string set\<close> where
 \<open>union_vars_monom xs \<V> = fold insert xs \<V>\<close>
@@ -99,7 +102,8 @@ sepref_definition union_vars_monom_impl
   is \<open>uncurry (RETURN oo union_vars_monom)\<close>
   :: \<open>monom_assn\<^sup>k *\<^sub>a vars_assn\<^sup>d \<rightarrow>\<^sub>a vars_assn\<close>
   unfolding union_vars_monom_def
-  by sepref
+  apply (sepref_dbg_keep)
+  oops
 
 declare union_vars_monom_impl.refine[sepref_fr_rules]
 
@@ -107,65 +111,67 @@ sepref_definition union_vars_poly_impl
   is \<open>uncurry (RETURN oo union_vars_poly)\<close>
   :: \<open>poly_assn\<^sup>k *\<^sub>a vars_assn\<^sup>d \<rightarrow>\<^sub>a vars_assn\<close>
   unfolding union_vars_poly_def
-  by sepref
+  apply sepref_dbg_keep
+  oops
 
 declare union_vars_poly_impl.refine[sepref_fr_rules]
-
 
 hide_const (open) Autoref_Fix_Rel.CONSTRAINT
 
 fun status_assn where
-  \<open>status_assn _ CSUCCESS CSUCCESS = emp\<close> |
-  \<open>status_assn _ CFOUND CFOUND = emp\<close> |
+  \<open>status_assn _ CSUCCESS CSUCCESS = \<box>\<close> |
+  \<open>status_assn _ CFOUND CFOUND = \<box>\<close> |
   \<open>status_assn R (CFAILED a) (CFAILED b) = R a b\<close> |
-  \<open>status_assn _ _ _ = false\<close>
+  \<open>status_assn _ _ _ = sep_false\<close>
+
+lemma status_assn_CSUCCESS[simp]: \<open>status_assn R x CSUCCESS = \<up>(x = CSUCCESS)\<close>
+  by (cases x) (auto simp: sep_algebra_simps)
+
+lemma status_assn_CFOUND[simp]: \<open>status_assn R x CFOUND = \<up>(x = CFOUND)\<close>
+  by (cases x) (auto simp: sep_algebra_simps)
 
 lemma SUCCESS_hnr[sepref_fr_rules]:
-  \<open>(uncurry0 (return CSUCCESS), uncurry0 (RETURN CSUCCESS)) \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a status_assn R\<close>
-  by (sepref_to_hoare)
-    sep_auto
+  \<open>(uncurry0 (Mreturn CSUCCESS), uncurry0 (RETURN CSUCCESS)) \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a status_assn R\<close>
+  by sepref_to_hoare vcg
 
 lemma FOUND_hnr[sepref_fr_rules]:
-  \<open>(uncurry0 (return CFOUND), uncurry0 (RETURN CFOUND)) \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a status_assn R\<close>
-  by (sepref_to_hoare)
-    sep_auto
+  \<open>(uncurry0 (Mreturn CFOUND), uncurry0 (RETURN CFOUND)) \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a status_assn R\<close>
+  by sepref_to_hoare vcg
 
+(*
 lemma is_success_hnr[sepref_fr_rules]:
   \<open>CONSTRAINT is_pure R \<Longrightarrow>
-  ((return o is_cfound), (RETURN o is_cfound)) \<in> (status_assn R)\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
+  ((Mreturn o is_cfound), (RETURN o is_cfound)) \<in> (status_assn R)\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   apply (sepref_to_hoare)
-  apply (rename_tac xi x; case_tac xi; case_tac x)
-  apply sep_auto+
-  done
+  apply vcg
 
 lemma is_cfailed_hnr[sepref_fr_rules]:
   \<open>CONSTRAINT is_pure R \<Longrightarrow>
-  ((return o is_cfailed), (RETURN o is_cfailed)) \<in> (status_assn R)\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
+  ((Mreturn o is_cfailed), (RETURN o is_cfailed)) \<in> (status_assn R)\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   apply (sepref_to_hoare)
   apply (rename_tac xi x; case_tac xi; case_tac x)
   apply  sep_auto+
   done
+*)
 
 lemma merge_cstatus_hnr[sepref_fr_rules]:
   \<open>CONSTRAINT is_pure R \<Longrightarrow>
-  (uncurry (return oo merge_cstatus), uncurry (RETURN oo merge_cstatus)) \<in>
+  (uncurry (Mreturn oo merge_cstatus), uncurry (RETURN oo merge_cstatus)) \<in>
     (status_assn R)\<^sup>k *\<^sub>a  (status_assn R)\<^sup>k \<rightarrow>\<^sub>a status_assn R\<close>
   apply (sepref_to_hoare)
-  by (case_tac b; case_tac bi; case_tac a; case_tac ai; sep_auto simp: is_pure_conv pure_app_eq)
+  apply vcg
+  apply (auto simp: ENTAILS_def sep_algebra_simps entails_def is_pure_conv pure_app_eq)
+  oops
 
 sepref_definition add_poly_impl
   is \<open>add_poly_l\<close>
   :: \<open>(poly_assn \<times>\<^sub>a poly_assn)\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
   supply [[goals_limit=1]]
   unfolding add_poly_l_def
-    HOL_list.fold_custom_empty
-    term_order_rel'_def[symmetric]
-    term_order_rel'_alt_def
-  by sepref
-
+  apply sepref_dbg_keep
+  oops
 
 declare add_poly_impl.refine[sepref_fr_rules]
-
 
 sepref_register mult_monomials
 lemma mult_monoms_alt_def:
@@ -320,14 +326,14 @@ lemma status_assn_pure_conv:
     (auto simp: pure_def)
 
 
+(* Dead in LPAC: Add-step error message (check_not_equal_dom_err not used by the new checker)
 lemma [sepref_fr_rules]:
   \<open>(uncurry3 (\<lambda>x y. return oo (error_msg_not_equal_dom x y)), uncurry3 check_not_equal_dom_err) \<in>
   poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a raw_string_assn\<close>
   unfolding show_nat_def[symmetric] list_assn_pure_conv
     prod_assn_pure_conv check_not_equal_dom_err_def
   by (sepref_to_hoare; sep_auto simp: error_msg_not_equal_dom_def)
-
-
+*)
 
 lemma [sepref_fr_rules]:
   \<open>(return o (error_msg_notin_dom o nat_of_uint64), RETURN o error_msg_notin_dom)
@@ -343,6 +349,8 @@ lemma [sepref_fr_rules]:
   unfolding show_nat_def[symmetric]
   by (sepref_to_hoare; sep_auto simp: uint64_nat_rel_def br_def; fail)+
 
+(* Dead in LPAC: Add/Mult step checkers + their error messages.
+   The LPAC format replaced Add/Mult steps by linear-combination (CL) steps.
 sepref_definition check_addition_l_impl
   is \<open>uncurry6 check_addition_l\<close>
   :: \<open>poly_assn\<^sup>k *\<^sub>a polys_assn\<^sup>k *\<^sub>a vars_assn\<^sup>k *\<^sub>a uint64_nat_assn\<^sup>k *\<^sub>a uint64_nat_assn\<^sup>k *\<^sub>a
@@ -401,7 +409,10 @@ sepref_definition check_mult_l_impl
   by sepref
 
 declare check_mult_l_impl.refine[sepref_fr_rules]
+*)
 
+(* Dead in LPAC: old extension-step error messages.
+   LPAC checks check_extension_l2 with its own impls + error messages (same names, shadowing).
 definition check_ext_l_dom_err_impl :: \<open>uint64 \<Rightarrow> _\<close>  where
   \<open>check_ext_l_dom_err_impl p =
     ''There is already a polynomial with index '' @ show (nat_of_uint64 p)\<close>
@@ -457,6 +468,7 @@ lemma [sepref_fr_rules]:
    apply sepref_to_hoare
    apply sep_auto
    done
+*)
 
 
 sepref_register check_extension_l_dom_err fmlookup'
@@ -476,7 +488,7 @@ lemma [sepref_import_param]:
      auto
   done
 
-sepref_register vars_of_poly_in
+sepref_register (* vars_of_poly_in is dead in LPAC *)
   weak_equality_l
 
 lemma [safe_constraint_rules]:
@@ -487,6 +499,7 @@ lemma [safe_constraint_rules]:
   unfolding IS_LEFT_UNIQUE_def[symmetric]
   by (auto simp: step_rewrite_pure single_valued_monomial_rel single_valued_monomial_rel' Sepref_Constraints.CONSTRAINT_def)
 
+(* Dead in LPAC: old extension checker (LPAC synthesizes check_extension_l2, shadowing this name)
 sepref_definition check_extension_l_impl
   is \<open>uncurry5 check_extension_l\<close>
   :: \<open>poly_assn\<^sup>k *\<^sub>a polys_assn\<^sup>k *\<^sub>a vars_assn\<^sup>k *\<^sub>a uint64_nat_assn\<^sup>k *\<^sub>a string_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a
@@ -509,6 +522,7 @@ sepref_definition check_extension_l_impl
 
 
 declare check_extension_l_impl.refine[sepref_fr_rules]
+*)
 
 sepref_definition check_del_l_impl
   is \<open>uncurry2 check_del_l\<close>
@@ -570,12 +584,14 @@ lemma is_Mult_lastI:
 
 sepref_register is_cfailed is_Del
 
+(* Dead in LPAC: shadowed by LPAC's own PAC_checker_l_step' (same name)
 definition PAC_checker_l_step' ::  _ where
   \<open>PAC_checker_l_step' a b c d = PAC_checker_l_step a (b, c, d)\<close>
 
 lemma PAC_checker_l_step_alt_def:
   \<open>PAC_checker_l_step a bcd e = (let (b,c,d) = bcd in PAC_checker_l_step' a b c d e)\<close>
   unfolding PAC_checker_l_step'_def by auto
+*)
 
 sepref_decl_intf ('k) acode_status is "('k) code_status"
 sepref_decl_intf ('k, 'b, 'lbl) apac_step is "('k, 'b, 'lbl) pac_step"
@@ -596,6 +612,7 @@ lemma [safe_constraint_rules]:
     \<open>CONSTRAINT single_valued uint64_nat_rel\<close>
   by (auto simp: IS_LEFT_UNIQUE_def single_valued_def uint64_nat_rel_def br_def)
 
+(* Dead in LPAC: shadowed by LPAC's own check_step_impl
 sepref_definition check_step_impl
   is \<open>uncurry4 PAC_checker_l_step'\<close>
   :: \<open>poly_assn\<^sup>k *\<^sub>a (status_assn raw_string_assn)\<^sup>d *\<^sub>a vars_assn\<^sup>d *\<^sub>a polys_assn\<^sup>d *\<^sub>a (pac_step_rel_assn (uint64_nat_assn) poly_assn (string_assn :: string \<Rightarrow> _))\<^sup>d \<rightarrow>\<^sub>a
@@ -610,9 +627,11 @@ sepref_definition check_step_impl
 
 
 declare check_step_impl.refine[sepref_fr_rules]
+*)
 
-sepref_register PAC_checker_l_step PAC_checker_l_step' fully_normalize_poly_impl
+sepref_register PAC_checker_l_step fully_normalize_poly_impl
 
+(* Dead in LPAC: shadowed by LPAC's own PAC_checker_l' / PAC_checker_l_impl
 definition PAC_checker_l' where
   \<open>PAC_checker_l' p \<V> A status steps = PAC_checker_l p (\<V>, A) status steps\<close>
 
@@ -633,6 +652,7 @@ sepref_definition PAC_checker_l_impl
   by sepref
 
 declare PAC_checker_l_impl.refine[sepref_fr_rules]
+*)
 
 abbreviation polys_assn_input where
   \<open>polys_assn_input \<equiv> iam_fmap_assn nat_assn poly_assn\<close>
@@ -687,6 +707,7 @@ lemma [sepref_fr_rules]:
 
 sepref_register remap_polys_l
 
+(* Dead in LPAC: shadowed by LPAC's own full_checker_l_impl
 sepref_definition full_checker_l_impl
   is \<open>uncurry2 full_checker_l\<close>
   :: \<open>poly_assn\<^sup>k *\<^sub>a polys_assn_input\<^sup>d *\<^sub>a (list_assn (pac_step_rel_assn (uint64_nat_assn) poly_assn string_assn))\<^sup>k \<rightarrow>\<^sub>a
@@ -696,6 +717,7 @@ sepref_definition full_checker_l_impl
     union_vars_poly_alt_def[symmetric]
     PAC_checker_l_alt_def
   by sepref
+*)
 
 sepref_definition PAC_update_impl
   is \<open>uncurry2 (RETURN ooo fmupd)\<close>
@@ -703,6 +725,7 @@ sepref_definition PAC_update_impl
   unfolding comp_def
   by sepref
 
+(* Dead in LPAC: shadowed by LPAC's own PAC_empty_impl / empty_vars_impl
 sepref_definition PAC_empty_impl
   is \<open>uncurry0 (RETURN fmempty)\<close>
   :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a polys_assn_input\<close>
@@ -714,7 +737,10 @@ sepref_definition empty_vars_impl
   :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a vars_assn\<close>
   unfolding hs.fold_custom_empty
   by sepref
+*)
 
+(* Dead in LPAC: SML code-printing/hashcode hack — LPAC redoes this setup itself
+   (keeping it here would clash with LPAC's identical definitions).
 text \<open>This is a hack for performance. There is no need to recheck that that a char is valid when
   working on chars coming from strings... It is not that important in most cases, but in our case
   the preformance difference is really large.\<close>
@@ -760,6 +786,7 @@ lemma [code]: \<open>hashcode s = hashcode_literal' s\<close>
   apply (auto simp: unsafe_asciis_of_literal_def hashcode_list_def
      String.asciis_of_literal_def hashcode_literal_def hashcode_literal'_def)
   done
+*)
 
 (*
 text \<open>We compile Pastèque in \<^file>\<open>PAC_Checker_MLton.thy\<close>.\<close>
@@ -785,6 +812,8 @@ definition full_poly_input_assn where
           (\<langle>nat_rel, fully_unsorted_poly_rel O mset_poly_rel\<rangle>fmap_rel))
         polys_rel\<close>
 
+(* Dead in LPAC: correctness-theorem plumbing.
+   Only full_poly_assn / full_poly_input_assn above are reused (by LPAC_Efficient_Checker_Synthesis).
 definition fully_pac_assn where
   \<open>fully_pac_assn = (list_assn
         (hr_comp (pac_step_rel_assn uint64_nat_assn poly_assn string_assn)
@@ -810,7 +839,9 @@ definition full_polys_assn :: \<open>_\<close> where
                               (\<langle>nat_rel,
                                sorted_poly_rel O mset_poly_rel\<rangle>fmap_rel))
                             polys_rel\<close>
+*)
 
+(* Dead in LPAC: old end-to-end correctness theorem (LPAC states its own).
 text \<open>
 
 Below is the full correctness theorems. It basically states that:
@@ -862,6 +893,7 @@ lemma PAC_full_correctness: (* \htmllink{PAC-full-correctness} *)
         full_polys_assn_def[symmetric]]
       hr_comp_Id2
    by auto
+*)
 
 text \<open>
 
@@ -899,6 +931,7 @@ is the same''), but it is still unsatisfactory.
 
 end
 
+(* Dead in LPAC: poly_embed instantiation that only fed the old correctness theorem
 definition \<phi> :: \<open>string \<Rightarrow> nat\<close> where
   \<open>\<phi> = (SOME \<phi>. bij \<phi>)\<close>
 
@@ -916,5 +949,6 @@ global_interpretation PAC: poly_embed where
 
 
 text \<open>The full correctness theorem is @{thm PAC.PAC_full_correctness}.\<close>
+*)
 
 end

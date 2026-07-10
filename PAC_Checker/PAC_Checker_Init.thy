@@ -98,11 +98,12 @@ lemma mset_msort[simp]:
 
 subsection \<open>Sorting applied to monomials\<close>
 
+(*
 lemma merge_coeffs_alt_def:
   \<open>(RETURN o merge_coeffs) p =
    REC\<^sub>T(\<lambda>f p.
      (case p of
-       [] \<Rightarrow> RETURN []
+       [] \<Rightarrow> RETURN p
      | [_] => RETURN p
      | ((xs, n) # (ys, m) # p) \<Rightarrow>
       (if xs = ys
@@ -117,79 +118,42 @@ lemma merge_coeffs_alt_def:
      (smt case_prod_conv list.simps(5) merge_coeffs.simps(3) nres_monad1
       push_in_let_conv(2))
   done
+*)
+lemma merge_coeffs_alt_def:
+  \<open>(RETURN o merge_coeffs) p =
+   REC\<^sub>T (\<lambda>f p.
+     if p = [] then RETURN p
+     else do {
+       ((xs, n), p) \<leftarrow> mop_list_pop_front p;
+       if p = [] then RETURN ((xs, n) # p)
+       else do {
+         ((ys, m), p) \<leftarrow> mop_list_pop_front p;
+         if xs = ys
+         then let k = n + m in
+           if k \<noteq> 0 then f ((xs, k) # p) else f p
+         else do {
+           p \<leftarrow> f ((ys, m) # p);
+           RETURN ((xs, n) # p)
+         }
+       }
+     })
+    p\<close>
+  apply (induction p rule: merge_coeffs.induct)
+  subgoal by (subst RECT_unfold, refine_mono) (auto simp: refine_pw_simps)
+  subgoal by (subst RECT_unfold, refine_mono) (auto simp: refine_pw_simps)
+  subgoal by (subst RECT_unfold, refine_mono) (auto simp: pw_eq_iff refine_pw_simps Let_def)
+  done
 
-(*
 lemma hn_invalid_recover:
-  \<open>is_pure R \<Longrightarrow> hn_invalid R = (\<lambda>x y. R x y * true)\<close>
-  \<open>is_pure R \<Longrightarrow> invalid_assn R = (\<lambda>x y. R x y * true)\<close>
-  by (auto simp: is_pure_conv invalid_pure_recover hn_ctxt_def intro!: ext)
-*)
+  \<open>is_pure R \<Longrightarrow> hn_invalid R = (\<lambda>x y. R x y ** true)\<close>
+  \<open>is_pure R \<Longrightarrow> invalid_assn R = (\<lambda>x y. R x y ** true)\<close>
+  oops (* not sure if provable in llvm also not sure if needed? *)
 
-(* this is not true for llvm
-lemma safe_poly_vars:
-  shows
-    [safe_constraint_rules]:
-      "is_pure (poly_assn)" and
-    [safe_constraint_rules]:
-      "is_pure (monom_assn)" and
-    [safe_constraint_rules]:
-      "is_pure (monomial_assn)" and
-    [safe_constraint_rules]:
-      "is_pure string_assn"
-  by (auto intro!: pure_prod list_assn_pure simp: prod_assn_pure_conv)
-
-lemma invalid_assn_distrib:
-  \<open>invalid_assn monom_assn \<times>\<^sub>a invalid_assn int_assn = invalid_assn (monom_assn \<times>\<^sub>a int_assn)\<close>
-    apply (simp add: invalid_pure_recover hn_invalid_recover
-      safe_constraint_rules)
-    apply (subst hn_invalid_recover)
-    apply (rule safe_poly_vars(2))
-    apply (subst hn_invalid_recover)
-    apply (rule safe_poly_vars)
-    apply (auto intro!: ext)
-    done
-
-lemma WTF_RF_recover:
-  \<open>hn_ctxt (invalid_assn monom_assn \<times>\<^sub>a invalid_assn int_assn) xb
-        x'a \<or>\<^sub>A
-       hn_ctxt monomial_assn xb x'a \<Longrightarrow>\<^sub>t
-       hn_ctxt (monomial_assn) xb x'a\<close>
-  by (smt assn_aci(5) hn_ctxt_def invalid_assn_distrib invalid_pure_recover is_pure_conv
-    merge_thms(4) merge_true_star reorder_enttI safe_poly_vars(3) star_aci(2) star_aci(3))
-
-lemma WTF_RF:
-  \<open>hn_ctxt (invalid_assn monom_assn \<times>\<^sub>a invalid_assn int_assn) xb x'a *
-       (hn_invalid poly_assn la l'a * hn_invalid int_assn a2' a2 *
-        hn_invalid monom_assn a1' a1 *
-        hn_invalid poly_assn l l' *
-        hn_invalid monomial_assn xa x' *
-        hn_invalid poly_assn ax px) \<Longrightarrow>\<^sub>t
-       hn_ctxt (monomial_assn) xb x'a *
-       hn_ctxt poly_assn
-        la l'a *
-       hn_ctxt poly_assn l l' *
-       (hn_invalid int_assn a2' a2 *
-        hn_invalid monom_assn a1' a1 *
-        hn_invalid monomial_assn xa x' *
-        hn_invalid poly_assn ax px)\<close>
-  \<open>hn_ctxt (invalid_assn monom_assn \<times>\<^sub>a invalid_assn int_assn) xa x' *
-       (hn_ctxt poly_assn l l' * hn_invalid poly_assn ax px) \<Longrightarrow>\<^sub>t
-       hn_ctxt (monomial_assn) xa x' *
-       hn_ctxt poly_assn l l' *
-       hn_ctxt poly_assn ax px *
-       emp\<close>
-  by sepref_dbg_trans_step+
-*)
-
-text \<open>The refinement frameword is completely lost here when synthesizing the constants -- it does
-  not understant what is pure (actually everything) and what must be destroyed.\<close>
 sepref_definition merge_coeffs_impl
   is \<open>RETURN o merge_coeffs\<close>
   :: \<open>poly_assn\<^sup>d \<rightarrow>\<^sub>a poly_assn\<close>
-  supply [[goals_limit=1]]
-  unfolding merge_coeffs_alt_def
-  apply sepref_dbg_keep
-  oops
+  unfolding merge_coeffs_alt_def list.case_eq_if
+  by sepref
 
 definition full_quicksort_poly where
   \<open>full_quicksort_poly = full_quicksort_ref (\<lambda>x y. x = y \<or> (x, y) \<in> term_order_rel) fst\<close>
@@ -467,10 +431,9 @@ lemma msort_alt_def:
 
 lemma monomial_rel_order_map:
   \<open>(x, a, b) \<in> monomial_rel \<Longrightarrow>  (y, aa, bb) \<in> monomial_rel \<Longrightarrow> fst x \<le> fst y \<longleftrightarrow> a \<le> aa\<close>
-  apply (cases x; cases y)
-  apply auto
-  apply (meson list_rel_list_rel_order_iff not_less)
-  by (meson list_rel_list_rel_order_iff not_less)
+  apply (cases x; cases y; auto simp: monomial_rel_def)
+  apply (metis (lifting) linorder_not_less list_rel_list_rel_order_iff)
+  by (metis (lifting) linorder_not_less list_rel_list_rel_order_iff)
 
 (* This is simply not provable in llvm i think
 lemma step_rewrite_pure:
@@ -500,13 +463,14 @@ lemma safe_pac_step_rel_assn[safe_constraint_rules]:
 *)
 
 
+
 lemma merge_poly_merge_poly:
   \<open>(merge_poly, merge_poly) \<in> poly_rel \<rightarrow> poly_rel \<rightarrow> poly_rel\<close>
   unfolding merge_poly_def
   apply (intro fun_relI)
   subgoal for a a' aa a'a
-    apply (induction \<open>(\<lambda>(a :: String.literal list \<times> int)
-      (b :: String.literal list \<times> int). fst a \<le> fst b)\<close> a aa
+    apply (induction \<open>(\<lambda>(a :: 8 word list list \<times> signed_big_int)
+      (b :: 8 word list list \<times> signed_big_int). fst a \<le> fst b)\<close> a aa
       arbitrary: a' a'a
       rule: merge.induct)
     subgoal
@@ -518,7 +482,7 @@ lemma merge_poly_merge_poly:
       by (auto elim!: list_relE3 list_relE4 list_relE list_relE2)
     done
   done
-*)
+
 
 (*
 lemmas [fcomp_norm_unfold] =
@@ -571,7 +535,7 @@ lemmas [sepref_fr_rules] = merge_sort_poly[FCOMP merge_sort_poly_sort_poly_spec]
 
 sepref_definition partition_main_poly_impl
   is \<open>uncurry2 partition_main_poly\<close>
-  :: \<open>nat_assn\<^sup>k *\<^sub>a nat_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a prod_assn poly_assn nat_assn \<close>
+  :: \<open>(snat_assn' TYPE(64))\<^sup>k *\<^sub>a (snat_assn' TYPE(64))\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a prod_assn poly_assn (snat_assn' TYPE(64))\<close>
   unfolding partition_main_poly_def partition_main_def
     term_order_rel'_def[symmetric]
     term_order_rel'_alt_def
