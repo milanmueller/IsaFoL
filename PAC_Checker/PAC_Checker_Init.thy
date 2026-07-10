@@ -12,15 +12,13 @@ section \<open>Initial Normalisation of Polynomials\<close>
 subsection \<open>Sorting\<close>
 
 text \<open>Adapted from the theory \<^text>\<open>HOL-ex.MergeSort\<close> by Tobias Nipkow. We did not change much, but
-   we refine it to executable code and try to improve efficiency.
-\<close>
+   we refine it to executable code and try to improve efficiency.\<close>
 
-fun merge :: "_ \<Rightarrow>  'a list \<Rightarrow> 'a list \<Rightarrow> 'a list"
-where
-  "merge f (x#xs) (y#ys) =
-         (if f x y then x # merge f xs (y#ys) else y # merge f (x#xs) ys)"
-| "merge f xs [] = xs"
-| "merge f [] ys = ys"
+text \<open>NOTE (LLVM port): \<open>merge\<close> and \<open>msort\<close> now live in \<open>IICF_Owning_List\<close> (imported via
+  \<open>PAC_Checker_Relation\<close>), where the imperative implementation rules
+  (\<open>ol_merge_rule\<close>/\<open>ol_msort_rule\<close>/\<open>ol_msort_hnr\<close>) are stated against them. Local
+  duplicates would shadow those constants and the rules would not apply. The property
+  lemmas below still hold verbatim.\<close>
 
 lemma mset_merge [simp]:
   "mset (merge f xs ys) = mset xs + mset ys"
@@ -39,52 +37,6 @@ lemma sorted_merge:
   apply (blast dest: transpD)
   done
 
-fun msort :: "_ \<Rightarrow> 'a list \<Rightarrow> 'a list"
-where
-  "msort f [] = []"
-| "msort f [x] = [x]"
-| "msort f xs = merge f
-                      (msort f (take (size xs div 2) xs))
-                      (msort f (drop (size xs div 2) xs))"
-
-fun swap_ternary :: \<open>_\<Rightarrow>nat\<Rightarrow>nat\<Rightarrow> ('a \<times> 'a \<times> 'a) \<Rightarrow> ('a \<times> 'a \<times> 'a)\<close> where
-  \<open>swap_ternary f m n  =
-    (if (m = 0 \<and> n = 1)
-    then (\<lambda>(a, b, c). if f a b then (a, b, c)
-      else (b,a,c))
-    else if (m = 0 \<and> n = 2)
-    then (\<lambda>(a, b, c). if f a c then (a, b, c)
-      else (c,b,a))
-    else if (m = 1 \<and> n = 2)
-    then (\<lambda>(a, b, c). if f b c then (a, b, c)
-      else (a,c,b))
-    else (\<lambda>(a, b, c). (a,b,c)))\<close>
-
-fun msort2 :: "_ \<Rightarrow> 'a list \<Rightarrow> 'a list"
-where
-  "msort2 f [] = []"
-| "msort2 f [x] = [x]"
-| "msort2 f [x,y] = (if f x y then [x,y] else [y,x])"
-| "msort2 f xs = merge f
-                      (msort f (take (size xs div 2) xs))
-                      (msort f (drop (size xs div 2) xs))"
-
-lemma msort2_code [code]:
-  \<open>msort2 f [] = []\<close>
-  \<open>msort2 f [x] = [x]\<close>
-  \<open>msort2 f [x, y] = (if f x y then [x, y] else [y, x])\<close>
-  \<open>msort2 f (v # vb # va # vd) =
-    PAC_Checker_Init.merge f (msort f (v # take (Suc (length vd) div 2) (vb # va # vd)))
-     (msort f (drop (Suc (length vd) div 2) (vb # va # vd)))\<close>
-  by simp_all
-
-lemma msort_msort2:
-  fixes xs :: \<open>'a :: linorder list\<close>
-  shows \<open>msort (\<le>) xs = msort2 (\<le>) xs\<close>
-  apply (induction  \<open>(\<le>) :: 'a \<Rightarrow> 'a \<Rightarrow> bool\<close> xs rule: msort2.induct)
-  apply (auto dest: transpD)
-  done
-
 lemma sorted_msort:
   "transp f \<Longrightarrow> (\<And>x y. f x y \<or> f y x) \<Longrightarrow>
    sorted_wrt f (msort f xs)"
@@ -95,30 +47,8 @@ lemma mset_msort[simp]:
   by (induction f xs rule: msort.induct)
     (simp_all add: union_code)
 
-
 subsection \<open>Sorting applied to monomials\<close>
 
-(*
-lemma merge_coeffs_alt_def:
-  \<open>(RETURN o merge_coeffs) p =
-   REC\<^sub>T(\<lambda>f p.
-     (case p of
-       [] \<Rightarrow> RETURN p
-     | [_] => RETURN p
-     | ((xs, n) # (ys, m) # p) \<Rightarrow>
-      (if xs = ys
-       then if n + m \<noteq> 0 then f ((xs, n + m) # p) else f p
-       else do {p \<leftarrow> f ((ys, m) # p); RETURN ((xs, n) # p)})))
-    p\<close>
-  apply (induction p rule: merge_coeffs.induct)
-  subgoal by (subst RECT_unfold, refine_mono) auto
-  subgoal by (subst RECT_unfold, refine_mono) auto
-  subgoal for x p y q
-    by (subst RECT_unfold, refine_mono)
-     (smt case_prod_conv list.simps(5) merge_coeffs.simps(3) nres_monad1
-      push_in_let_conv(2))
-  done
-*)
 lemma merge_coeffs_alt_def:
   \<open>(RETURN o merge_coeffs) p =
    REC\<^sub>T (\<lambda>f p.
@@ -141,36 +71,21 @@ lemma merge_coeffs_alt_def:
   apply (induction p rule: merge_coeffs.induct)
   subgoal by (subst RECT_unfold, refine_mono) (auto simp: refine_pw_simps)
   subgoal by (subst RECT_unfold, refine_mono) (auto simp: refine_pw_simps)
-  subgoal by (subst RECT_unfold, refine_mono) (auto simp: pw_eq_iff refine_pw_simps Let_def)
+  subgoal premises IH for xs n ys m p
+    apply (subst RECT_unfold, refine_mono)
+    apply (cases \<open>xs = ys\<close>; cases \<open>n + m \<noteq> 0\<close>)
+    subgoal using IH(1) by (auto simp: refine_pw_simps)
+    subgoal using IH(2) by (auto simp: refine_pw_simps)
+    subgoal using IH(3)[symmetric] by (auto simp: refine_pw_simps)
+    subgoal using IH(3)[symmetric] by (auto simp: refine_pw_simps)
+    done
   done
-
-lemma hn_invalid_recover:
-  \<open>is_pure R \<Longrightarrow> hn_invalid R = (\<lambda>x y. R x y ** true)\<close>
-  \<open>is_pure R \<Longrightarrow> invalid_assn R = (\<lambda>x y. R x y ** true)\<close>
-  oops (* not sure if provable in llvm also not sure if needed? *)
 
 sepref_definition merge_coeffs_impl
   is \<open>RETURN o merge_coeffs\<close>
   :: \<open>poly_assn\<^sup>d \<rightarrow>\<^sub>a poly_assn\<close>
-  unfolding merge_coeffs_alt_def list.case_eq_if
+  unfolding merge_coeffs_alt_def
   by sepref
-
-definition full_quicksort_poly where
-  \<open>full_quicksort_poly = full_quicksort_ref (\<lambda>x y. x = y \<or> (x, y) \<in> term_order_rel) fst\<close>
-
-lemma down_eq_id_list_rel: \<open>\<Down>(\<langle>Id\<rangle>list_rel) x = x\<close>
-  by auto
-
-definition quicksort_poly:: \<open>nat \<Rightarrow> nat \<Rightarrow> llist_polynomial \<Rightarrow> (llist_polynomial) nres\<close> where
-  \<open>quicksort_poly x y  z = quicksort_ref (\<le>) fst (x, y, z)\<close>
-
-term partition_between_ref
-
-definition partition_between_poly :: \<open>nat \<Rightarrow> nat \<Rightarrow> llist_polynomial \<Rightarrow> (llist_polynomial \<times> nat) nres\<close> where
-  \<open>partition_between_poly = partition_between_ref (\<le>) fst\<close>
-
-definition partition_main_poly :: \<open>nat \<Rightarrow> nat \<Rightarrow> llist_polynomial \<Rightarrow> (llist_polynomial \<times> nat) nres\<close> where
-  \<open>partition_main_poly = partition_main (\<le>)  fst\<close>
 
 lemma string_list_trans:
   \<open>(xa ::char list list, ya) \<in> lexord (lexord {(x, y). x < y}) \<Longrightarrow>
@@ -178,74 +93,7 @@ lemma string_list_trans:
     (xa, z) \<in> lexord (lexord {(x, y). x < y})\<close>
   by (smt (verit) less_char_def char.less_trans less_than_char_def lexord_partial_trans p2rel_def)
 
-(*
-lemma full_quicksort_sort_poly_spec:
-  \<open>(full_quicksort_poly, sort_poly_spec) \<in> \<langle>Id\<rangle>list_rel \<rightarrow>\<^sub>f \<langle>\<langle>Id\<rangle>list_rel\<rangle>nres_rel\<close>
-proof -
-  have xs: \<open>(xs, xs) \<in> \<langle>Id\<rangle>list_rel\<close> and \<open>\<Down>(\<langle>Id\<rangle>list_rel) x = x\<close> for x xs
-    by auto
-  show ?thesis
-    apply (intro frefI nres_relI)
-    unfolding full_quicksort_poly_def
-    apply (rule full_quicksort_ref_full_quicksort[THEN fref_to_Down_curry, THEN order_trans])
-    subgoal
-      by (auto simp: rel2p_def var_order_rel_def p2rel_def Relation.total_on_def
-        dest: string_list_trans)
-    subgoal
-      using total_on_lexord_less_than_char_linear[unfolded var_order_rel_def]
-      apply (auto simp: rel2p_def var_order_rel_def p2rel_def Relation.total_on_def less_char_def)
-      done
-    subgoal by fast
-    apply (rule xs)
-    apply (subst down_eq_id_list_rel)
-    unfolding sorted_wrt_map sort_poly_spec_def
-    apply (rule full_quicksort_correct_sorted[where R = \<open>(\<lambda>x y. x = y \<or> (x, y) \<in> term_order_rel)\<close> and h = \<open>fst\<close>,
-       THEN order_trans])
-    subgoal
-      by (auto simp: rel2p_def var_order_rel_def p2rel_def Relation.total_on_def dest: string_list_trans)
-    subgoal for x y
-      using total_on_lexord_less_than_char_linear[unfolded var_order_rel_def]
-      apply (auto simp: rel2p_def var_order_rel_def p2rel_def Relation.total_on_def
-        less_char_def)
-      done
-   subgoal
-    by (auto simp: rel2p_def p2rel_def)
-   done
-qed
-*)
-
 subsection \<open>Lifting to polynomials\<close>
-
-definition merge_sort_poly :: \<open>_\<close> where
-\<open>merge_sort_poly = msort (\<lambda>a b. fst a \<le> fst b)\<close>
-
-definition merge_monoms_poly :: \<open>_\<close> where
-\<open>merge_monoms_poly = msort (\<le>)\<close>
-
-definition merge_poly :: \<open>_\<close> where
-\<open>merge_poly = merge (\<lambda>a b. fst a \<le> fst b)\<close>
-
-definition merge_monoms :: \<open>_\<close> where
-\<open>merge_monoms = merge (\<le>)\<close>
-
-definition msort_poly_impl :: \<open>(String.literal list \<times> int) list \<Rightarrow> _\<close> where
-\<open>msort_poly_impl = msort (\<lambda>a b. fst a \<le> fst b)\<close>
-
-definition msort_monoms_impl :: \<open>(String.literal list) \<Rightarrow> _\<close> where
-\<open>msort_monoms_impl = msort (\<le>)\<close>
-
-lemma msort_poly_impl_alt_def:
-  \<open>msort_poly_impl xs =
-    (case xs of
-      [] \<Rightarrow> []
-     | [a] \<Rightarrow> [a]
-     | [a,b] \<Rightarrow> if fst a \<le> fst b then [a,b]else [b,a]
-     | xs \<Rightarrow> merge_poly
-                      (msort_poly_impl (take ((length xs) div 2) xs))
-                      (msort_poly_impl (drop ((length xs) div 2) xs)))\<close>
-   unfolding msort_poly_impl_def
-  apply (auto split: list.splits simp: merge_poly_def)
-  done
 
 lemma le_term_order_rel':
   \<open>(\<le>) = (\<lambda>x y. x = y \<or>  term_order_rel' x y)\<close>
@@ -256,18 +104,6 @@ lemma le_term_order_rel':
   using term_order_rel'_alt_def_lexord term_order_rel'_def apply blast
   done
 
-fun lexord_eq where
-  \<open>lexord_eq [] _ = True\<close> |
-  \<open>lexord_eq (x # xs) (y # ys) = (x < y \<or> (x = y \<and> lexord_eq xs ys))\<close> |
-  \<open>lexord_eq _ _ = False\<close>
-
-lemma [simp]:
-  \<open>lexord_eq [] [] = True\<close>
-  \<open>lexord_eq (a # b)[] = False\<close>
-  \<open>lexord_eq [] (a # b) = True\<close>
-  apply auto
-  done
-
 lemma var_order_rel':
   \<open>(\<le>) = (\<lambda>x y. x = y \<or> (x,y) \<in> var_order_rel)\<close>
   by (intro ext)
@@ -275,36 +111,10 @@ lemma var_order_rel':
     lexordp_eq_conv_lexord lexordp_def var_order_rel_def
     lexordp_conv_lexord p2rel_def)
 
-
 lemma var_order_rel'':
   \<open>(x,y) \<in> var_order_rel \<longleftrightarrow> x < y\<close>
   by (metis leD less_than_char_linear lexord_linear neq_iff var_order_rel' var_order_rel_antisym
       var_order_rel_def)
-
-lemma lexord_eq_alt_def1:
-  \<open>a \<le> b = lexord_eq a b\<close> for a b :: \<open>String.literal list\<close>
-  unfolding le_term_order_rel'
-  apply (induction a b rule: lexord_eq.induct)
-  apply (auto simp: var_order_rel'' less_eq_list_def)
-  done
-
-lemma lexord_eq_alt_def2:
-  \<open>(RETURN oo lexord_eq) xs ys =
-     REC\<^sub>T (\<lambda>f (xs, ys).
-        case (xs, ys) of
-           ([], _) \<Rightarrow> RETURN True
-         | (x # xs, y # ys) \<Rightarrow>
-            if x < y then RETURN True
-            else if x = y then f (xs, ys) else RETURN False
-        | _ \<Rightarrow> RETURN False)
-        (xs, ys)\<close>
-  apply (subst eq_commute)
-  apply (induction xs ys rule: lexord_eq.induct)
-  subgoal by (subst RECT_unfold, refine_mono) auto
-  subgoal by (subst RECT_unfold, refine_mono) auto
-  subgoal by (subst RECT_unfold, refine_mono) auto
-  done
-
 
 definition var_order' where
   [simp]: \<open>var_order' = var_order\<close>
@@ -323,290 +133,50 @@ lemma var_order_rel_var_order:
   \<open>(x, y) \<in> var_order_rel \<longleftrightarrow> var_order x y\<close>
   by (auto simp: rel2p_def)
 
-lemma var_order_string_le[sepref_import_param]:
-  \<open>((<), var_order') \<in> string_rel \<rightarrow> string_rel \<rightarrow> bool_rel\<close>
-  apply (auto intro!: frefI simp: string_rel_def String.less_literal_def
-     rel2p_def linorder.lexordp_conv_lexord[OF char.linorder_axioms,
-      unfolded less_eq_char_def] var_order_rel_def
-      p2rel_def
-      simp flip: PAC_Polynomials_Term.less_char_def)
-  using char.lexordp_conv_lexord 
-  apply auto
-  apply (simp add: List.lexordp_def less_list_def lexord_char_rel_mono_iff)
-  by (simp add: List.lexordp_def less_list_def lexord_char_rel_mono_iff)
-
-lemma [sepref_import_param]:
-  \<open>( (\<le>), (\<le>)) \<in> monom_rel \<rightarrow> monom_rel \<rightarrow>bool_rel\<close>
-  apply (intro fun_relI)
-  using list_rel_list_rel_order_iff by fastforce
-
-lemma [sepref_import_param]:
-  \<open>( (<), (<)) \<in> string_rel \<rightarrow> string_rel \<rightarrow>bool_rel\<close>
-proof -
-  have [iff]: \<open>ord.lexordp (<) (literal.explode a) (literal.explode aa) \<longleftrightarrow>
-       List.lexordp (<) (literal.explode a) (literal.explode aa)\<close> for a aa
-    apply (rule iffI)
-    using List.lexordp_def char.lexordp_conv_lexord apply auto[1]
-    using List.lexordp_def char.lexordp_conv_lexord by auto
-  show ?thesis
-    unfolding string_rel_def less_literal.rep_eq less_than_char_def
-      less_eq_list_def PAC_Polynomials_Term.less_char_def[symmetric]
-    apply (auto simp: string_rel_def less_literal.rep_eq
-        less_list_def char.lexordp_conv_lexord lexordp_eq_refl
-        lexordp_eq_conv_lexord)
-    apply (simp add: List.lexordp_def lexord_char_rel_mono_iff)
-    by (meson List.lexordp_def lexord_char_rel_mono_iff)
-qed
-
-
-lemma lexordp_char_char: \<open>ord_class.lexordp = char.lexordp\<close>
-  unfolding char.lexordp_def ord_class.lexordp_def
-  by (rule arg_cong[of _ _ lfp])
-    (auto intro!: ext)
-
-lemma [sepref_import_param]:
-  \<open>( (\<le>), (\<le>)) \<in> string_rel \<rightarrow> string_rel \<rightarrow>bool_rel\<close>
-  unfolding string_rel_def less_eq_literal.rep_eq less_than_char_def
-    less_eq_list_def PAC_Polynomials_Term.less_char_def[symmetric]
-  apply (auto simp: string_rel_def less_eq_literal.rep_eq less_than_char_def
-    less_eq_list_def char.lexordp_eq_conv_lexord lexordp_eq_refl
-    lexordp_eq_conv_lexord lexordp_char_char
-    simp flip: less_char_def[abs_def])
-  apply (metis single_valued_def single_valued_string_rel string_rel_def)
-  using char.lexordp_conv_lexord lexord_char_rel_mono_iff lexordp_conv_lexord apply fastforce
-  apply (meson lexord_char_rel_mono_iff lexordp_conv_lexord lexordp_linear)
-  using char.lexordp_conv_lexord lexord_char_rel_mono_iff lexordp_conv_lexord by fastforce
+(* not sure if we maybe want this back?
+lemma lexord_eq_conv_le: \<open>lexord_eq a b = ((\<le>) :: 'a::linorder list \<Rightarrow> _) a b\<close>
+  apply (induction rule: lexord_eq.induct)
+  using lexord_eq.simps(1) list_less_Nil_right not_le_imp_less apply blast
+  apply (metis basic_trans_rules(24) lexord_eq.simps(2) linorder_linear linorder_not_less list_less_Cons)
+  by (simp add: le_by_lt_str list_less_Nil_left)
 
 sepref_register lexord_eq
 sepref_definition lexord_eq_term
   is \<open>uncurry (RETURN oo lexord_eq)\<close>
   :: \<open>monom_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   supply[[goals_limit=1]]
-  unfolding lexord_eq_alt_def2
-  apply sepref_dbg_keep
-  oops
+  unfolding lexord_eq_conv_le 
+  by sepref
 
-(* Have to fix refinment first
 declare lexord_eq_term.refine[sepref_fr_rules]
 *)
-
-(*
-lemmas [code del] = msort_poly_impl_def msort_monoms_impl_def
-lemmas [code] =
-  msort_poly_impl_def[unfolded lexord_eq_alt_def1[abs_def]]
-  msort_monoms_impl_def[unfolded msort_msort2]
-*)
-
 lemma term_order_rel_trans:
   \<open>(a, aa) \<in> term_order_rel \<Longrightarrow> (aa, ab) \<in> term_order_rel \<Longrightarrow> (a, ab) \<in> term_order_rel\<close>
   by (metis Char_Assn.less_char_def p2rel_def string_list_trans var_order_rel_def)
 
-lemma merge_sort_poly_sort_poly_spec:
-  \<open>(RETURN o merge_sort_poly, sort_poly_spec) \<in> \<langle>Id\<rangle>list_rel \<rightarrow>\<^sub>f \<langle>\<langle>Id\<rangle>list_rel\<rangle>nres_rel\<close>
-  unfolding sort_poly_spec_def merge_sort_poly_def
+lemma msort_mnls_sort_poly_spec_aux:
+  \<open>fst x = fst y \<or> (fst x, fst y) \<in> term_order_rel \<equiv> mnl_le x y\<close>
+  by (smt (verit) le_term_order_rel' mnl_le_def prod.collapse split_conv term_order_rel'_def)
+  
+lemma msort_mnls_sort_poly_spec:
+  \<open>(RETURN o msort_mnls, sort_poly_spec) \<in> \<langle>Id\<rangle>list_rel \<rightarrow>\<^sub>f \<langle>\<langle>Id\<rangle>list_rel\<rangle>nres_rel\<close>
+  unfolding sort_poly_spec_def
   apply (intro frefI nres_relI)
-  using total_on_lexord_less_than_char_linear var_order_rel_def
-  by (auto intro!: sorted_msort simp: sorted_wrt_map rel2p_def
-    le_term_order_rel' transp_def dest: term_order_rel_trans)
+  apply (auto simp: sorted_wrt_map mnl_le_def rel2p_def le_term_order_rel' case_prod_beta)
+  by (simp add:  msort_mnls_sorted msort_mnls_sort_poly_spec_aux)
 
-lemma msort_alt_def:
-  \<open>RETURN o (msort f) =
-     REC\<^sub>T (\<lambda>g xs.
-        case xs of
-          [] \<Rightarrow> RETURN []
-        | [x] \<Rightarrow> RETURN [x]
-        | _ \<Rightarrow> do {
-           a \<leftarrow> g (take (size xs div 2) xs);
-           b \<leftarrow> g (drop (size xs div 2) xs);
-           RETURN (merge f a b)})\<close>
-  apply (intro ext)
-  unfolding comp_def
-  apply (induct_tac f x rule: msort.induct)
-  subgoal by (subst RECT_unfold, refine_mono) auto
-  subgoal by (subst RECT_unfold, refine_mono) auto
-  subgoal
-    by (subst RECT_unfold, refine_mono)
-     (smt (verit) let_to_bind_conv list.simps(5) msort.simps(3))
-  done
-
-lemma monomial_rel_order_map:
-  \<open>(x, a, b) \<in> monomial_rel \<Longrightarrow>  (y, aa, bb) \<in> monomial_rel \<Longrightarrow> fst x \<le> fst y \<longleftrightarrow> a \<le> aa\<close>
-  apply (cases x; cases y; auto simp: monomial_rel_def)
-  apply (metis (lifting) linorder_not_less list_rel_list_rel_order_iff)
-  by (metis (lifting) linorder_not_less list_rel_list_rel_order_iff)
-
-(* This is simply not provable in llvm i think
-lemma step_rewrite_pure:
-  fixes K :: \<open>('olbl \<times> 'lbl) set\<close>
-  shows
-    \<open>pure (p2rel (\<langle>K, V, R\<rangle>pac_step_rel_raw)) = pac_step_rel_assn (pure K) (pure V) (pure R)\<close>
-    \<open>monomial_assn = pure (monom_rel \<times>\<^sub>r int_rel)\<close> and
-  poly_assn_list:
-    \<open>poly_assn = pure (\<langle>monom_rel \<times>\<^sub>r int_rel\<rangle>list_rel)\<close>
-  subgoal
-    apply (intro ext)
-    apply (case_tac x; case_tac xa)
-    apply (auto simp: relAPP_def p2rel_def pure_def)
-    done
-  subgoal H
-    apply (intro ext)
-    apply (case_tac x; case_tac xa)
-    by (simp add: list_assn_pure_conv)
-  subgoal
-    unfolding H
-    by (simp add: list_assn_pure_conv relAPP_def)
-  done
-
-lemma safe_pac_step_rel_assn[safe_constraint_rules]:
-  "is_pure K \<Longrightarrow> is_pure V \<Longrightarrow> is_pure R \<Longrightarrow> is_pure (pac_step_rel_assn K V R)"
-  by (auto simp: step_rewrite_pure(1)[symmetric] is_pure_conv)
-*)
-
-
-
-lemma merge_poly_merge_poly:
-  \<open>(merge_poly, merge_poly) \<in> poly_rel \<rightarrow> poly_rel \<rightarrow> poly_rel\<close>
-  unfolding merge_poly_def
-  apply (intro fun_relI)
-  subgoal for a a' aa a'a
-    apply (induction \<open>(\<lambda>(a :: 8 word list list \<times> signed_big_int)
-      (b :: 8 word list list \<times> signed_big_int). fst a \<le> fst b)\<close> a aa
-      arbitrary: a' a'a
-      rule: merge.induct)
-    subgoal
-      by (auto elim!: list_relE3 list_relE4 list_relE list_relE2
-        simp: monomial_rel_order_map)
-    subgoal
-      by (auto elim!: list_relE3 list_relE)
-    subgoal
-      by (auto elim!: list_relE3 list_relE4 list_relE list_relE2)
-    done
-  done
-
-
-(*
-lemmas [fcomp_norm_unfold] =
-  poly_assn_list[symmetric]
-  step_rewrite_pure(1)
-*)
-
-lemma merge_poly_merge_poly2:
-  \<open>(a, b) \<in> poly_rel \<Longrightarrow> (a', b') \<in> poly_rel \<Longrightarrow>
-    (merge_poly a a', merge_poly b b') \<in> poly_rel\<close>
-  using merge_poly_merge_poly
-  unfolding fun_rel_def
-  by auto
-
-lemma list_rel_takeD:
-  \<open>(a, b) \<in> \<langle>R\<rangle>list_rel \<Longrightarrow> (n, n')\<in> Id \<Longrightarrow> (take n a, take n' b) \<in> \<langle>R\<rangle>list_rel\<close>
-  by (simp add: list_rel_eq_listrel listrel_iff_nth relAPP_def)
-
-lemma list_rel_dropD:
-  \<open>(a, b) \<in> \<langle>R\<rangle>list_rel \<Longrightarrow> (n, n')\<in> Id \<Longrightarrow> (drop n a, drop n' b) \<in> \<langle>R\<rangle>list_rel\<close>
-  by (simp add: list_rel_eq_listrel listrel_iff_nth relAPP_def)
-
-lemma merge_sort_poly[sepref_import_param]:
-  \<open>(msort_poly_impl, merge_sort_poly)
-   \<in> poly_rel \<rightarrow> poly_rel\<close>
-   unfolding merge_sort_poly_def msort_poly_impl_def
-  apply (intro fun_relI)
-  subgoal for a a'
-    apply (induction \<open>(\<lambda>(a :: String.literal list \<times> int)
-      (b :: String.literal list \<times> int). fst a \<le> fst b)\<close> a
-      arbitrary: a'
-      rule: msort.induct)
-    subgoal
-      by auto
-    subgoal
-      by (auto elim!: list_relE3 list_relE)
-    subgoal premises p
-      using p
-      by (auto elim!: list_relE3 list_relE4 list_relE list_relE2
-        simp: merge_poly_def[symmetric]
-        intro!: list_rel_takeD list_rel_dropD
-        intro!: merge_poly_merge_poly2 p(1)[simplified] p(2)[simplified],
-        auto simp: list_rel_imp_same_length)
-    done
-  done
-
-
-
-lemmas [sepref_fr_rules] = merge_sort_poly[FCOMP merge_sort_poly_sort_poly_spec]
-
-sepref_definition partition_main_poly_impl
-  is \<open>uncurry2 partition_main_poly\<close>
-  :: \<open>(snat_assn' TYPE(64))\<^sup>k *\<^sub>a (snat_assn' TYPE(64))\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a prod_assn poly_assn (snat_assn' TYPE(64))\<close>
-  unfolding partition_main_poly_def partition_main_def
-    term_order_rel'_def[symmetric]
-    term_order_rel'_alt_def
-    le_term_order_rel'
-  by sepref
-
-declare partition_main_poly_impl.refine[sepref_fr_rules]
-
-sepref_definition partition_between_poly_impl
-  is \<open>uncurry2 partition_between_poly\<close>
-  :: \<open>nat_assn\<^sup>k *\<^sub>a nat_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a prod_assn poly_assn nat_assn \<close>
-  unfolding partition_between_poly_def partition_between_ref_def
-    partition_main_poly_def[symmetric]
-  unfolding choose_pivot3_def
-    term_order_rel'_def[symmetric]
-    term_order_rel'_alt_def choose_pivot_def
-    lexord_eq_alt_def1
-  by sepref
-
-declare partition_between_poly_impl.refine[sepref_fr_rules]
-
-sepref_definition quicksort_poly_impl
-  is \<open>uncurry2 quicksort_poly\<close>
-  :: \<open>nat_assn\<^sup>k *\<^sub>a nat_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
-  unfolding partition_main_poly_def quicksort_ref_def quicksort_poly_def
-    partition_between_poly_def[symmetric]
-  by sepref
-
-lemmas [sepref_fr_rules] = quicksort_poly_impl.refine
-
-sepref_register quicksort_poly
-sepref_definition full_quicksort_poly_impl
-  is \<open>full_quicksort_poly\<close>
-  :: \<open>poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
-  unfolding full_quicksort_poly_def full_quicksort_ref_def
-    quicksort_poly_def[symmetric]
-    le_term_order_rel'[symmetric]
-    term_order_rel'_def[symmetric]
-    List.null_iff
-  by sepref
-
-(*
-lemmas sort_poly_spec_hnr =
-  full_quicksort_poly_impl.refine[FCOMP full_quicksort_sort_poly_spec]
-*)
+lemmas sort_poly_spec_hnr_msort[sepref_fr_rules] =
+  poly_msort_impl.refine[FCOMP msort_mnls_sort_poly_spec,
+    unfolded list_rel_id_simp hr_comp_Id2]
 
 declare merge_coeffs_impl.refine[sepref_fr_rules]
 
 sepref_definition normalize_poly_impl
-  is \<open>normalize_poly\<close>
-  :: \<open>poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
-  supply [[goals_limit=1]]
+  is \<open>normalize_poly\<close> :: \<open>poly_assn\<^sup>d \<rightarrow>\<^sub>a poly_assn\<close>
   unfolding normalize_poly_def
   by sepref
 
 declare normalize_poly_impl.refine[sepref_fr_rules]
-
-
-definition full_quicksort_vars where
-  \<open>full_quicksort_vars = full_quicksort_ref (\<lambda>x y. x = y \<or> (x, y) \<in> var_order_rel) id\<close>
-
-
-definition quicksort_vars:: \<open>nat \<Rightarrow> nat \<Rightarrow> string list \<Rightarrow> (string list) nres\<close> where
-  \<open>quicksort_vars x y  z = quicksort_ref (\<le>) id (x, y, z)\<close>
-
-
-definition partition_between_vars :: \<open>nat \<Rightarrow> nat \<Rightarrow> string list \<Rightarrow> (string list \<times> nat) nres\<close> where
-  \<open>partition_between_vars = partition_between_ref (\<le>) id\<close>
-
-definition partition_main_vars :: \<open>nat \<Rightarrow> nat \<Rightarrow> string list \<Rightarrow> (string list \<times> nat) nres\<close> where
-  \<open>partition_main_vars = partition_main (\<le>) id\<close>
 
 lemma total_on_lexord_less_than_char_linear2:
   \<open>xs \<noteq> ys \<Longrightarrow> (xs, ys) \<notin> lexord (less_than_char) \<longleftrightarrow>
@@ -625,79 +195,6 @@ lemma string_trans:
   (xa, z) \<in> lexord {(x::char, y::char). x < y}\<close>
   by (smt (verit) less_char_def char.less_trans less_than_char_def lexord_partial_trans p2rel_def)
 
-(*
-lemma full_quicksort_sort_vars_spec:
-  \<open>(full_quicksort_vars, sort_coeff) \<in> \<langle>Id\<rangle>list_rel \<rightarrow>\<^sub>f \<langle>\<langle>Id\<rangle>list_rel\<rangle>nres_rel\<close>
-proof -
-  have xs: \<open>(xs, xs) \<in> \<langle>Id\<rangle>list_rel\<close> and \<open>\<Down>(\<langle>Id\<rangle>list_rel) x = x\<close> for x xs
-    by auto
-  show ?thesis
-    apply (intro frefI nres_relI)
-    unfolding full_quicksort_vars_def
-    apply (rule full_quicksort_ref_full_quicksort[THEN fref_to_Down_curry, THEN order_trans])
-    subgoal
-      by (auto simp: rel2p_def var_order_rel_def p2rel_def Relation.total_on_def
-        dest: string_trans)
-    subgoal
-      using total_on_lexord_less_than_char_linear2[unfolded var_order_rel_def]
-      apply (auto simp: rel2p_def var_order_rel_def p2rel_def Relation.total_on_def less_char_def)
-      done
-    subgoal by fast
-    apply (rule xs)
-    apply (subst down_eq_id_list_rel)
-    unfolding sorted_wrt_map sort_coeff_def
-    apply (rule full_quicksort_correct_sorted[where R = \<open>(\<lambda>x y. x = y \<or> (x, y) \<in> var_order_rel)\<close> and h = \<open>id\<close>,
-       THEN order_trans])
-    subgoal
-      by (auto simp: rel2p_def var_order_rel_def p2rel_def Relation.total_on_def dest: string_trans)
-    subgoal for x y
-      using total_on_lexord_less_than_char_linear2[unfolded var_order_rel_def]
-      by (auto simp: rel2p_def var_order_rel_def p2rel_def Relation.total_on_def
-        less_char_def)
-   subgoal
-    by (auto simp: rel2p_def p2rel_def rel2p_def[abs_def])
-   done
-qed
-*)
-
-sepref_definition partition_main_vars_impl
-  is \<open>uncurry2 partition_main_vars\<close>
-  :: \<open>nat_assn\<^sup>k *\<^sub>a nat_assn\<^sup>k *\<^sub>a (monom_assn)\<^sup>k \<rightarrow>\<^sub>a prod_assn (monom_assn) nat_assn\<close>
-  unfolding partition_main_vars_def partition_main_def
-    var_order_rel_var_order
-    var_order'_def[symmetric]
-    term_order_rel'_alt_def
-    le_term_order_rel'
-    id_apply
-    by sepref
-
-declare partition_main_vars_impl.refine[sepref_fr_rules]
-
-sepref_definition partition_between_vars_impl
-  is \<open>uncurry2 partition_between_vars\<close>
-  :: \<open>nat_assn\<^sup>k *\<^sub>a nat_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a prod_assn monom_assn nat_assn \<close>
-  unfolding partition_between_vars_def partition_between_ref_def
-    partition_main_vars_def[symmetric]
-  unfolding choose_pivot3_def
-    term_order_rel'_def[symmetric]
-    term_order_rel'_alt_def choose_pivot_def
-    le_term_order_rel' id_apply
-  by sepref
-
-declare partition_between_vars_impl.refine[sepref_fr_rules]
-
-sepref_definition quicksort_vars_impl
-  is \<open>uncurry2 quicksort_vars\<close>
-  :: \<open>nat_assn\<^sup>k *\<^sub>a nat_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a monom_assn\<close>
-  unfolding partition_main_vars_def quicksort_ref_def quicksort_vars_def
-    partition_between_vars_def[symmetric]
-  by sepref
-
-lemmas [sepref_fr_rules] = quicksort_vars_impl.refine
-
-sepref_register quicksort_vars
-
-
 lemma le_var_order_rel:
   \<open>(\<le>) = (\<lambda>x y. x = y \<or> (x, y) \<in> var_order_rel)\<close>
   by (intro ext)
@@ -705,153 +202,106 @@ lemma le_var_order_rel:
       p2rel_def lexordp_conv_lexord p2rel_def var_order_rel_def
     lexordp_eq_conv_lexord lexordp_def)
 
-sepref_definition full_quicksort_vars_impl
-  is \<open>full_quicksort_vars\<close>
-  :: \<open>monom_assn\<^sup>k \<rightarrow>\<^sub>a monom_assn\<close>
-  unfolding full_quicksort_vars_def full_quicksort_ref_def
-    quicksort_vars_def[symmetric]
-    le_var_order_rel[symmetric]
-    term_order_rel'_def[symmetric]
-    List.null_iff
-    by sepref
-
-(*
-lemmas sort_vars_spec_hnr =
-  full_quicksort_vars_impl.refine[FCOMP full_quicksort_sort_vars_spec]
-*)
-
-lemma string_rel_order_map:
-  \<open>(x, a) \<in> string_rel \<Longrightarrow>
-       (y, aa) \<in> string_rel \<Longrightarrow>
-       x \<le> y \<longleftrightarrow> a \<le> aa\<close>
-  unfolding string_rel_def less_eq_literal.rep_eq less_than_char_def
-    less_eq_list_def PAC_Polynomials_Term.less_char_def[symmetric]
-  by (auto simp: string_rel_def less_eq_literal.rep_eq less_than_char_def
-    less_eq_list_def char.lexordp_eq_conv_lexord lexordp_eq_refl
-    lexordp_char_char lexordp_eq_conv_lexord
-    simp flip: less_char_def[abs_def])
-
-lemma merge_monoms_merge_monoms:
-  \<open>(merge_monoms, merge_monoms) \<in> monom_rel \<rightarrow> monom_rel \<rightarrow> monom_rel\<close>
-   unfolding merge_monoms_def
-  apply (intro fun_relI)
-  subgoal for a a' aa a'a
-    apply (induction \<open>(\<lambda>(a :: String.literal)
-      (b :: String.literal). a \<le> b)\<close> a aa
-      arbitrary: a' a'a
-      rule: merge.induct)
-    subgoal
-      by (auto elim!: list_relE3 list_relE4 list_relE list_relE2
-        simp: string_rel_order_map)
-    subgoal
-      by (auto elim!: list_relE3 list_relE)
-    subgoal
-      by (auto elim!: list_relE3 list_relE4 list_relE list_relE2)
-    done
-  done
-
-lemma merge_monoms_merge_monoms2:
-  \<open>(a, b) \<in> monom_rel \<Longrightarrow> (a', b') \<in> monom_rel \<Longrightarrow>
-    (merge_monoms a a', merge_monoms b b') \<in> monom_rel\<close>
-  using merge_monoms_merge_monoms
-  unfolding fun_rel_def merge_monoms_def
-  by auto
-
-
-lemma msort_monoms_impl:
-  \<open>(msort_monoms_impl, merge_monoms_poly)
-   \<in> monom_rel \<rightarrow> monom_rel\<close>
-   unfolding msort_monoms_impl_def merge_monoms_poly_def
-  apply (intro fun_relI)
-  subgoal for a a'
-    apply (induction \<open>(\<lambda>(a :: String.literal)
-      (b :: String.literal). a \<le> b)\<close> a
-      arbitrary: a'
-      rule: msort.induct)
-    subgoal
-      by auto
-    subgoal
-      by (auto elim!: list_relE3 list_relE)
-    subgoal premises p
-      using p
-      by (auto elim!: list_relE3 list_relE4 list_relE list_relE2
-        simp: merge_monoms_def[symmetric] intro!: list_rel_takeD list_rel_dropD
-        intro!: merge_monoms_merge_monoms2 p(1)[simplified] p(2)[simplified])
-        (simp_all add: list_rel_imp_same_length)
-    done
-  done
-
-lemma merge_sort_monoms_sort_monoms_spec:
-  \<open>(RETURN o merge_monoms_poly, sort_coeff) \<in> \<langle>Id\<rangle>list_rel \<rightarrow>\<^sub>f \<langle>\<langle>Id\<rangle>list_rel\<rangle>nres_rel\<close>
-  unfolding merge_monoms_poly_def sort_coeff_def
-  by (intro frefI nres_relI)
-    (auto intro!: sorted_msort simp: sorted_wrt_map rel2p_def
-     le_term_order_rel' transp_def rel2p_def[abs_def]
-     simp flip: le_var_order_rel)
-
-sepref_register sort_coeff
-lemma  [sepref_fr_rules]:
-  \<open>(return o msort_monoms_impl, sort_coeff) \<in> monom_assn\<^sup>k \<rightarrow>\<^sub>a monom_assn\<close>
-  using msort_monoms_impl[sepref_param, FCOMP merge_sort_monoms_sort_monoms_spec]
-  by auto
-
-sepref_definition sort_all_coeffs_impl
-  is \<open>sort_all_coeffs\<close>
-  :: \<open>poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
-  unfolding sort_all_coeffs_def
-    HOL_list.fold_custom_empty
-  by sepref
-
-declare sort_all_coeffs_impl.refine[sepref_fr_rules]
+text \<open>Pop-based recursion equations, cf. \<open>merge_coeffs_alt_def\<close>: the case patterns of
+  \<open>merge_coeffs0\<close> would become keep-mode \<open>hd\<close>/\<open>tl\<close> (impossible at \<open>poly_assn\<close>). In the
+  singleton branch the popped-empty tail \<open>p\<close> is reused, so no empty-list producer is
+  needed; the dropped \<open>(xs, n)\<close> in the \<open>n = 0\<close> branches is freed by sepref via the
+  registered \<open>MK_FREE\<close> rules.\<close>
 
 lemma merge_coeffs0_alt_def:
   \<open>(RETURN o merge_coeffs0) p =
-   REC\<^sub>T(\<lambda>f p.
-     (case p of
-       [] \<Rightarrow> RETURN []
-     | [p] => if snd p = 0 then RETURN [] else RETURN [p]
-     | ((xs, n) # (ys, m) # p) \<Rightarrow>
-      (if xs = ys
-       then if n + m \<noteq> 0 then f ((xs, n + m) # p) else f p
-       else if n = 0 then
-          do {p \<leftarrow> f ((ys, m) # p);
-            RETURN p}
-       else do {p \<leftarrow> f ((ys, m) # p);
-            RETURN ((xs, n) # p)})))
-    p\<close>
+   REC\<^sub>T (\<lambda>f p.
+     if p = [] then RETURN p
+     else do {
+       ((xs, n), p) \<leftarrow> mop_list_pop_front p;
+       if p = [] then (if n = 0 then RETURN p else RETURN ((xs, n) # p))
+       else do {
+         ((ys, m), p) \<leftarrow> mop_list_pop_front p;
+         if xs = ys
+         then if n + m \<noteq> 0 then f ((xs, n + m) # p) else f p
+         else if n = 0 then f ((ys, m) # p)
+         else do { p \<leftarrow> f ((ys, m) # p); RETURN ((xs, n) # p) }
+       }
+     }) p\<close>
   apply (subst eq_commute)
   apply (induction p rule: merge_coeffs0.induct)
   subgoal by (subst RECT_unfold, refine_mono) auto
-  subgoal by (subst RECT_unfold, refine_mono) auto
-  subgoal by (subst RECT_unfold, refine_mono) (auto simp: let_to_bind_conv)
+  subgoal by (subst RECT_unfold, refine_mono) (auto simp: refine_pw_simps)
+  subgoal by (subst RECT_unfold, refine_mono) (auto simp: refine_pw_simps)
   done
 
-text \<open>Again, Sepref does not understand what is going here.\<close>
 sepref_definition merge_coeffs0_impl
   is \<open>RETURN o merge_coeffs0\<close>
-  :: \<open>poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
-  supply [[goals_limit=1]]
+  :: \<open>poly_assn\<^sup>d \<rightarrow>\<^sub>a poly_assn\<close>
   unfolding merge_coeffs0_alt_def
-    HOL_list.fold_custom_empty
-  apply sepref_dbg_preproc
-  apply sepref_dbg_cons_init
-  apply sepref_dbg_id
-  apply sepref_dbg_monadify
-  apply sepref_dbg_opt_init
-  apply (rule WTF_RF | sepref_dbg_trans_step)+
-  apply sepref_dbg_opt
-  apply sepref_dbg_cons_solve
-  apply sepref_dbg_cons_solve
-  apply sepref_dbg_constraints
-  done
-
+  by sepref
 
 declare merge_coeffs0_impl.refine[sepref_fr_rules]
 
+subsection \<open>Sorting the variables of all monomials\<close>
+
+text \<open>\<open>sort_all_coeffs\<close> is a \<open>monadic_nfoldli\<close> over the polynomial with the per-monomial
+  spec \<open>sort_coeff\<close> in the body. Neither translates directly (no \<open>nfoldli\<close> rule at
+  \<open>ol_assn\<close>, and the fold reads elements destructively), so we implement the whole
+  function by a pop-based recursion with \<open>msort_vars\<close> in the body \<emdash> the accumulator
+  automatically builds the reversed list, exactly as \<open>sort_all_coeffs\<close> does.\<close>
+
+lemma rel2p_Id_var_order_le: \<open>rel2p (Id \<union> var_order_rel) = (\<le>)\<close>
+  by (intro ext) (auto simp: rel2p_def le_var_order_rel)
+
+definition sort_all_coeffs2 :: \<open>llist_polynomial \<Rightarrow> llist_polynomial nres\<close> where
+  \<open>sort_all_coeffs2 xs\<^sub>0 = REC\<^sub>T (\<lambda>f (xs, b).
+     if xs = [] then RETURN b
+     else do {
+       ((a, n), xs) \<leftarrow> mop_list_pop_front xs;
+       f (xs, (msort_vars a, n) # b)
+     }) (xs\<^sub>0, op_ol_empty)\<close>
+
+lemma sort_all_coeffs2_aux:
+  \<open>REC\<^sub>T (\<lambda>f (xs, b).
+     if xs = [] then RETURN b
+     else do {
+       ((a, n), xs) \<leftarrow> mop_list_pop_front xs;
+       f (xs, (msort_vars a, n) # b)
+     }) (xs, b)
+   \<le> monadic_nfoldli xs (\<lambda>_. RETURN True)
+       (\<lambda>(a, n) b. do {a \<leftarrow> sort_coeff a; RETURN ((a, n) # b)}) b\<close>
+proof (induction xs arbitrary: b)
+  case Nil
+  show ?case
+    by (subst RECT_unfold, refine_mono) auto
+next
+  case (Cons x xs)
+  obtain a n where x: \<open>x = (a, n)\<close> by (cases x) auto
+  text \<open>The sorted result satisfies the per-monomial spec \<emdash> a small pointwise fact.\<close>
+  have spec: \<open>RETURN (msort_vars a) \<le> sort_coeff a\<close>
+    unfolding sort_coeff_def rel2p_Id_var_order_le
+    by (auto simp: msort_vars_sorted pw_le_iff refine_pw_simps)
+  show ?case
+    apply (subst RECT_unfold, refine_mono)
+    apply (simp add: x refine_pw_simps)
+    apply (rule order_trans[OF Cons.IH])
+    using spec by (auto simp: pw_le_iff refine_pw_simps)
+qed
+
+lemma sort_all_coeffs2_sort_all_coeffs:
+  \<open>(sort_all_coeffs2, sort_all_coeffs) \<in> \<langle>Id\<rangle>list_rel \<rightarrow>\<^sub>f \<langle>\<langle>Id\<rangle>list_rel\<rangle>nres_rel\<close>
+  unfolding sort_all_coeffs2_def sort_all_coeffs_def
+  by (intro frefI nres_relI) (auto intro: sort_all_coeffs2_aux[simplified])
+
+sepref_definition sort_all_coeffs_impl
+  is \<open>sort_all_coeffs2\<close>
+  :: \<open>poly_assn\<^sup>d \<rightarrow>\<^sub>a poly_assn\<close>
+  unfolding sort_all_coeffs2_def
+  by sepref
+
+lemmas sort_all_coeffs_hnr[sepref_fr_rules] =
+  sort_all_coeffs_impl.refine[FCOMP sort_all_coeffs2_sort_all_coeffs,
+    unfolded list_rel_id_simp hr_comp_Id2]
+
 sepref_definition fully_normalize_poly_impl
   is \<open>full_normalize_poly\<close>
-  :: \<open>poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
-  supply [[goals_limit=1]]
+  :: \<open>poly_assn\<^sup>d \<rightarrow>\<^sub>a poly_assn\<close>
   unfolding full_normalize_poly_def
   by sepref
 

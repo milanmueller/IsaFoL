@@ -117,6 +117,59 @@ lemma single_valued_monomial_rel':
      (use single_valued_monom_rel' IS_LEFT_UNIQUE_signed_big_int_rel
         in \<open>simp_all add: IS_LEFT_UNIQUE_def\<close>)
 
+subsection \<open>Polynomial Sorting\<close>
+
+text \<open>Sorting a polynomial (list of monomial\<times>coefficient pairs) by the monomial
+  component: the high-level merge sort from \<open>Monom_Assn\<close> instantiated at
+  \<open>poly_assn = ol_assn monomial_assn\<close>, synthesized by sepref. The comparator projects
+  the pairs to their monomials and uses the registered \<open>(\<le>)\<close> at \<open>monom_assn\<close>; it is
+  synthesized separately (and registered) so that the pairs stay intact inside the
+  merge synthesis. Note the comparator ignores the coefficient \<emdash> the abstract order
+  is a \<^emph>\<open>weak\<close> ordering on pairs, which is fine: \<open>merge\<close>/\<open>msort_alt\<close> and their
+  refinements never require order properties; sortedness enters only at the spec level
+  (\<open>sort_poly_spec\<close> in \<open>PAC_Checker_Init\<close>, via \<open>msort_alt_mset\<close>/\<open>msort_alt_sorted\<close>).\<close>
+
+definition mnl_le :: \<open>char list list \<times> int \<Rightarrow> char list list \<times> int \<Rightarrow> bool\<close> where
+  \<open>mnl_le \<equiv> \<lambda>(m, _) (m', _). m \<le> m'\<close>
+
+definition merge_mnls :: \<open>(char list list \<times> int) list \<Rightarrow> _ \<Rightarrow> _\<close> where
+  \<open>merge_mnls = merge mnl_le\<close>
+
+definition msort_mnls :: \<open>(char list list \<times> int) list \<Rightarrow> _\<close> where
+  \<open>msort_mnls = msort_alt mnl_le\<close>
+
+sepref_register mnl_le merge_mnls msort_mnls
+
+sepref_def mnl_le_impl is \<open>uncurry (RETURN oo mnl_le)\<close>
+  :: \<open>monomial_assn\<^sup>k *\<^sub>a monomial_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding mnl_le_def
+  by sepref
+
+sepref_def poly_merge_impl is \<open>uncurry (RETURN oo merge_mnls)\<close>
+  :: \<open>poly_assn\<^sup>d *\<^sub>a poly_assn\<^sup>d \<rightarrow>\<^sub>a poly_assn\<close>
+  unfolding merge_mnls_def merge_RECT
+  by sepref
+
+sepref_def poly_split_impl is \<open>RETURN o alt_split\<close>
+  :: \<open>poly_assn\<^sup>d \<rightarrow>\<^sub>a poly_assn \<times>\<^sub>a poly_assn\<close>
+  unfolding alt_split_RECT_ol
+  by sepref
+
+sepref_def poly_msort_impl is \<open>RETURN o msort_mnls\<close>
+  :: \<open>poly_assn\<^sup>d \<rightarrow>\<^sub>a poly_assn\<close>
+  unfolding msort_mnls_def msort_alt_RECT merge_mnls_def[symmetric]
+  by sepref
+
+text \<open>Correctness at the abstract level: multiset preservation and sortedness w.r.t.
+  the (weak) monomial order on pairs \<emdash> the ingredients for \<open>sort_poly_spec\<close>.\<close>
+
+lemma msort_mnls_mset[simp]: \<open>mset (msort_mnls xs) = mset xs\<close>
+  unfolding msort_mnls_def by simp
+
+lemma msort_mnls_sorted: \<open>sorted_wrt mnl_le (msort_mnls xs)\<close>
+  unfolding msort_mnls_def
+  by (rule msort_alt_sorted) (auto simp: mnl_le_def intro!: transpI)
+
 text \<open>String/monomial relations, assertions and equality (replacing the AFP's
   \<open>eq_string_monom_hnr\<close>) have moved to \<open>Monom_Assn\<close>.\<close>
 

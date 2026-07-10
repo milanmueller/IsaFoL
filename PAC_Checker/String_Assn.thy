@@ -1,5 +1,5 @@
 theory String_Assn
-  imports IICF_Owning_List Char_Assn
+  imports LLVM_Sort Char_Assn
 begin
 
 text \<open>Implement String by Open List\<close>
@@ -67,38 +67,6 @@ lemma list_less_Cons: \<open>((x # xs) < (y # ys)) = (x < y \<or> (x = y \<and> 
   by (auto simp: less_list_def lexordp_def)
 
 subsection \<open>String Equality\<close>
-
-text \<open>Instantiation ladder for the generic \<open>os_eq\<close> template: the element comparison for
-  chars is plain \<open>ll_icmp_eq\<close>, correct because \<open>char_rel\<close> is bi-unique (injectivity of
-  \<open>char_of_word\<close>). Feeding the resulting \<open>str_eq_rule\<close> back into \<open>ol_eq_rule\<close> one level
-  up gives monomial equality (\<open>os_eq str_eq\<close> at \<open>ol_assn strl_assn\<close>) \<emdash> no purity needed
-  at that level.\<close>
-
-lemma char_of_word_inj: \<open>char_of_word a = char_of_word b \<longleftrightarrow> a = b\<close>
-proof
-  assume \<open>char_of_word a = char_of_word b\<close>
-  hence \<open>(of_char (char_of_word a) :: nat) = of_char (char_of_word b)\<close> by simp
-  hence \<open>unat a = unat b\<close>
-    unfolding char_of_word_def by (simp add: of_char_of unat_of_char_mod)
-  thus \<open>a = b\<close> by (simp add: word_unat_eq_iff)
-qed simp
-
-text \<open>The element-equality rule in the htriple format expected by \<open>ol_eq_rule\<close>'s premise.
-  Proven in a throwaway \<open>llvm_prim_arith_setup\<close> context (cf. CLAUDE.md); NOT declared
-  \<open>[vcg_rules]\<close> globally \<emdash> a raw \<open>ll_icmp_eq\<close> rule could hijack snat/unat comparisons
-  elsewhere.\<close>
-
-context begin
-interpretation llvm_prim_arith_setup .
-
-lemma char_eq_rule:
-  \<open>llvm_htriple (char_assn a c ** char_assn a' c') (ll_icmp_eq c c')
-    (\<lambda>r. char_assn a c ** char_assn a' c' ** \<upharpoonleft>bool.assn (a = a') r)\<close>
-  unfolding char_assn_def char_rel_def
-  supply [simp] = pure_def in_br_conv bool.assn_def char_of_word_inj
-  by vcg
-
-end
 
 text \<open>First-order specialization of the higher-order template, for code export.\<close>
 
@@ -212,27 +180,6 @@ lemma ol_less_hnr:
   apply vcg_monadify
   by vcg'
 
-text \<open>Element rule for chars: \<open>ll_icmp_ult\<close> on words decides \<open>(<)\<close> on chars, because
-  \<open>char_of_word\<close> is order-preserving (unsigned word order matches char order). Proven in
-  a throwaway \<open>llvm_prim_arith_setup\<close> context, cf. @{thm char_eq_rule}.\<close>
-
-lemma char_of_word_less: \<open>char_of_word c < char_of_word c' \<longleftrightarrow> c < c'\<close>
-  using unat_of_char_mod
-  by (auto simp: char_of_word_def word_less_nat_alt PAC_Polynomials_Term.less_char_def
-      simp flip: less_char_def)
-
-context begin
-interpretation llvm_prim_arith_setup .
-
-lemma char_lt_rule:
-  \<open>llvm_htriple (char_assn a c ** char_assn a' c') (ll_icmp_ult c c')
-    (\<lambda>r. char_assn a c ** char_assn a' c' ** \<upharpoonleft>bool.assn (a < a') r)\<close>
-  unfolding char_assn_def char_rel_def
-  supply [simp] = pure_def in_br_conv bool.assn_def char_of_word_less
-  by vcg
-
-end
-
 text \<open>First-order specialization for code export (recursive call folded to \<open>strl_lt\<close>).\<close>
 
 definition strl_lt :: \<open>8 word os_list \<Rightarrow> 8 word os_list \<Rightarrow> 1 word llM\<close> where
@@ -267,6 +214,112 @@ lemma strl_lt_hnr[sepref_fr_rules]:
   using ol_less_hnr[where A=char_assn and lti=ll_icmp_ult and eqi=ll_icmp_eq,
       OF char_lt_rule char_eq_rule]
   unfolding ol_assn_pure_conv[OF char_assn_pure] .
+
+text \<open>We are lazy and use an additional negation to implement \<le> (TODO: properly implement)\<close>
+
+definition \<open>ls_le (a :: ('a::linorder) list) b \<equiv> \<not>(b < a)\<close>
+
+lemma le_by_lt_str: \<open>(a :: ('a::linorder) list) \<le> b \<equiv> \<not>(b < a)\<close> 
+  by (simp add: linorder_not_less)
+
+sepref_def strl_le_impl is \<open>uncurry (RETURN oo ls_le)\<close>
+  :: \<open>strl_assn\<^sup>k *\<^sub>a strl_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding ls_le_def 
+  by sepref
+
+sepref_register \<open>(\<le>) :: char list \<Rightarrow> char list \<Rightarrow> bool\<close>
+lemma strl_le_hnr[sepref_fr_rules]:
+  \<open>(uncurry strl_le_impl, uncurry (RETURN oo (\<le>)))
+  \<in> strl_assn\<^sup>k *\<^sub>a strl_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  using strl_le_impl.refine unfolding ls_le_def le_by_lt_str .
+
+text \<open>The \<open>\<le>\<close>-comparator in htriple form (for hand-written \<open>vcg\<close> proofs about code
+  calling \<open>strl_le_impl\<close>): \<open>vcg\<close> after unfolding the synthesized \<open>strl_le_impl_def\<close>
+  (a \<open>strl_lt\<close> call with swapped arguments plus a \<open>1 word\<close> negation), with
+  \<open>strl_lt_rule\<close> in scope and \<open>le_by_lt_str\<close> for the abstract side.\<close>
+
+lemma strl_le_rule[vcg_rules]:
+  \<open>llvm_htriple (strl_assn xs p ** strl_assn ys q) (strl_le_impl p q)
+    (\<lambda>r. strl_assn xs p ** strl_assn ys q ** \<upharpoonleft>bool.assn (xs \<le> ys) r)\<close>
+  unfolding le_by_lt_str strl_le_impl_def
+  by vcg
+
+subsection \<open>String Copy\<close>
+
+text \<open>Deep copy of a string: the \<open>ol_copy\<close> walk with the trivial element copy \<open>Mreturn\<close>
+  (chars are pure). Registered against \<open>COPY\<close>, so sepref can duplicate strings whenever
+  abstract code uses an owned string twice. First-order recursion equations are derived
+  for code export, cf. \<open>str_eq_simps\<close>.\<close>
+
+definition strl_copy :: \<open>8 word os_list \<Rightarrow> 8 word os_list llM\<close> where
+  \<open>strl_copy \<equiv> ol_copy Mreturn\<close>
+
+lemma strl_copy_simps[llvm_code]:
+  \<open>strl_copy p = (if p = null then Mreturn null else doM {
+      n \<leftarrow> ll_load p;
+      c \<leftarrow> Mreturn (node.val n);
+      t \<leftarrow> strl_copy (node.next n);
+      os_prepend c t
+    })\<close>
+  unfolding strl_copy_def by (rule ol_copy.simps)
+
+lemma strl_copy_rule[vcg_rules]:
+  \<open>llvm_htriple (strl_assn xs p) (strl_copy p) (\<lambda>r. strl_assn xs p ** strl_assn xs r)\<close>
+  using os_copy_rule[where A=char_assn, OF char_assn_pure]
+  unfolding strl_copy_def .
+
+lemma strl_copy_hnr[sepref_fr_rules]:
+  \<open>(strl_copy, RETURN o COPY) \<in> strl_assn\<^sup>k \<rightarrow>\<^sub>a strl_assn\<close>
+  using ol_copy_hnr[where A=char_assn and cp=Mreturn,
+      OF pure_elem_copy_rule[OF char_assn_pure]]
+  unfolding ol_assn_pure_conv[OF char_assn_pure] strl_copy_def .
+
+subsection \<open>String Sorting\<close>
+
+text \<open>Instance of the generic merge sort (\<open>LLVM_Sort\<close>) at \<open>strl_assn\<close>, sorting the
+  characters of a string by the char order (\<open>char_le_hnr\<close> from \<open>Char_Assn\<close> is the
+  comparator rule). The only missing list operation at the \<open>os_assn\<close> level is
+  \<open>mop_list_pop_front\<close> \<emdash> for pure elements it coincides with the owning-list rule via
+  @{thm ol_assn_pure_conv}. The empty producer in the split's base case resolves via
+  the generic \<open>op_list_empty\<close> implementation (\<open>os_empty\<close>), so the plain
+  \<open>alt_split_RECT\<close> variant applies.\<close>
+
+lemma strl_pop_front_hnr[sepref_fr_rules]:
+  \<open>(os_pop, mop_list_pop_front) \<in> strl_assn\<^sup>d \<rightarrow>\<^sub>a char_assn \<times>\<^sub>a strl_assn\<close>
+  using ol_pop_front_hnr[where A=char_assn]
+  unfolding ol_assn_pure_conv[OF char_assn_pure] .
+
+definition merge_chars :: \<open>char list \<Rightarrow> char list \<Rightarrow> char list\<close> where
+  \<open>merge_chars = merge (\<le>)\<close>
+
+definition msort_chars :: \<open>char list \<Rightarrow> char list\<close> where
+  \<open>msort_chars = msort_alt (\<le>)\<close>
+
+sepref_register merge_chars msort_chars
+
+sepref_def strl_merge_impl is \<open>uncurry (RETURN oo merge_chars)\<close>
+  :: \<open>strl_assn\<^sup>d *\<^sub>a strl_assn\<^sup>d \<rightarrow>\<^sub>a strl_assn\<close>
+  unfolding merge_chars_def merge_RECT
+  by sepref
+
+sepref_def strl_split_impl is \<open>RETURN o alt_split\<close>
+  :: \<open>strl_assn\<^sup>d \<rightarrow>\<^sub>a strl_assn \<times>\<^sub>a strl_assn\<close>
+  unfolding alt_split_RECT
+  by sepref
+
+sepref_def strl_msort_impl is \<open>RETURN o msort_chars\<close>
+  :: \<open>strl_assn\<^sup>d \<rightarrow>\<^sub>a strl_assn\<close>
+  unfolding msort_chars_def msort_alt_RECT merge_chars_def[symmetric]
+  by sepref
+
+lemma msort_chars_mset[simp]: \<open>mset (msort_chars xs) = mset xs\<close>
+  unfolding msort_chars_def by simp
+
+lemma msort_chars_sorted: \<open>sorted_wrt (\<le>) (msort_chars xs)\<close>
+  unfolding msort_chars_def
+  by (rule msort_alt_sorted) (auto intro: transpI)
+
+section \<open>Testing\<close>
 
 experiment begin
 
@@ -346,7 +399,19 @@ experiment begin
   sepref_def dest_cons_test_impl' is \<open>RETURN o dest_cons_test\<close>
     :: \<open>strl_assn\<^sup>d \<rightarrow>\<^sub>a strl_assn\<close>
     unfolding dest_cons_test_def list.case_eq_if
-    by sepref 
+    by sepref
+
+  definition str_dup_test :: \<open>str \<Rightarrow> str \<times> str\<close> where
+    \<open>str_dup_test cs = (cs, cs)\<close>
+
+  text \<open>Exercises automatic \<open>COPY\<close> insertion: the argument is owned and used twice, so
+    monadify inserts a \<open>COPY\<close>, resolved by \<open>strl_copy_hnr\<close>.\<close>
+  sepref_def str_dup_test_impl is \<open>RETURN o str_dup_test\<close>
+    :: \<open>strl_assn\<^sup>d \<rightarrow>\<^sub>a strl_assn \<times>\<^sub>a strl_assn\<close>
+    unfolding str_dup_test_def
+    by sepref
+
+  export_llvm str_dup_test_impl
 
 end
 

@@ -5,24 +5,7 @@ begin
 
 text \<open>An open list whose elements may themselves own heap (in particular: nested lists),
   complementing \<open>os_assn\<close> from \<open>IICF_Open_List\<close>, which is restricted to pure element
-  assertions. Started as a design sketch; all rules are now fully proven (sorry-free).
-
-  Why \<open>os_assn\<close> cannot nest:
-    \<^item> \<open>os_assn A = hr_comp raw_os_assn (\<langle>the_pure A\<rangle>list_rel)\<close> extracts a \<^emph>\<open>relation\<close> from \<open>A\<close>;
-      for impure \<open>A\<close>, \<open>the_pure A\<close> is unspecified garbage.
-    \<^item> The raw rules relate node contents by \<open>id_assn\<close>: nothing owns the heap an element
-      (e.g. an inner list pointer) refers to. \<open>hd\<close> in \<open>\<^sup>k\<close> mode would duplicate ownership,
-      \<open>os_delete\<close> would leak every element.
-
-  The design below mirrors \<^theory>\<open>Isabelle_LLVM.Proto_EOArray\<close> /
-  \<^theory>\<open>Isabelle_LLVM.Proto_IICF_EOArray\<close>, substituting the
-  list segment \<open>lseg\<close> for \<open>narray_assn\<close>:
-    \<^item> the node still stores a plain \<open>llvm_rep\<close> value \<open>c\<close> (for nested lists: a pointer);
-    \<^item> the \<^emph>\<open>assertion\<close> additionally conjoins \<open>A x c\<close> for every element, so the list owns
-      its elements' heap;
-    \<^item> consequently the LLVM \<^emph>\<open>code\<close> of all structural operations is unchanged, we reuse
-      \<open>os_empty\<close>, \<open>os_prepend\<close>, \<open>os_pop\<close>, \<open>os_reverse\<close>, \<dots> verbatim; only the refinement
-      rules (and their modes) differ.\<close>
+  assertions.\<close>
 
 subsection \<open>The Owning List Assertion\<close>
 
@@ -173,16 +156,9 @@ text \<open>All implementations are the unchanged raw ops from \<open>LLVM_DS_Op
 
   \<^item> \<^emph>\<open>No parametricity composition.\<close> For \<open>os_assn\<close> we proved raw rules with \<open>id_assn\<close>
     elements and let \<open>sepref_decl_impl\<close> compose them with the operation's parametricity
-    theorem \<emdash> that shortcut requires pure \<open>A\<close>. Here the rules are stated (and must be
+    theorem. That shortcut requires pure \<open>A\<close>. Here the rules are stated (and must be
     proven) directly at the \<open>ol_assn A\<close> level for arbitrary \<open>A\<close>, and are declared
-    \<open>[sepref_fr_rules]\<close> by hand; \<open>mop\<close>- and plain-op forms need separate statements.
-
-  \<^item> \<^emph>\<open>Modes.\<close> Any rule that moves an element across the container boundary uses \<open>\<^sup>d\<close> on
-    the element resp. forbids \<open>\<^sup>k\<close> on the container: \<open>prepend\<close> consumes the element
-    (\<open>A\<^sup>d\<close>), \<open>hd\<close>/\<open>get\<close> in \<open>\<^sup>k\<close> mode are \<^emph>\<open>impossible\<close> (they would duplicate ownership) and
-    are replaced by destructive \<open>pop\<close> resp. the explicit-ownership view below. Purely
-    structural ops (\<open>is_empty\<close>, \<open>length\<close>, \<open>reverse\<close>, splitting, destructive append) never
-    touch elements and work for arbitrary \<open>A\<close> with the same modes as for \<open>os_assn\<close>.\<close>
+    \<open>[sepref_fr_rules]\<close> by hand; \<open>mop\<close>- and plain-op forms need separate statements.\<close>
 
 text \<open>Front-pop as an interface operation (the owning replacement for \<open>hd\<close>+\<open>tl\<close>;
   analogous to the existing \<^const>\<open>op_list_pop_last\<close>). Implemented by the existing raw
@@ -430,11 +406,88 @@ text \<open>Also structural, hence directly liftable once needed (raw code parti
   suffix \<emdash> \<open>drop\<close>/\<open>split\<close> need no element access at all, destructive \<open>take\<close> frees the
   dropped suffix and therefore takes a \<open>MK_FREE A\<close> assumption), and destructive
   concatenation (\<open>op_join_list\<close>, walk to the last node and patch its next pointer).
-  The copying variants of \<open>take\<close>/\<open>drop\<close>/\<open>copy\<close> are NOT liftable for impure \<open>A\<close> \<emdash> copying
-  duplicates elements, which requires a deep-copy operation on \<open>A\<close> as an extra parameter
-  (an \<open>ol_copy fc\<close> template analogous to \<open>ol_delete\<close>).\<close>
+  The copying variants of \<open>take\<close>/\<open>drop\<close> are NOT liftable for impure \<open>A\<close> without a
+  deep-copy operation on \<open>A\<close> as an extra parameter; full-list deep copy is provided
+  below (\<open>ol_copy\<close>).\<close>
 
-subsection \<open>Reading Without Consuming \<emdash> the Borrowing Problem\<close>
+subsection \<open>Deep Copy\<close>
+
+text \<open>Deep copy of an owning list, parameterized by an element copy \<open>cp\<close>,  the dual of
+  \<open>ol_delete\<close>. A borrowing (zero-copy) keep-mode read of an element is impossible: the
+  postcondition \<open>ol_assn A xs p ** A (xs!i) r\<close> with \<open>r\<close> aliasing the node payload would
+  claim the same heap cells in both \<open>**\<close>-conjuncts. With a \<^emph>\<open>fresh\<close> copy the same
+  postcondition is honestly satisfiable, so keep-mode operations returning elements
+  become derivable at the price of duplication.
+
+  The sepref-facing form is \<open>(cp, RETURN o COPY) \<in> A\<^sup>k \<rightarrow>\<^sub>a A\<close>: sepref's monadify phase
+  inserts \<open>COPY\<close> automatically whenever abstract code violates linearity (an owned value
+  used twice), and resolves it against such rules (cf. \<open>hnr_pure_COPY\<close> for pure \<open>A\<close>, and
+  \<open>is_copy\<close>/\<open>sort_impl_copy_context\<close> in the sorting library for the same idiom).
+
+  CAVEAT (code generation): like \<open>ol_delete\<close>, the template is higher-order in \<open>cp\<close>;
+  instances must be specialized first-order for export (cf. \<open>strl_copy\<close> in
+  \<open>String_Assn\<close>, \<open>monom_copy_impl\<close> in \<open>Monom_Assn\<close>).\<close>
+
+partial_function (M) ol_copy :: \<open>('c::llvm_rep \<Rightarrow> 'c llM) \<Rightarrow> 'c os_list \<Rightarrow> 'c os_list llM\<close>
+  where
+  \<open>ol_copy cp p = (if p = null then Mreturn null else doM {
+      n \<leftarrow> ll_load p;
+      c \<leftarrow> cp (node.val n);
+      t \<leftarrow> ol_copy cp (node.next n);
+      os_prepend c t
+    })\<close>
+
+lemma ol_copy_rule:
+  assumes CP: \<open>\<And>a c. llvm_htriple (A a c) (cp c) (\<lambda>r. A a c ** A a r)\<close>
+  shows \<open>llvm_htriple (ol_assn A xs p) (ol_copy cp p) (\<lambda>r. ol_assn A xs p ** ol_assn A xs r)\<close>
+  unfolding ol_assn_conv
+proof (induction xs arbitrary: p)
+  case Nil
+  show ?case
+    apply (subst ol_copy.simps)
+    by vcg
+next
+  case (Cons x xs)
+  interpret llvm_prim_ctrl_setup .
+  note [vcg_rules] = Cons.IH CP ol_prepend_rule[unfolded ol_assn_conv]
+  show ?case
+    supply [simp, named_ss fri_prepare_simps] = ol_seg_cons
+    supply [simp] = sep_conj_exists
+    apply (subst ol_copy.simps)
+    apply (cases \<open>p = null\<close>; simp)
+    by vcg
+qed
+
+text \<open>For pure element assertions the trivial element copy \<open>Mreturn\<close> works: duplicating
+  a pure assertion costs nothing (\<open>\<up>\<Phi> ** \<up>\<Phi> = \<up>\<Phi>\<close>).\<close>
+
+lemma pure_elem_copy_rule:
+  assumes \<open>is_pure A\<close>
+  shows \<open>llvm_htriple (A a c) (Mreturn c) (\<lambda>r. A a c ** A a r)\<close>
+proof -
+  from assms obtain \<Phi> where P: \<open>\<And>x x'. A x x' = \<up>(\<Phi> x x')\<close>
+    by (auto simp: is_pure_def)
+  show ?thesis
+    unfolding P
+    by vcg
+qed
+
+lemma os_copy_rule:
+  assumes P: \<open>is_pure A\<close>
+  shows \<open>llvm_htriple (os_assn A xs p) (ol_copy Mreturn p)
+    (\<lambda>r. os_assn A xs p ** os_assn A xs r)\<close>
+  using ol_copy_rule[where A=A and cp=Mreturn, OF pure_elem_copy_rule[OF P]]
+  unfolding ol_assn_pure_conv[OF P] .
+
+lemma ol_copy_hnr:
+  assumes CP: \<open>\<And>a c. llvm_htriple (A a c) (cp c) (\<lambda>r. A a c ** A a r)\<close>
+  shows \<open>(ol_copy cp, RETURN o COPY) \<in> (ol_assn A)\<^sup>k \<rightarrow>\<^sub>a ol_assn A\<close>
+  supply [vcg_rules] = ol_copy_rule[OF CP]
+  apply sepref_to_hoare
+  apply vcg_monadify
+  by vcg'
+
+subsection \<open>Reading Without Consuming - the Borrowing Problem\<close>
 
 text \<open>Sepref has no borrowing: a rule result either owns (\<open>\<^sup>d\<close> input consumed) or the input
   is kept whole (\<open>\<^sup>k\<close>). Reading the head of an owning list for inspection (e.g. the
@@ -453,7 +506,12 @@ text \<open>Sepref has no borrowing: a rule result either owns (\<open>\<^sup>d\
   \<^enum> \<^emph>\<open>Systematic borrowing\<close>: \<^theory>\<open>Isabelle_LLVM.Proto_Sepref_Borrow\<close> resp. a
     \<open>WITH_SPLIT\<close>-style combinator (\<open>WITH_HD xs (\<lambda>x. m x)\<close> lending \<open>A\<close>-ownership of the
     head to a subcomputation that must return it unchanged). Heaviest machinery,
-    only worth it if peeking is pervasive.\<close>
+    only worth it if peeking is pervasive.
+
+  \<^enum> \<^emph>\<open>Deep copy\<close> (\<open>ol_copy\<close> above): keep-mode access by duplication. Sepref inserts
+    \<open>COPY\<close> automatically on linearity violations and resolves it via the registered
+    copy rules (\<open>strl_copy_hnr\<close>/\<open>monom_copy_hnr\<close>). Ergonomic fallback for cold code;
+    a full traversal + allocation per read, so wrong for hot loops.\<close>
 
 subsection \<open>Explicit-Ownership View (optional)\<close>
 
@@ -461,8 +519,7 @@ text \<open>For in-place indexed element access (the array sorting algorithms us
   Proto_EOArray refines \<open>'a option list\<close>, where \<open>None\<close> marks an ownership hole
   (\<open>mop_eo_extract\<close> takes an element out, \<open>mop_eo_set\<close> puts one back). The owning list
   gets this view for free by instantiating \<open>ol_assn\<close> with \<^const>\<open>oelem_assn\<close>; the ops are
-  \<open>O(i)\<close> pointer walks (reusing \<open>os_list_get\<close>'s loop). Probably not needed for the PAC
-  checker \<emdash> included to show the design composes.\<close>
+  \<open>O(i)\<close> pointer walks (reusing \<open>os_list_get\<close>'s loop).\<close>
 
 abbreviation ol_eo_assn :: \<open>('a \<Rightarrow> 'c::llvm_rep \<Rightarrow> assn) \<Rightarrow> 'a option list \<Rightarrow> 'c os_list \<Rightarrow> assn\<close>
   where \<open>ol_eo_assn A \<equiv> ol_assn (\<upharpoonleft>(oelem_assn (mk_assn A)))\<close>
@@ -700,15 +757,6 @@ lemma ol_eo_set_hnr[sepref_fr_rules]:
   apply sepref_to_hoare
   apply vcg_monadify
   by vcg'
-
-subsection \<open>Nesting\<close>
-
-text \<open>The payoff: element assertions may now own heap, in particular be lists themselves.
-  Note the layering \<emdash> the \<^emph>\<open>inner\<close> lists have pure (word) elements, so they stay plain
-  \<open>os_assn\<close>; only the outer spine needs \<open>ol_assn\<close>. For the PAC checker this matches
-  \<open>term = string list\<close>: \<open>ol_assn (os_assn char_assn)\<close>, and one more \<open>ol_assn\<close> layer for
-  polynomials \<emdash> \<^emph>\<open>if\<close> we go this route rather than perfectly-shared variables (which
-  make the elements pure indices and avoid owning lists entirely).\<close>
 
 experiment
 begin

@@ -174,7 +174,7 @@ lemma os_list_get_rule[vcg_rules]:
   subgoal for asf a b t r s
     apply (rule impI)
     apply hypsubst
-    supply [simp] = drop_head_exit sep_conj_exists
+    supply [simp] = drop_head_exit
     apply vcg'
     subgoal
       apply (simp add: sep_algebra_simps)
@@ -331,6 +331,11 @@ lemma raw_os_assn_free[sepref_frame_free_rules]: \<open>MK_FREE raw_os_assn os_d
 
 lemma os_assn_free[sepref_frame_free_rules]: \<open>MK_FREE (os_assn A) os_delete\<close>
   unfolding os_assn_def by (rule sepref_frame_free_rules)+
+
+text \<open>\<open>os_delete\<close> appears in synthesized code (sepref inserts it as the free function
+  for dropped open lists); the library declares no code equations for it, so export
+  needs them here. First-order, so the recursion equations export directly.\<close>
+lemmas [llvm_code] = os_delete.simps
 
 context
   notes [simp] = refine_pw_simps

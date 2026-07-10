@@ -109,6 +109,45 @@ lemma char_assn_mk_free[sepref_frame_free_rules]:
   unfolding char_assn_def
   by (rule mk_free_pure)
 
+text \<open>Instantiation ladder for the generic \<open>os_eq\<close> template: the element comparison for
+  chars is plain \<open>ll_icmp_eq\<close>, correct because \<open>char_rel\<close> is bi-unique (injectivity of
+  \<open>char_of_word\<close>). Feeding the resulting \<open>str_eq_rule\<close> back into \<open>ol_eq_rule\<close> one level
+  up gives monomial equality (\<open>os_eq str_eq\<close> at \<open>ol_assn strl_assn\<close>) \<emdash> no purity needed
+  at that level.\<close>
+
+lemma char_of_word_inj: \<open>char_of_word a = char_of_word b \<longleftrightarrow> a = b\<close>
+proof
+  assume \<open>char_of_word a = char_of_word b\<close>
+  hence \<open>(of_char (char_of_word a) :: nat) = of_char (char_of_word b)\<close> by simp
+  hence \<open>unat a = unat b\<close>
+    unfolding char_of_word_def by (simp add: of_char_of unat_of_char_mod)
+  thus \<open>a = b\<close> by (simp add: word_unat_eq_iff)
+qed simp
+
+lemma char_of_word_less: \<open>char_of_word c < char_of_word c' \<longleftrightarrow> c < c'\<close>
+  using unat_of_char_mod
+  by (auto simp: char_of_word_def word_less_nat_alt PAC_Polynomials_Term.less_char_def
+      simp flip: less_char_def)
+
+context begin
+interpretation llvm_prim_arith_setup .
+
+lemma char_eq_rule:
+  \<open>llvm_htriple (char_assn a c ** char_assn a' c') (ll_icmp_eq c c')
+    (\<lambda>r. char_assn a c ** char_assn a' c' ** \<upharpoonleft>bool.assn (a = a') r)\<close>
+  unfolding char_assn_def char_rel_def
+  supply [simp] = pure_def in_br_conv bool.assn_def char_of_word_inj
+  by vcg
+
+lemma char_lt_rule:
+  \<open>llvm_htriple (char_assn a c ** char_assn a' c') (ll_icmp_ult c c')
+    (\<lambda>r. char_assn a c ** char_assn a' c' ** \<upharpoonleft>bool.assn (a < a') r)\<close>
+  unfolding char_assn_def char_rel_def
+  supply [simp] = pure_def in_br_conv bool.assn_def char_of_word_less
+  by vcg
+
+end
+
 (* This is essentially just testing *)
 sepref_definition char_eq_impl is \<open>uncurry (RETURN oo (=))\<close> 
   :: \<open>char_assn\<^sup>k *\<^sub>a char_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
@@ -125,152 +164,5 @@ sepref_definition char_lt_impl is \<open>uncurry (RETURN oo (<))\<close>
 sepref_definition char_le_impl is \<open>uncurry (RETURN oo (\<le>))\<close> 
   :: \<open>char_assn\<^sup>k *\<^sub>a char_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   by sepref
-
-(*
-definition ls_eq_nres :: \<open>'a list \<Rightarrow> 'a list \<Rightarrow> bool nres\<close> where
-  \<open>ls_eq_nres xs ys = doN {
-    if length xs \<noteq> length ys then RETURN False
-    else doN {
-      (_, eq) \<leftarrow> WHILEIT
-        (\<lambda>(i, eq). i \<le> length xs \<and> (eq \<longleftrightarrow> (\<forall>j < i. xs ! j = ys ! j)))
-        (\<lambda>(i, eq). eq \<and> i < length xs)
-        (\<lambda>(i, _). doN {
-          ASSERT (i < length xs);
-          let x = xs!i;
-          let y = ys!i;
-          RETURN (i + 1, x = y)
-        })
-        (0, True);
-      RETURN eq
-    }
-  }\<close>
-
-lemma ls_eq_nres_correct: \<open>ls_eq_nres xs ys \<le> SPEC (\<lambda>r. r \<longleftrightarrow> xs = ys)\<close>
-  unfolding ls_eq_nres_def
-  apply (refine_vcg WHILEIT_rule[where R = \<open>measure (\<lambda>(i,_). length xs - i)\<close>])
-  apply clarsimp_all
-  (* finish remaining subgoals *)
-  sorry
-
-definition str_eq_nres :: \<open>char list \<Rightarrow> char list \<Rightarrow> bool nres\<close> where
-  \<open>str_eq_nres = ls_eq_nres\<close>
-
-sepref_definition str_eq_impl is \<open>uncurry str_eq_nres\<close>
-  :: \<open>string_assn\<^sup>k *\<^sub>a string_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
-  unfolding str_eq_nres_def ls_eq_nres_def
-  apply (annot_snat_const size_t)
-  by sepref
-
-export_llvm str_eq_nres
-
-definition lss_eq_nres :: \<open>'a list list \<Rightarrow> 'a list list \<Rightarrow> bool nres\<close> where
-  \<open>lss_eq_nres xss yss = doN {
-    if length xss \<noteq> length yss then RETURN False
-    else if length xss = 0 then RETURN True
-    else doN {
-      xs0 \<leftarrow> mop_list_get xss 0;
-      ys0 \<leftarrow> mop_list_get yss 0;
-      (_, _, _, _, eq) \<leftarrow> WHILEIT
-        (\<lambda>(i, j, xs, ys, eq). i \<le> length xss \<and>
-            (i < length xss \<longrightarrow> xs = xss!i \<and> ys = yss!i \<and> j \<le> length xs \<and>
-            (eq \<longleftrightarrow> length xs = length ys \<and> (\<forall>h < j. xs!h = ys!h))) \<and>
-            (\<forall>k < i. xss!k = yss!k) \<and> (i = length xss \<longrightarrow> eq))
-        (\<lambda>(i, _, _, _, eq). eq \<and> i < length xss)
-        (\<lambda>(i, j, xs, ys, _). doN {
-          if j < length xs then doN {
-            ASSERT (j < length ys);
-            RETURN (i, j + 1, xs, ys, xs!j = ys!j)
-          } else doN {
-            ASSERT (i < length xss);
-            let i' = i + 1;
-            if i' < length xss then doN {
-              xs' \<leftarrow> mop_list_get xss i';
-              ys' \<leftarrow> mop_list_get yss i';
-              RETURN (i', 0, xs', ys', length xs' = length ys')
-            } else RETURN (i', 0, xs, ys, True)
-          }
-        })
-        (0, 0, xs0, ys0, length xs0 = length ys0);
-      RETURN eq
-    }
-  }\<close>
-
-lemma lss_eq_nres_correct: \<open>lss_eq_nres xss yss \<le> SPEC (\<lambda>r. r \<longleftrightarrow> xss = yss)\<close>
-  unfolding lss_eq_nres_def
-  apply (refine_vcg WHILEIT_rule[where R = \<open>inv_image (less_than <*lex*> less_than)
-    (\<lambda>(i, j, xs :: 'a list, _, _). (length xss - i, length xs - j))\<close>])
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by (auto; metis less_Suc_eq)
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal
-    apply (auto simp: less_Suc_eq)
-    subgoal by (rule nth_equalityI; auto)
-    subgoal by (rule nth_equalityI; auto)
-    done
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal by auto
-  subgoal
-    apply (auto simp: less_Suc_eq)
-    by (rule nth_equalityI; auto)
-  subgoal by auto
-  subgoal by auto
-  subgoal
-    apply auto
-    subgoal by (rule nth_equalityI; auto)
-    subgoal by (rule nth_equalityI; auto)
-    done
-  done
-
-definition strs_eq_nres :: \<open>char list list \<Rightarrow> char list list \<Rightarrow> bool nres\<close> where
-  \<open>strs_eq_nres = lss_eq_nres\<close>
-
-sepref_definition strs_eq_impl is \<open>uncurry strs_eq_nres\<close>
-  :: \<open>monom_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
-  unfolding strs_eq_nres_def lss_eq_nres_def
-  apply (annot_snat_const size_t)
-  (*apply sepref_dbg_keep*)
-  apply sepref_dbg_preproc
-  apply sepref_dbg_cons_init
-  apply sepref_dbg_id
-  apply sepref_dbg_monadify
-  apply sepref_dbg_opt_init
-  apply sepref_dbg_trans
-  apply sepref_dbg_opt
-  apply sepref_dbg_cons_solve
-  apply sepref_dbg_cons_solve
-  apply sepref_dbg_cons_solve_cp
-  apply sepref_dbg_constraints
-  oops (* `larray` will never be pure i think? *)
-*)
 
 end

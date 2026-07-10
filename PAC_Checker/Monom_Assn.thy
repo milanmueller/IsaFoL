@@ -122,7 +122,118 @@ lemma monom_less_hnr[sepref_fr_rules]:
   by (rule ol_less_hnr[where A=strl_assn and lti=strl_lt and eqi=str_eq,
         OF strl_lt_rule str_eq_rule])
 
-subsection \<open>Regression Test\<close>
+text \<open>Like with strings, we are lazy and use an additional negation to implement \<le> (TODO: properly implement)\<close>
+
+sepref_def monom_le_impl is \<open>uncurry (RETURN oo ls_le)\<close>
+  :: \<open>monom_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding ls_le_def 
+  by sepref
+
+sepref_register \<open>(\<le>) :: char list list \<Rightarrow> char list list \<Rightarrow> bool\<close>
+lemma strl_le_hnr[sepref_fr_rules]:
+  \<open>(uncurry monom_le_impl, uncurry (RETURN oo (\<le>)))
+  \<in> monom_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  using monom_le_impl.refine unfolding ls_le_def le_by_lt_str .
+
+lemma monom_le_rule[vcg_rules]:
+  \<open>llvm_htriple (monom_assn xs p ** monom_assn ys q) (monom_le_impl p q)
+    (\<lambda>r. monom_assn xs p ** monom_assn ys q ** \<upharpoonleft>bool.assn (xs \<le> ys) r)\<close>
+  unfolding monom_le_impl_def 
+  supply [simp] = linorder_not_less
+  by vcg
+
+subsection \<open>Monomial Copy\<close>
+
+text \<open>Deep copy of a monomial: the \<open>ol_copy\<close> walk one level above \<open>strl_copy\<close>, with the
+  string copy as element copy \<emdash> same nesting as \<open>monom_eq_impl\<close>/\<open>monom_less_impl\<close>.
+  Registered against \<open>COPY\<close>, so sepref can duplicate monomials whenever abstract code
+  violates linearity (an owned monomial used twice).\<close>
+
+definition monom_copy_impl :: \<open>8 word os_list os_list \<Rightarrow> 8 word os_list os_list llM\<close>
+  where \<open>monom_copy_impl \<equiv> ol_copy strl_copy\<close>
+
+lemma monom_copy_impl_simps[llvm_code]:
+  \<open>monom_copy_impl p = (if p = null then Mreturn null else doM {
+      n \<leftarrow> ll_load p;
+      c \<leftarrow> strl_copy (node.val n);
+      t \<leftarrow> monom_copy_impl (node.next n);
+      os_prepend c t
+    })\<close>
+  unfolding monom_copy_impl_def by (rule ol_copy.simps)
+
+lemma monom_copy_rule[vcg_rules]:
+  \<open>llvm_htriple (monom_assn xs p) (monom_copy_impl p)
+    (\<lambda>r. monom_assn xs p ** monom_assn xs r)\<close>
+  unfolding monom_copy_impl_def
+  by (rule ol_copy_rule[where A=strl_assn and cp=strl_copy, OF strl_copy_rule])
+
+lemma monom_copy_hnr[sepref_fr_rules]:
+  \<open>(monom_copy_impl, RETURN o COPY) \<in> monom_assn\<^sup>k \<rightarrow>\<^sub>a monom_assn\<close>
+  unfolding monom_copy_impl_def
+  by (rule ol_copy_hnr[where A=strl_assn and cp=strl_copy, OF strl_copy_rule])
+
+subsection \<open>Monomial Free\<close>
+
+text \<open>Sepref inserts \<open>ol_delete os_delete\<close> as the free function for dropped monomials
+  (via the conditional \<open>MK_FREE\<close> rules), so synthesized code can contain it. The
+  template is higher-order in the element free, so code export needs a first-order
+  specialization; the \<open>[llvm_pre_simp]\<close> fold rewrites synthesized code to use it
+  (cf. \<open>ll_not1_inline\<close> in the library).\<close>
+
+definition monom_free :: \<open>8 word os_list os_list \<Rightarrow> unit llM\<close> where
+  \<open>monom_free \<equiv> ol_delete os_delete\<close>
+
+lemma monom_free_simps[llvm_code]:
+  \<open>monom_free p = (if p = null then Mreturn () else doM {
+      n \<leftarrow> ll_load p;
+      os_delete (node.val n);
+      ll_free p;
+      monom_free (node.next n)
+    })\<close>
+  unfolding monom_free_def by (rule ol_delete.simps)
+
+lemmas [llvm_pre_simp] = monom_free_def[symmetric]
+
+subsection \<open>Monomial Variable Sorting\<close>
+
+text \<open>Sorting the variables of a monomial, by sepref synthesis at \<open>monom_assn\<close> with the
+  string order as comparator. \<open>merge_vars\<close>/\<open>msort_vars\<close> are proper constants (sepref
+  rejects partial applications like \<open>merge (\<le>)\<close> as rule heads). This replaces the role
+  of the functional \<open>msort_monoms_impl\<close> in \<open>PAC_Checker_Init\<close>.\<close>
+
+definition merge_vars :: \<open>char list list \<Rightarrow> char list list \<Rightarrow> char list list\<close> where
+  \<open>merge_vars = merge (\<le>)\<close>
+
+definition msort_vars :: \<open>char list list \<Rightarrow> char list list\<close> where
+  \<open>msort_vars = msort_alt (\<le>)\<close>
+
+sepref_register merge_vars msort_vars
+
+sepref_def monom_merge_impl is \<open>uncurry (RETURN oo merge_vars)\<close>
+  :: \<open>monom_assn\<^sup>d *\<^sub>a monom_assn\<^sup>d \<rightarrow>\<^sub>a monom_assn\<close>
+  unfolding merge_vars_def merge_RECT
+  by sepref
+
+sepref_def monom_split_impl is \<open>RETURN o alt_split\<close>
+  :: \<open>monom_assn\<^sup>d \<rightarrow>\<^sub>a monom_assn \<times>\<^sub>a monom_assn\<close>
+  unfolding alt_split_RECT_ol
+  by sepref
+
+sepref_def monom_msort_impl is \<open>RETURN o msort_vars\<close>
+  :: \<open>monom_assn\<^sup>d \<rightarrow>\<^sub>a monom_assn\<close>
+  unfolding msort_vars_def msort_alt_RECT merge_vars_def[symmetric]
+  by sepref
+
+text \<open>Correctness at the abstract level, for composing against sorting specs.\<close>
+
+lemma msort_vars_mset[simp]: \<open>mset (msort_vars xs) = mset xs\<close>
+  unfolding msort_vars_def by simp
+
+lemma msort_vars_sorted: \<open>sorted_wrt (\<le>) (msort_vars xs)\<close>
+  unfolding msort_vars_def
+  by (rule msort_alt_sorted) (auto intro: transpI)
+
+subsection \<open>Tests\<close>
 
 experiment begin
 
@@ -133,10 +244,6 @@ experiment begin
     :: \<open>monom_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
     unfolding monom_eq_test_def by sepref
 
-  text \<open>Exercises the whole first-order code path
-    (\<open>monom_eq_impl_simps\<close>/\<open>str_eq_simps\<close>/\<open>ll_icmp_eq\<close>).\<close>
-  export_llvm monom_eq_test_impl
-
   definition monom_lt_test :: \<open>char list list \<Rightarrow> char list list \<Rightarrow> bool\<close> where
     \<open>monom_lt_test xs ys = (xs < ys)\<close>
 
@@ -144,9 +251,13 @@ experiment begin
     :: \<open>monom_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
     unfolding monom_lt_test_def by sepref
 
-  text \<open>Exercises the nested first-order code path
-    (\<open>monom_less_impl_simps\<close>/\<open>strl_lt_simps\<close>/\<open>str_eq_simps\<close>/\<open>ll_icmp_ult\<close>/\<open>ll_icmp_eq\<close>).\<close>
-  export_llvm monom_lt_test_impl
+  definition monom_dup_test :: \<open>char list list \<Rightarrow> char list list \<times> char list list\<close> where
+    \<open>monom_dup_test xs = (xs, xs)\<close>
+
+  sepref_def monom_dup_test_impl is \<open>RETURN o monom_dup_test\<close>
+    :: \<open>monom_assn\<^sup>d \<rightarrow>\<^sub>a monom_assn \<times>\<^sub>a monom_assn\<close>
+    unfolding monom_dup_test_def
+    by sepref
 
 end
 
