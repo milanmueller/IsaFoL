@@ -436,7 +436,7 @@ partial_function (M) ol_copy :: \<open>('c::llvm_rep \<Rightarrow> 'c llM) \<Rig
       t \<leftarrow> ol_copy cp (node.next n);
       os_prepend c t
     })\<close>
-
+  
 lemma ol_copy_rule:
   assumes CP: \<open>\<And>a c. llvm_htriple (A a c) (cp c) (\<lambda>r. A a c ** A a r)\<close>
   shows \<open>llvm_htriple (ol_assn A xs p) (ol_copy cp p) (\<lambda>r. ol_assn A xs p ** ol_assn A xs r)\<close>
@@ -448,7 +448,6 @@ proof (induction xs arbitrary: p)
     by vcg
 next
   case (Cons x xs)
-  interpret llvm_prim_ctrl_setup .
   note [vcg_rules] = Cons.IH CP ol_prepend_rule[unfolded ol_assn_conv]
   show ?case
     supply [simp, named_ss fri_prepare_simps] = ol_seg_cons
@@ -486,6 +485,27 @@ lemma ol_copy_hnr:
   apply sepref_to_hoare
   apply vcg_monadify
   by vcg'
+
+text \<open>The converse direction: a sepref-level \<open>COPY\<close> rule yields the plain copy triple.
+  Useful when a copy was \<^emph>\<open>synthesized\<close> (or proven at the hnr level, like \<open>sbi_copy\<close>)
+  but is needed as the element premise of \<open>ol_copy_rule\<close> \<emdash> re-proving the triple
+  against \<open>hr_comp\<close>-style unfoldings by hand runs into the pure-duplication
+  reassembly, which this derivation sidesteps entirely.\<close>
+
+lemma copy_hnr_to_rule:
+  assumes \<open>(cp, RETURN o COPY) \<in> A\<^sup>k \<rightarrow>\<^sub>a A\<close>
+  shows \<open>llvm_htriple (A a c) (cp c) (\<lambda>r. A a c ** A a r)\<close>
+proof -
+  have R: \<open>hn_refine (A a c) (cp c) (A a c) A (\<lambda>_. True) (RETURN a)\<close>
+    using hfrefD[OF assms, of c a] by simp
+  show ?thesis
+    apply (rule htriple_ent_post[OF _ hn_refineD[OF R]])
+    subgoal
+      by (auto simp: entails_def sep_algebra_simps pred_lift_extract_simps
+          sep_conj_exists pw_le_iff refine_pw_simps)
+    subgoal by simp
+    done
+qed
 
 subsection \<open>Reading Without Consuming - the Borrowing Problem\<close>
 

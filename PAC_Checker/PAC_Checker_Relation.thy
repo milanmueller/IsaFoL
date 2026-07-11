@@ -10,8 +10,7 @@ theory PAC_Checker_Relation
     "Native_Word.Uint64" 
     "Native_Word.Uint32" 
     Collections.HashCode
-    Monom_Assn
-    BigInt_LLVM.LLVM_CodeGen_Signed
+    Poly_Assn
 begin
 
 section \<open>Various Refinement Relations\<close>
@@ -83,19 +82,6 @@ lemma [sepref_fr_rules]:
   by sepref_to_hoare
    (sep_auto simp: uint64_nat_rel_def br_def nat_of_uint64_uint64_of_nat_id)
 *)
-
-    
-definition  monomial_rel where
-  \<open>monomial_rel \<equiv> monom_rel \<times>\<^sub>r signed_big_int_rel\<close>
-
-abbreviation monomial_assn where
-  \<open>monomial_assn \<equiv> monom_assn \<times>\<^sub>a sbi_assn\<close>
-
-abbreviation poly_rel where
-  \<open>poly_rel \<equiv> \<langle>monomial_rel\<rangle>list_rel\<close>
-
-abbreviation poly_assn where
-  \<open>poly_assn \<equiv> ol_assn monomial_assn\<close>
 
 abbreviation polys_assn where
   \<open>polys_assn \<equiv> hm_fmap_assn uint64_nat_assn poly_assn\<close>

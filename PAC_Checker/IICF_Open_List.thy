@@ -319,12 +319,42 @@ partial_function (M) os_eq :: \<open>('c::llvm_rep \<Rightarrow> 'c \<Rightarrow
       if to_bool b then os_eq eqi (node.next np) (node.next nq)
       else Mreturn 0 })\<close>
 
+subsubsection \<open>Copying a list\<close>
+
+partial_function (M) os_copy :: \<open>'c::llvm_rep os_list \<Rightarrow> 'c os_list llM\<close> where [llvm_code]:
+  \<open>os_copy p = (if p = null then Mreturn null else doM {
+    n \<leftarrow> ll_load p;
+    t \<leftarrow> os_copy (node.next n);
+    os_prepend (node.val n) t
+  })\<close> 
+
 
 subsection \<open>List Interface Implementation\<close>
 
 abbreviation (input) \<open>raw_os_assn \<equiv> \<upharpoonleft>os_list_assn\<close>
 
 definition os_assn where \<open>os_assn A \<equiv> hr_comp raw_os_assn (\<langle>the_pure A\<rangle>list_rel)\<close>
+
+thm lseg.simps
+
+lemma os_copy_rule:
+  \<open>llvm_htriple (raw_os_assn xs p) (os_copy p) (\<lambda>r. raw_os_assn xs p ** raw_os_assn xs r)\<close>
+proof (induction xs arbitrary: p)
+  case Nil
+  then show ?case
+    apply (subst os_copy.simps)
+    unfolding os_list_assn_def
+    by vcg
+next
+  case (Cons x xs)
+  note [vcg_rules] = Cons.IH
+  show ?case
+    supply [simp, named_ss fri_prepare_simps] = os_list_assn_simps
+    supply [simp] = sep_conj_exists
+    apply (subst os_copy.simps)
+    apply (cases \<open>p = null\<close>; simp)
+    by vcg
+qed
 
 lemma raw_os_assn_free[sepref_frame_free_rules]: \<open>MK_FREE raw_os_assn os_delete\<close>
   apply rule by vcg
@@ -403,7 +433,13 @@ sepref_decl_impl os_length: os_length_hnr_aux
 
 end
 
+lemma os_copy_hnr: \<open>(os_copy, RETURN o COPY) \<in> raw_os_assn\<^sup>k \<rightarrow>\<^sub>a raw_os_assn\<close>
+  supply [vcg_rules] = os_copy_rule
+  by m_ref
+
 end
+
+
 end
 
 subsection \<open>Interface Coverage\<close>

@@ -4,7 +4,7 @@
   Maintainer:   Mathias Fleury, JKU
 *)
 theory PAC_Checker_Init
-  imports  PAC_Checker WB_Sort PAC_Checker_Relation
+  imports  PAC_Checker PAC_Checker_Relation
 begin
 
 section \<open>Initial Normalisation of Polynomials\<close>
@@ -306,6 +306,5 @@ sepref_definition fully_normalize_poly_impl
   by sepref
 
 declare fully_normalize_poly_impl.refine[sepref_fr_rules]
-
 
 end

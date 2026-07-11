@@ -1,6 +1,9 @@
 section \<open>Monomials as Owning Lists of Strings\<close>
 theory Monom_Assn
   imports String_Assn
+    BigInt_LLVM.LLVM_CodeGen_Signed
+    Isabelle_LLVM.IICF
+    Copy_Setup
 begin
 
 text \<open>Monomials (\<open>char list list\<close>) are represented as owning lists of strings: the outer
@@ -233,6 +236,91 @@ lemma msort_vars_sorted: \<open>sorted_wrt (\<le>) (msort_vars xs)\<close>
   unfolding msort_vars_def
   by (rule msort_alt_sorted) (auto intro: transpI)
 
+subsection \<open>Monomials\<close>
+
+text \<open>We define monoms as a list of strings and a monomial as a tuple @{typ \<open>char list list \<times> nat\<close>}
+  i.e. a list of variables with a coefficient.
+  We refine the coefficients by the custom big integer type
+  \<close>
+
+definition  monomial_rel where
+  \<open>monomial_rel \<equiv> monom_rel \<times>\<^sub>r signed_big_int_rel\<close>
+
+abbreviation monomial_assn where
+  \<open>monomial_assn \<equiv> monom_assn \<times>\<^sub>a sbi_assn\<close>
+
+text \<open>We need some setup to be able to extract either the monom or the coefficient without destroying the monom\<close>
+
+(* TODO: Move *)
+
+type_synonym monom_conc = \<open>8 word node ptr node ptr\<close>
+type_synonym sbin_conc = \<open>64 word \<times> 64 word \<times> 64 word ptr\<close>
+
+definition sbi_copy :: \<open>(sbin_conc \<times> 1 word) \<Rightarrow> (sbin_conc \<times> 1 word) llM\<close>
+  where [llvm_code, llvm_inline]:
+  \<open>sbi_copy \<equiv> \<lambda>(n, \<sigma>). doM { n' \<leftarrow> arl_copy n; Mreturn (n', \<sigma>) }\<close>
+
+lemma sbi_copy_hnr[sepref_fr_rules]: \<open>(sbi_copy, RETURN o COPY) \<in> sbi_assn\<^sup>k \<rightarrow>\<^sub>a sbi_assn\<close>
+  unfolding sbi_copy_def sbi_assn_def al_assn_def hr_comp_def
+  apply sepref_to_hoare
+  by vcg
+
+text \<open>The same copy as a plain Hoare triple: needed as the \<^emph>\<open>element\<close> premise when
+  lifting \<open>ol_copy\<close> over pairs containing a coefficient (cf. \<open>mnml_copy_rule\<close> below).
+  Derived from the hnr rule via \<open>copy_hnr_to_rule\<close> \<emdash> re-proving it directly against
+  the \<open>hr_comp\<close> unfoldings stalls on the pure-duplication reassembly.\<close>
+
+lemma sbi_copy_rule[vcg_rules]:
+  \<open>llvm_htriple (sbi_assn n c) (sbi_copy c) (\<lambda>r. sbi_assn n c ** sbi_assn n r)\<close>
+  by (rule copy_hnr_to_rule[OF sbi_copy_hnr])
+
+text \<open>Deep copy of a whole monomial\<times>coefficient pair: componentwise,
+  \<open>monom_copy_impl\<close> on the monomial and \<open>sbi_copy\<close> on the coefficient. This is the
+  element copy that lifts \<open>ol_copy\<close> to whole polynomials
+  (\<open>poly_copy_impl\<close> in \<open>PAC_Checker_Relation\<close>).\<close>
+
+definition mnml_copy_impl ::
+  \<open>monom_conc \<times> sbin_conc \<times> 1 word \<Rightarrow> (monom_conc \<times> sbin_conc \<times> 1 word) llM\<close>
+  where [llvm_code, llvm_inline]:
+  \<open>mnml_copy_impl \<equiv> \<lambda>(m, c). doM { m' \<leftarrow> monom_copy_impl m; c' \<leftarrow> sbi_copy c; Mreturn (m', c') }\<close>
+
+lemma mnml_copy_rule[vcg_rules]:
+  \<open>llvm_htriple (monomial_assn x c) (mnml_copy_impl c)
+    (\<lambda>r. monomial_assn x c ** monomial_assn x r)\<close>
+  unfolding mnml_copy_impl_def
+  apply (cases x; cases c; simp only: prod_assn_pair_conv prod.case)
+  by vcg
+
+text \<open>The split-pair form of the rule: inside sepref-style proofs the pair assertion
+  arrives \<^emph>\<open>already split\<close> into its components (\<open>prod_assn_pair_conv\<close> is a simp) and the
+  call carries a literal pair, so the unsplit rule above can never frame-match there.\<close>
+
+lemma mnml_copy_rule'[vcg_rules]:
+  \<open>llvm_htriple (monom_assn m mi ** sbi_assn n ci) (mnml_copy_impl (mi, ci))
+    (\<lambda>r. monom_assn m mi ** sbi_assn n ci ** monomial_assn (m, n) r)\<close>
+  using mnml_copy_rule[of \<open>(m, n)\<close> \<open>(mi, ci)\<close>] by (simp add: sep_conj_assoc)
+
+lemma mnml_copy_hnr[sepref_fr_rules]:
+  \<open>(mnml_copy_impl, RETURN o COPY) \<in> monomial_assn\<^sup>k \<rightarrow>\<^sub>a monomial_assn\<close>
+  supply [vcg_rules] = mnml_copy_rule'
+  apply sepref_to_hoare
+  apply vcg_monadify
+  by vcg'
+
+definition mnml_ndest_extrn_abs :: \<open>char list list \<times> int \<Rightarrow> int\<close> where
+  \<open>mnml_ndest_extrn_abs \<equiv> \<lambda>(_, c). COPY c\<close>
+
+sepref_def mnml_ndest_extrn_impl is \<open>RETURN o mnml_ndest_extrn_abs\<close>
+  :: \<open>monomial_assn\<^sup>k \<rightarrow>\<^sub>a sbi_assn\<close>
+  unfolding mnml_ndest_extrn_abs_def by sepref
+
+definition mnml_ndest_extrm_abs :: \<open>char list list \<times> int \<Rightarrow> char list list\<close> where
+  \<open>mnml_ndest_extrm_abs \<equiv> \<lambda>(m, _). COPY m\<close>
+
+sepref_def mnml_ndest_extrm_impl is \<open>RETURN o mnml_ndest_extrm_abs\<close>
+  :: \<open>monomial_assn\<^sup>k \<rightarrow>\<^sub>a monom_assn\<close>
+  unfolding mnml_ndest_extrm_abs_def by sepref
+  
 subsection \<open>Tests\<close>
 
 experiment begin
@@ -257,6 +345,17 @@ experiment begin
   sepref_def monom_dup_test_impl is \<open>RETURN o monom_dup_test\<close>
     :: \<open>monom_assn\<^sup>d \<rightarrow>\<^sub>a monom_assn \<times>\<^sub>a monom_assn\<close>
     unfolding monom_dup_test_def
+    by sepref
+
+  definition monomial_dup :: \<open>char list list \<times> int \<Rightarrow> (char list list \<times> int) nres\<close> where
+    \<open>monomial_dup m = (
+      let monom = mnml_ndest_extrm_abs m; 
+          coeff = mnml_ndest_extrn_abs m
+      in RETURN (monom, coeff))\<close>
+
+  sepref_def monomial_dup_impl is \<open>monomial_dup\<close>
+    :: \<open>monomial_assn\<^sup>k \<rightarrow>\<^sub>a monomial_assn\<close>
+    unfolding monomial_dup_def
     by sepref
 
 end
