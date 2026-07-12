@@ -1,4 +1,4 @@
-﻿theory Poly_Assn
+theory Poly_Assn
   imports Monom_Assn
 begin
 
@@ -9,6 +9,41 @@ abbreviation poly_rel where
 
 abbreviation poly_assn where
   \<open>poly_assn \<equiv> ol_assn monomial_assn\<close>
+
+subsection \<open>Polynomial Equality\<close>
+
+text \<open>The \<open>os_eq\<close> walk one level above \<open>mnml_eq_impl\<close> \<emdash> same ladder as monomial
+  equality over \<open>str_eq\<close>. Registered against \<open>(=)\<close> at the polynomial type, which is
+  what e.g. \<open>weak_equality_l\<close> (\<open>RETURN (p = q)\<close>) needs for its synthesis.\<close>
+
+definition poly_eq_impl ::
+  \<open>(monom_conc \<times> sbin_conc \<times> 1 word) os_list \<Rightarrow> (monom_conc \<times> sbin_conc \<times> 1 word) os_list \<Rightarrow> 1 word llM\<close>
+  where \<open>poly_eq_impl \<equiv> os_eq mnml_eq_impl\<close>
+
+lemma poly_eq_impl_simps[llvm_code]:
+  \<open>poly_eq_impl p q = (
+    if p = null then Mreturn (from_bool (q = null))
+    else if q = null then Mreturn 0
+    else doM {
+      np \<leftarrow> ll_load p; nq \<leftarrow> ll_load q;
+      b \<leftarrow> mnml_eq_impl (node.val np) (node.val nq);
+      if to_bool b then poly_eq_impl (node.next np) (node.next nq)
+      else Mreturn 0 })\<close>
+  unfolding poly_eq_impl_def by (rule os_eq.simps)
+
+lemma poly_eq_rule[vcg_rules]:
+  \<open>llvm_htriple (poly_assn xs p ** poly_assn ys q) (poly_eq_impl p q)
+    (\<lambda>r. poly_assn xs p ** poly_assn ys q ** \<upharpoonleft>bool.assn (xs = ys) r)\<close>
+  unfolding poly_eq_impl_def
+  by (rule ol_eq_rule[where A=monomial_assn and eqi=mnml_eq_impl, OF mnml_eq_rule])
+
+sepref_register \<open>(=) :: (char list list \<times> int) list \<Rightarrow> (char list list \<times> int) list \<Rightarrow> bool\<close>
+
+lemma poly_eq_hnr[sepref_fr_rules]:
+  \<open>(uncurry poly_eq_impl, uncurry (RETURN oo (=)))
+    \<in> poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding poly_eq_impl_def
+  by (rule ol_eq_hnr[where A=monomial_assn and eqi=mnml_eq_impl, OF mnml_eq_rule])
 
 subsection \<open>Polynomial Copy\<close>
 

@@ -496,8 +496,38 @@ lemma copy_hnr_to_rule:
   assumes \<open>(cp, RETURN o COPY) \<in> A\<^sup>k \<rightarrow>\<^sub>a A\<close>
   shows \<open>llvm_htriple (A a c) (cp c) (\<lambda>r. A a c ** A a r)\<close>
 proof -
-  have R: \<open>hn_refine (A a c) (cp c) (A a c) A (\<lambda>_. True) (RETURN a)\<close>
-    using hfrefD[OF assms, of c a] by simp
+  have \<open>hn_refine (fst (A\<^sup>k) a c) (cp c) (snd (A\<^sup>k) a c)
+      ((\<lambda>_. A) a) ((\<lambda>_ _. True) c) ((RETURN o COPY) a)\<close>
+    by (rule hfrefD[OF assms]) simp_all
+  then have R: \<open>hn_refine (A a c) (cp c) (A a c) A (\<lambda>_. True) (RETURN a)\<close>
+    by simp
+  show ?thesis
+    apply (rule htriple_ent_post[OF _ hn_refineD[OF R]])
+    subgoal
+      by (auto simp: entails_def sep_algebra_simps pred_lift_extract_simps
+          sep_conj_exists pw_le_iff refine_pw_simps)
+    subgoal by simp
+    done
+qed
+
+text \<open>Same converse direction for binary equality tests: an hnr rule for \<open>(=)\<close> at some
+  assertion yields the element-comparison triple that \<open>ol_eq_rule\<close>/\<open>ol_less_rule\<close>
+  expect as premise.\<close>
+
+lemma eq_hnr_to_rule:
+  assumes \<open>(uncurry eqi, uncurry (RETURN oo (=))) \<in> A\<^sup>k *\<^sub>a A\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  shows \<open>llvm_htriple (A a c ** A a' c') (eqi c c')
+    (\<lambda>r. A a c ** A a' c' ** \<upharpoonleft>bool.assn (a = a') r)\<close>
+proof -
+  note assms' = assms[unfolded bool1_rel_def bool.assn_is_rel[symmetric]]
+  have \<open>hn_refine (fst (A\<^sup>k *\<^sub>a A\<^sup>k) (a, a') (c, c')) (uncurry eqi (c, c'))
+      (snd (A\<^sup>k *\<^sub>a A\<^sup>k) (a, a') (c, c'))
+      ((\<lambda>_. \<upharpoonleft>bool.assn) (a, a')) ((\<lambda>_ _. True) (c, c'))
+      (uncurry (RETURN oo (=)) (a, a'))\<close>
+    by (rule hfrefD[OF assms']) simp_all
+  then have R: \<open>hn_refine (A a c ** A a' c') (eqi c c') (A a c ** A a' c')
+      (\<upharpoonleft>bool.assn) (\<lambda>_. True) (RETURN (a = a'))\<close>
+    by (simp add: to_hnr_prod_fst_snd)
   show ?thesis
     apply (rule htriple_ent_post[OF _ hn_refineD[OF R]])
     subgoal

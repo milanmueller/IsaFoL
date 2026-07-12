@@ -4,13 +4,14 @@
   Maintainer:   Mathias Fleury, JKU
 *)
 theory PAC_Checker_Relation
-  imports 
-    PAC_Checker 
-    WB_Sort 
-    "Native_Word.Uint64" 
-    "Native_Word.Uint32" 
+  imports
+    PAC_Checker
+    WB_Sort
+    "Native_Word.Uint64"
+    "Native_Word.Uint32"
     Collections.HashCode
     Poly_Assn
+    Polys_Assn
 begin
 
 section \<open>Various Refinement Relations\<close>
@@ -83,8 +84,8 @@ lemma [sepref_fr_rules]:
    (sep_auto simp: uint64_nat_rel_def br_def nat_of_uint64_uint64_of_nat_id)
 *)
 
-abbreviation polys_assn where
-  \<open>polys_assn \<equiv> hm_fmap_assn uint64_nat_assn poly_assn\<close>
+text \<open>\<^const>\<open>polys_assn\<close> now lives in \<^file>\<open>Polys_Assn.thy\<close>, defined via \<^const>\<open>pam_fmap_assn\<close>
+  (the real \<^const>\<open>pam_assn\<close>-based hash map) instead of the placeholder \<open>hm_fmap_assn\<close>.\<close>
 
 lemma single_valued_monomial_rel:
   \<open>single_valued monomial_rel\<close>

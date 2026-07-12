@@ -307,6 +307,57 @@ lemma mnml_copy_hnr[sepref_fr_rules]:
   apply vcg_monadify
   by vcg'
 
+subsection \<open>Monomial\<times>Coefficient Pair Equality\<close>
+
+text \<open>Componentwise with short-circuit: monomials first (\<open>monom_eq_impl\<close>), then
+  coefficients (\<open>signed_big_int_eq_impl\<close>; its triple form is derived from the hnr rule
+  via \<open>eq_hnr_to_rule\<close>, like \<open>sbi_copy_rule\<close>). This is the element premise for the
+  polynomial equality walk in \<open>Poly_Assn\<close>.\<close>
+
+lemma sbi_eq_rule[vcg_rules]:
+  \<open>llvm_htriple (sbi_assn n c ** sbi_assn n' c') (signed_big_int_eq_impl c c')
+    (\<lambda>r. sbi_assn n c ** sbi_assn n' c' ** \<upharpoonleft>bool.assn (n = n') r)\<close>
+  by (rule eq_hnr_to_rule[OF signed_big_int_eq_impl_hnr])
+
+definition mnml_eq_impl ::
+  \<open>monom_conc \<times> sbin_conc \<times> 1 word \<Rightarrow> monom_conc \<times> sbin_conc \<times> 1 word \<Rightarrow> 1 word llM\<close>
+  where [llvm_code, llvm_inline]:
+  \<open>mnml_eq_impl \<equiv> \<lambda>(m, c) (m', c'). doM {
+     b \<leftarrow> monom_eq_impl m m';
+     if to_bool b then signed_big_int_eq_impl c c' else Mreturn 0 }\<close>
+
+lemma mnml_eq_rule[vcg_rules]:
+  \<open>llvm_htriple (monomial_assn x c ** monomial_assn y d) (mnml_eq_impl c d)
+    (\<lambda>r. monomial_assn x c ** monomial_assn y d ** \<upharpoonleft>bool.assn (x = y) r)\<close>
+  unfolding mnml_eq_impl_def
+  supply [simp] = bool.assn_def
+  apply (cases x; cases y; cases c; cases d; simp only: prod_assn_pair_conv prod.case)
+  by vcg
+
+text \<open>Split-pair form for use inside sepref-style proofs (cf. \<open>mnml_copy_rule'\<close>).\<close>
+
+lemma mnml_eq_rule'[vcg_rules]:
+  \<open>llvm_htriple
+     (monom_assn m mi ** sbi_assn n ci ** monom_assn m' mi' ** sbi_assn n' ci')
+     (mnml_eq_impl (mi, ci) (mi', ci'))
+     (\<lambda>r. monom_assn m mi ** sbi_assn n ci ** monom_assn m' mi' ** sbi_assn n' ci' **
+        \<upharpoonleft>bool.assn ((m, n) = (m', n')) r)\<close>
+  using mnml_eq_rule[of \<open>(m, n)\<close> \<open>(mi, ci)\<close> \<open>(m', n')\<close> \<open>(mi', ci')\<close>]
+  by (simp add: sep_conj_assoc)
+
+(*
+sepref_register \<open>(=) :: char list list \<times> int \<Rightarrow> char list list \<times> int \<Rightarrow> bool\<close>
+*)
+
+lemma mnml_eq_hnr[sepref_fr_rules]:
+  \<open>(uncurry mnml_eq_impl, uncurry (RETURN oo (=)))
+    \<in> monomial_assn\<^sup>k *\<^sub>a monomial_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding bool1_rel_def bool.assn_is_rel[symmetric]
+  supply [vcg_rules] = mnml_eq_rule'
+  apply sepref_to_hoare
+  apply vcg_monadify
+  by vcg'
+
 definition mnml_ndest_extrn_abs :: \<open>char list list \<times> int \<Rightarrow> int\<close> where
   \<open>mnml_ndest_extrn_abs \<equiv> \<lambda>(_, c). COPY c\<close>
 

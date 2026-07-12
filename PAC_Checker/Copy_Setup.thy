@@ -1,4 +1,4 @@
-﻿theory Copy_Setup
+theory Copy_Setup
   imports Isabelle_LLVM.IICF
 begin
 
