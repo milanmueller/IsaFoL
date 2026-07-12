@@ -601,6 +601,7 @@ lemma [sepref_import_param]:
 sepref_register (* vars_of_poly_in is dead in LPAC *)
   weak_equality_l
 
+(* Does not make sense in llvm 
 lemma [safe_constraint_rules]:
   \<open>Sepref_Constraints.CONSTRAINT single_valued (the_pure monomial_assn)\<close> and
   single_valued_the_monomial_assn:
@@ -608,6 +609,7 @@ lemma [safe_constraint_rules]:
     \<open>single_valued ((the_pure monomial_assn)\<inverse>)\<close>
   unfolding IS_LEFT_UNIQUE_def[symmetric]
   by (auto simp: step_rewrite_pure single_valued_monomial_rel single_valued_monomial_rel' Sepref_Constraints.CONSTRAINT_def)
+*)
 
 (* Dead in LPAC: old extension checker (LPAC synthesizes check_extension_l2, shadowing this name)
 sepref_definition check_extension_l_impl
@@ -637,7 +639,6 @@ declare check_extension_l_impl.refine[sepref_fr_rules]
 sepref_definition check_del_l_impl
   is \<open>uncurry2 check_del_l\<close>
   :: \<open>poly_assn\<^sup>k *\<^sub>a polys_assn\<^sup>k *\<^sub>a uint64_nat_assn\<^sup>k \<rightarrow>\<^sub>a status_assn raw_string_assn\<close>
-  supply [[goals_limit=1]]
   unfolding check_del_l_def
     in_dom_m_lookup_iff
     fmlookup'_def[symmetric]
@@ -662,7 +663,7 @@ lemma pac_step_rel_assn_alt_def2:
    (auto simp: p2rel_def hn_val_unfold pac_step_rel_raw.simps relAPP_def
     pure_app_eq)
 
-
+(* this will not work in llvm, since K and V will not be pure
 lemma is_AddD_import[sepref_fr_rules]:
   assumes \<open>CONSTRAINT is_pure K\<close>  \<open>CONSTRAINT is_pure V\<close>
   shows
@@ -687,6 +688,7 @@ lemma [sepref_fr_rules]:
   (return o new_var, RETURN o new_var) \<in> [\<lambda>x. is_Extension x]\<^sub>a (pac_step_rel_assn K V R)\<^sup>k \<rightarrow> R\<close>
   by (sepref_to_hoare; sep_auto simp: pac_step_rel_assn_alt_def is_pure_conv ent_true_drop pure_app_eq
       split: pac_step.splits; fail)+
+*)
 
 lemma is_Mult_lastI:
   \<open>\<not> is_Add b \<Longrightarrow> \<not>is_Mult b \<Longrightarrow> \<not>is_Extension b \<Longrightarrow> is_Del b\<close>
@@ -708,6 +710,7 @@ sepref_decl_intf ('k, 'b, 'lbl) apac_step is "('k, 'b, 'lbl) pac_step"
 
 sepref_register merge_cstatus full_normalize_poly new_var is_Add
 
+(* won't work in llvm
 lemma poly_rel_the_pure:
   \<open>poly_rel = the_pure poly_assn\<close> and
   nat_rel_the_pure:
@@ -715,7 +718,9 @@ lemma poly_rel_the_pure:
  WTF_RF: \<open>pure (the_pure nat_assn) = nat_assn\<close>
   unfolding poly_assn_list
   by auto
+*)
 
+(* probably useless for llvm *)
 lemma [safe_constraint_rules]:
     \<open>CONSTRAINT IS_LEFT_UNIQUE uint64_nat_rel\<close> and
   single_valued_uint64_nat_rel[safe_constraint_rules]:

@@ -1,5 +1,6 @@
 theory Poly_Assn
   imports Monom_Assn
+    BigInt_LLVM.LLVM_CodeGen_Signed
 begin
 
 subsection \<open>Refinment Assertion\<close>
@@ -76,5 +77,38 @@ lemma poly_copy_hnr[sepref_fr_rules]:
   \<open>(poly_copy_impl, RETURN o COPY) \<in> poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
   unfolding poly_copy_impl_def
   by (rule ol_copy_hnr[where A=monomial_assn and cp=mnml_copy_impl, OF mnml_copy_rule])
+
+subsection \<open>Free\<close>
+
+lemma mk_free_mk_assn[sepref_frame_free_rules]:
+  assumes \<open>MK_FREE A f\<close>
+  shows \<open>MK_FREE (\<upharpoonleft>(mk_assn A)) f\<close>
+  using assms unfolding MK_FREE_def by simp
+
+lemmas monom_assn_free = ol_assn_free[OF os_assn_free, folded monom_free_def]
+
+ definition sbi_free :: \<open>sbin_conc \<times> 1 word \<Rightarrow> unit llM\<close> where [llvm_code]:
+  \<open>sbi_free \<equiv> \<lambda>(a, s). doM { arl_free a; Mreturn () }\<close>
+
+lemmas sbi_free_rule[sepref_frame_free_rules] = sbi_assn_free[folded sbi_free_def]
+
+definition mnml_free :: \<open>monom_conc \<times> sbin_conc \<times> 1 word \<Rightarrow> unit llM\<close> where [llvm_code]:
+  \<open>mnml_free \<equiv> \<lambda>(m, c). doM { monom_free m; sbi_free c }\<close>
+
+lemma mnml_assn_free[sepref_frame_free_rules]: \<open>MK_FREE monomial_assn mnml_free\<close>
+  unfolding mnml_free_def monom_free_def
+  by (rule mk_free_pair[OF monom_assn_free sbi_free_rule])
+
+definition poly_free where \<open>poly_free \<equiv> ol_delete mnml_free\<close>
+
+lemma poly_free_simps[llvm_code]:
+  \<open>poly_free p = (if p = null then Mreturn () else doM {
+     n \<leftarrow> ll_load p; mnml_free (node.val n); ll_free p; poly_free (node.next n) })\<close>
+  unfolding poly_free_def by (rule ol_delete.simps)
+
+lemmas [llvm_pre_simp] = poly_free_def[symmetric]
+
+lemma poly_assn_free[sepref_frame_free_rules]: \<open>MK_FREE poly_assn poly_free\<close>
+  unfolding poly_free_def by (rule ol_assn_free[OF mnml_assn_free])
 
 end

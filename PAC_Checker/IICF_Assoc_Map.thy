@@ -580,6 +580,21 @@ lemma pam_lookup_impl_rule[vcg_rules]:
   apply (cases p; simp)
   by vcg
 
+text \<open>It seems like in the PAC checker, every lookup is guarded with an assertion that
+  the key is present so we only implement @{term op_map_the_lookup} and avoid having
+  to define refinment assertion for optionals.\<close>
+definition \<open>pam_the_lookup_impl vcopy k p \<equiv> doM { (_, v) \<leftarrow> pam_lookup_impl vcopy k p; Mreturn v }\<close> 
+
+(* Probably not needed? *)
+(* lemma pam_the_lookup_impl_rule[vcg_rules]:
+ *   assumes VCOPY: \<open>\<And>v vi. llvm_htriple (\<upharpoonleft>V v vi) (vcopy vi) (\<lambda>r. \<upharpoonleft>V v vi ** \<upharpoonleft>V v r)\<close>
+ *   shows \<open>llvm_htriple
+ *     (\<upharpoonleft>(pam_assn V) bss p ** \<upharpoonleft>unat.assn k ki ** \<up>(bss \<noteq> [] \<and> map_of (bss ! pam_bucket_of (lenght bss) k) k \<noteq> None))
+ *     (pam_the_lookup_impl vcopy ki p)
+ *     (\<lambda>vi. \<upharpoonleft>(pam_ass V) bss p ** \<upharpoonleft>unat.assn k ki ** \<upharpoonleft>V (the (map_of (bss ! pam_bucket_of (length bss) k) k)) vi)
+ *     \<close> *)
+
+
 text \<open>Update. The bucket is taken out of the array, rebuilt by the fused walk (its head
   pointer changes iff the bucket was empty), and stored back into the hole.\<close>
 
@@ -656,7 +671,7 @@ lemma pam_free_impl_rule:
   apply (cases p; simp)
   by vcg
 
-
+    
 subsection \<open>Bucket-level abstraction\<close>
 
 definition pam_invar :: \<open>(nat \<times> 'v) list list \<Rightarrow> bool\<close> where
@@ -912,34 +927,186 @@ definition pam_map_assn :: \<open>('v, 'vi::llvm_rep) dr_assn \<Rightarrow> (nat
 text \<open>Default bin count, as for the string hash set. TODO: \<open>remap_polys\<close> knows
   \<open>upper_bound_on_dom\<close> of the input map; a size-hinted constructor would fit there.\<close>
 
-definition pam_empty_impl :: \<open>unit \<Rightarrow> 'vi::llvm_rep pam_impl llM\<close> where [llvm_code]:
+text \<open>Bin count as an \<^emph>\<open>opaque\<close> definition. It must never be unfolded to the numeral
+  \<open>16384\<close> inside the proofs below: the postconditions carry \<open>replicate pam_nbins []\<close>,
+  and expanding \<open>pam_nbins\<close> would let \<open>replicate_numeral\<close> unfold that into a
+  16384-element cons chain \<emdash> which is what makes \<open>vcg\<close>/\<open>simp\<close> crawl. All arithmetic
+  facts about the count are proven once here (unfolding \<open>pam_nbins_def\<close> locally); the
+  constant stays folded everywhere else.\<close>
+
+definition pam_nbins :: nat where \<open>pam_nbins = 16384\<close>
+
+lemma pam_nbins_pos: \<open>0 < pam_nbins\<close>
+  by (simp add: pam_nbins_def)
+
+definition pam_empty_impl :: \<open>unit \<Rightarrow> 'vi::llvm_rep pam_impl llM\<close> where [llvm_inline]:
   \<open>pam_empty_impl \<equiv> \<lambda>_. pam_new_impl (signed_nat 16384)\<close>
+  \<comment> \<open>\<open>[llvm_inline]\<close>, NOT \<open>[llvm_code]\<close>: the \<open>unit\<close> argument becomes a literal \<open>()\<close> on
+  the code equation's LHS (\<open>unit_meta_eq\<close>), which \<open>llc_parse_eqn\<close> rejects
+  (\<open>arguments must be vars\<close>). Inlining dissolves the wrapper at all call sites.\<close>
 
-text \<open>hfref-level rules against the IICF map interface (\<open>op_map_empty\<close>,
-  \<open>op_map_update\<close>, \<open>op_map_delete\<close>, \<open>op_map_lookup\<close>); via the FCOMP glue in
-  \<^file>\<open>PAC_Map_Rel.thy\<close> (\<open>map_upd_fmupd\<close>, \<open>fmdrop_set_None\<close>, \<open>op_map_lookup_fmlookup\<close>,
-  \<open>fmempty_empty\<close>) these become the \<open>fmupd\<close>/\<open>fmdrop\<close>/\<open>fmlookup'\<close>/\<open>fmempty\<close> rules the
-  synthesis in \<^file>\<open>PAC_Checker_Synthesis.thy\<close> needs. Statements to be added once the
-  remaining Hoare triples are discharged; sketches:
+text \<open>The size argument is a \<open>vcg_const\<close> literal (\<open>signed_nat 16384\<close>) passed \<^emph>\<open>directly\<close>
+  to \<open>pam_new_impl\<close>, so vcg never derives a \<open>\<upharpoonleft>snat.assn n ni\<close> for it from the empty
+  state \<open>\<box>\<close>. Establish that pure fact once, then strengthen \<open>pam_new_impl_rule\<close>'s
+  precondition down to \<open>\<box>\<close>.\<close>
 
-    \<open>(pam_empty_impl, \<lambda>_. RETURN op_map_empty) \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a pam_map_assn V\<close>
+lemma snat_assn_pam_nbins:
+  \<open>\<box> \<turnstile> \<upharpoonleft>snat.assn pam_nbins (signed_nat (16384::64 word))\<close>
+proof -
+  have \<open>pam_nbins < max_snat LENGTH(64)\<close>
+    by (simp add: pam_nbins_def max_snat_def)
+  then have \<open>snat_invar (signed_nat (16384::64 word))
+      \<and> pam_nbins = snat (signed_nat (16384::64 word))\<close>
+    by (simp add: signed_nat_def snat_invar_numeral pam_nbins_def max_snat_def)
+  then show ?thesis
+    by (simp add: snat.assn_def entails_def pred_lift_extract_simps sep_algebra_simps)
+qed
 
-    \<open>(uncurry2 (pam_update_impl vfree), uncurry2 (RETURN ooo op_map_update))
-       \<in> (unat_assn' TYPE(64))\<^sup>k *\<^sub>a V\<^sup>d *\<^sub>a (pam_map_assn V)\<^sup>d \<rightarrow>\<^sub>a pam_map_assn V\<close>
+lemma pam_empty_impl_aux_rule:
+  \<open>llvm_htriple \<box> (pam_empty_impl u) (\<lambda>r. \<upharpoonleft>(pam_assn V) (replicate pam_nbins []) r)\<close>
+  unfolding pam_empty_impl_def
+  by (rule htriple_ent_pre[OF snat_assn_pam_nbins
+        pam_new_impl_rule[where n = pam_nbins and ni = \<open>signed_nat 16384\<close>]])
 
-    \<open>(uncurry (pam_delete_impl vfree), uncurry (RETURN oo op_map_delete))
-       \<in> (unat_assn' TYPE(64))\<^sup>k *\<^sub>a (pam_map_assn V)\<^sup>d \<rightarrow>\<^sub>a pam_map_assn V\<close>
+lemma pam_empty_impl_hfref:
+  \<open>(uncurry0 (pam_empty_impl ()), uncurry0 (RETURN (replicate pam_nbins [])))
+     \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a \<upharpoonleft>(pam_assn V)\<close>
+  apply sepref_to_hoare
+  supply [vcg_rules] = pam_empty_impl_aux_rule
+  by vcg
 
-  with \<open>vfree\<close>/\<open>vcopy\<close> fixed by a \<open>MK_FREE (\<upharpoonleft>V) vfree\<close> assumption (cf.
-  \<open>sepref_frame_free_rules\<close>) resp. a copy rule for \<open>V\<close>. The abstract sides compose via
-  \<open>pam_upd_abs\<close>/\<open>pam_del_abs\<close>/\<open>pam_map_of_bucket\<close> and the invariant lemmas.
+lemma pam_empty_rel:
+  \<open>(uncurry0 (RETURN (replicate pam_nbins [])), uncurry0 (RETURN op_map_empty))
+     \<in> unit_rel \<rightarrow>\<^sub>f \<langle>pam_rel\<rangle>nres_rel\<close>
+  apply (rule fref_param0I)
+  by (auto simp: pam_rel_def br_def pam_invar_replicate pam_map_of_replicate
+      op_map_empty_def pam_nbins_pos intro!: nres_relI)
 
+lemmas pam_empty_hnr[sepref_fr_rules] =
+  pam_empty_impl_hfref[FCOMP pam_empty_rel, folded pam_map_assn_def]
+
+text \<open>Update\<close>
+lemma pam_update_impl_raw_hfref:
+  assumes VFREE: \<open>MK_FREE (\<upharpoonleft>(mk_assn V)) vfree\<close>
+  shows \<open>(uncurry2 (pam_update_impl vfree), uncurry2 (RETURN ooo pam_upd))
+  \<in> [\<lambda>((k,v),bss). bss \<noteq> []]\<^sub>a (unat_assn' TYPE(64))\<^sup>k *\<^sub>a V\<^sup>d *\<^sub>a (\<upharpoonleft>(pam_assn (mk_assn V)))\<^sup>d \<rightarrow> \<upharpoonleft>(pam_assn (mk_assn V))\<close>
+  unfolding unat_rel_def unat.assn_is_rel[symmetric]
+  supply [vcg_rules] = pam_update_impl_rule[OF VFREE]
+  apply sepref_to_hoare
+  apply vcg
+  subgoal by (rule VFREE)
+  subgoal
+    unfolding vcg_tag_defs    
+    apply (erule STATE_monoI)
+    by (simp add: extract_pure_assn[OF unat.assn_pure] sep_algebra_simps)
+  done
+
+lemma pam_update_rel:
+  \<open>(uncurry2 (RETURN ooo pam_upd), uncurry2 (RETURN ooo op_map_update))
+  \<in> (nat_rel \<times>\<^sub>r Id) \<times>\<^sub>r pam_rel \<rightarrow>\<^sub>f \<langle>pam_rel\<rangle>nres_rel\<close>
+  by (auto simp: nres_rel_def fref_def in_br_conv pam_rel_def pam_upd_abs pam_upd_invar)
+
+lemma pam_rel_nonempty[fcomp_prenorm_simps]:
+  \<open>(bss, m) \<in> pam_rel \<Longrightarrow> bss \<noteq> []\<close>
+  by (auto simp: pam_rel_def in_br_conv pam_invar_def)
+
+lemmas pam_update_hnr[sepref_fr_rules] =
+  pam_update_impl_raw_hfref[FCOMP pam_update_rel, folded pam_map_assn_def]
+
+text \<open>Deletion. Unlike \<open>op_map_empty\<close> (empty precondition, hence FCOMP), the map
+  argument is present in the precondition here, so \<open>hr_comp_def\<close> is already in \<open>EXS\<close>
+  form and unfolds on both sides \<^emph>\<open>directly\<close> under \<open>sepref_to_hoare\<close> (cf.\
+  \<open>shs_insert_hnr\<close> in \<^file>\<open>String_Hash_Map.thy\<close>). The bucket list extracted from the
+  precondition witnesses the postcondition's \<open>hr_comp\<close>, and \<open>pam_invar bss\<close> discharges
+  the \<open>bss \<noteq> []\<close> side condition of @{thm pam_delete_impl_rule}.
+
+  The key sits at \<open>unat_assn' TYPE(64) = pure unat_rel\<close> in the interface but as the
+  dr_assn \<open>\<upharpoonleft>unat.assn\<close> in the raw triple; @{thm unat.assn_is_rel} (folded with
+  @{thm unat_rel_def}) bridges the two.\<close>
+
+lemma pam_invar_nonempty[simp]: \<open>pam_invar bss \<Longrightarrow> bss \<noteq> []\<close>
+  by (simp add: pam_invar_def)
+
+lemma pam_delete_hnr[sepref_fr_rules]:
+  assumes VFREE: \<open>MK_FREE (\<upharpoonleft>V) vfree\<close>
+  shows \<open>(uncurry (pam_delete_impl vfree), uncurry (RETURN oo op_map_delete))
+    \<in> (unat_assn' TYPE(64))\<^sup>k *\<^sub>a (pam_map_assn V)\<^sup>d \<rightarrow>\<^sub>a pam_map_assn V\<close>
+  unfolding pam_map_assn_def unat_rel_def unat.assn_is_rel[symmetric]
+  apply sepref_to_hoare
+  supply [vcg_rules] = pam_delete_impl_rule[OF VFREE]
+  supply [simp] = hr_comp_def pam_rel_def in_br_conv pam_del_invar pam_del_abs
+    op_map_delete_def sep_conj_exists
+  apply vcg
+   apply (rule VFREE)
+  subgoal for aa ai asf x a b sa
+    unfolding vcg_tag_defs
+    apply (erule STATE_monoI)
+    apply (rule entails_exI[where x = \<open>(pam_map_of x)(aa := None)\<close>])
+    apply (rule entails_exI[where x = \<open>pam_del aa x\<close>])
+    by (simp add: extract_pure_assn[OF unat.assn_pure] pam_del_abs pam_del_invar
+        sep_algebra_simps pred_lift_extract_simps entails_refl)
+  done
+
+text \<open>Lookup\<close>
+context
+begin
+lemma pam_the_lookup_reassemble:
+  assumes NF: \<open>nofail (ASSERT (\<exists>y. pam_map_of x k = Some y) \<bind>
+                 (\<lambda>_. RETURN (the (pam_map_of x k))))\<close>
+    and K: \<open>\<flat>\<^sub>punat.assn k ki\<close>
+    and I: \<open>pam_invar x\<close>
+  shows \<open>ENTAILS
+    (\<upharpoonleft>(pam_assn V) x (n, a) \<and>*
+     (if \<exists>y. pam_map_of x k = Some y
+      then \<upharpoonleft>V (the (map_of (x ! pam_bucket_of (length x) k) k)) vi else \<box>))
+    (\<lambda>s. \<exists>xa xb. (\<upharpoonleft>unat.assn k ki \<and>* \<upharpoonleft>(pam_assn V) xa (n, a) \<and>*
+       \<up>(pam_map_of x = pam_map_of xa \<and> pam_invar xa) \<and>* \<up>True \<and>*
+       \<upharpoonleft>V xb vi \<and>*
+       \<up>(RETURN xb \<le> ASSERT (\<exists>y. pam_map_of x k = Some y) \<bind>
+           (\<lambda>_. RETURN (the (pam_map_of x k))))) s)\<close>
+proof -
+  from NF have G[simp]: \<open>(\<exists>y. pam_map_of x k = Some y) = True\<close>
+    by (auto simp: refine_pw_simps)
+  note [simp] = pam_map_of_bucket[symmetric] K
+  show ?thesis
+    unfolding vcg_tag_defs ENTAILS_def
+    apply (rule entails_exI[where x = x])
+    apply (rule entails_exI[where x = \<open>the (pam_map_of x k)\<close>])
+    using I
+    by (simp add: extract_pure_assn[OF unat.assn_pure] refine_pw_simps pw_le_iff
+        sep_algebra_simps pred_lift_extract_simps entails_refl)
+qed
+
+lemma pam_the_lookup_hnr[sepref_fr_rules]:
+  assumes VCOPY: \<open>\<And>v vi. llvm_htriple (\<upharpoonleft>V v vi) (vcopy vi) (\<lambda>r. \<upharpoonleft>V v vi ** \<upharpoonleft>V v r)\<close>
+  shows \<open>(uncurry (pam_the_lookup_impl vcopy), uncurry mop_map_the_lookup)
+    \<in> (unat_assn' TYPE(64))\<^sup>k *\<^sub>a (pam_map_assn V)\<^sup>k \<rightarrow>\<^sub>a \<upharpoonleft>V\<close>
+  unfolding pam_map_assn_def unat_rel_def unat.assn_is_rel[symmetric] 
+  unfolding pam_the_lookup_impl_def
+  apply sepref_to_hoare
+  supply [vcg_rules] = pam_lookup_impl_rule[OF VCOPY] VCOPY
+  supply [simp] = hr_comp_def pam_rel_def in_br_conv sep_conj_exists 
+    pam_map_of_bucket[symmetric]
+  apply vcg
+  subgoal by (rule pam_the_lookup_reassemble; assumption)
+  done
+end
+
+text \<open>Deallocation\<close>
+  
+lemma pam_assn_free:
+  assumes VFREE: \<open>MK_FREE (\<upharpoonleft>V) vfree\<close>
+  shows \<open>MK_FREE (\<upharpoonleft>(pam_assn V)) (pam_free_impl vfree)\<close>
+  by (rule MK_FREEI) (rule pam_free_impl_rule[OF VFREE])
+
+lemma pam_map_assn_free[sepref_frame_free_rules]:
+  assumes \<open>MK_FREE (\<upharpoonleft>V) vfree\<close>
+  shows \<open>MK_FREE (pam_map_assn V) (pam_free_impl vfree)\<close>
+  unfolding pam_map_assn_def
+  by (intro MK_FREE_hrcompI pam_assn_free assms)
+
+text \<open>
   Open points:
-  \<^item> \<^bold>\<open>Lookup result representation\<close>: \<open>op_map_lookup\<close> returns @{typ \<open>'v option\<close>}; the
-    concrete result is \<open>(1 word \<times> 'vi)\<close>. This needs an option-assertion
-    (flag \<times> payload, payload meaningful only if flag set); check whether
-    Isabelle-LLVM already provides one (cf. \<open>some_rel\<close> in Proto_IICF_EOArray)
-    before rolling our own.
   \<^item> \<^bold>\<open>dom_m tests\<close>: the synthesis rewrites \<open>k \<in># dom_m A\<close> to
     \<open>\<not>is_None (fmlookup' k A)\<close> (\<open>in_dom_m_lookup_iff\<close>), which would force a value
     copy per membership test with option (1). Better: register
