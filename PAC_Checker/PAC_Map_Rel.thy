@@ -189,8 +189,19 @@ lemma pat_map_is_empty[pat_rules]:
   unfolding atomize_eq
   by (auto dest: sym)
 
-lemma op_map_contains_key[pat_rules]:
-  "(\<in>#) $ k $ (dom_m$m) \<equiv> op_fmap_contains_key$'k$'m"
+text \<open>In current Isabelle, \<open>\<in>#\<close> is an \<^emph>\<open>abbreviation\<close> (\<open>member_mset a M \<equiv>
+  a \<in> set_mset M\<close>), so a pattern written \<open>(\<in>#) $ k $ (dom_m$m)\<close> elaborates to
+  \<open>(\<lambda>a M. a \<in> set_mset M) $ k $ (dom_m$m)\<close> (the \<open>$\<close> tags block beta reduction),
+  which never matches the protected program term
+  \<open>(\<in>) $ k $ (set_mset $ (dom_m $ m))\<close>. The pattern must be stated in the
+  really-elaborated shape (the original AFP form was dead code; its syntheses
+  sidestepped it by manually unfolding \<open>in_dom_m_lookup_iff\<close>). It is \<^emph>\<open>definite\<close>
+  (\<open>def_pat_rules\<close>, applied with priority): the live IICF-multiset pattern
+  \<open>(\<in>) $x$(set_mset$a) \<equiv> op_mset_contains$x$a\<close> otherwise hijacks the term and
+  strands the identification phase on \<open>dom_m\<close>.\<close>
+
+lemma op_map_contains_key[def_pat_rules]:
+  "(\<in>) $ k $ (set_mset $ (dom_m$m)) \<equiv> op_fmap_contains_key$k$m"
   by (auto intro!: eq_reflection)
 
 
@@ -226,11 +237,18 @@ text \<open>Technically @{term op_map_lookup} has the arguments in the wrong dir
 definition fmlookup' where
   [simp]: \<open>fmlookup' A k = fmlookup k A\<close>
 
-(*
-lemma [def_pat_rules]:
-  \<open>((\<in>#)$k$(dom_m$A)) \<equiv> Not$(is_None$(fmlookup'$k$A))\<close>
-  by (simp add: fold_is_None in_fdom_alt)
-*)
+text \<open>The original development funneled \<open>dom_m\<close>-membership tests into the
+  option-returning lookup here, via
+    \<open>lemma [def_pat_rules]: ((\<in>#)$k$(dom_m$A)) \<equiv> Not$(is_None$(fmlookup'$k$A))\<close>
+  because its hash map (pure values) had an \<open>hfref\<close> rule for \<open>fmlookup'\<close>. The LLVM
+  port has no option-returning lookup (values are heap-owning; an option assertion
+  over owned values does not exist), so that rule \<^emph>\<open>must not\<close> exist: \<open>def_pat_rules\<close>
+  are applied with priority during operation identification, and it would hijack
+  every \<open>k \<in># dom_m A\<close> towards an unimplementable operation (the id phase then
+  dead-ends with \<open>ID fmlookup' \<dots> TYPE(_ \<Rightarrow> (_, _) i_map)\<close> goals). Instead, the
+  \<open>op_map_contains_key\<close> pattern above (section \<open>Patterns\<close>) sends \<open>dom_m\<close> tests to
+  \<^const>\<open>op_fmap_contains_key\<close>, implemented by the key-only bucket walk
+  \<open>pam_contains_impl\<close> (see \<open>Polys_Assn.thy\<close>).\<close>
 
 lemma op_map_lookup_fmlookup:
   \<open>(op_map_lookup, fmlookup') \<in> Id \<rightarrow> map_fmap_rel \<rightarrow> \<langle>Id\<rangle>option_rel\<close>

@@ -5,10 +5,6 @@ theory LPAC_Perfectly_Shared_Vars
     PAC_Checker_LLVM.PAC_Map_Rel
 begin
 thm import_variableS_def
-  term hm.assn
-  term iam.assn
-  term is_iam
-  term iam_rel
 
 type_synonym ('string2, 'nat) shared_vars_c = \<open>'string2 list \<times> ('string2, 'nat) fmap\<close>
 
@@ -145,6 +141,7 @@ lemma get_var_name_c_get_var_nameS:
 
 abbreviation perfect_shared_vars_assn :: \<open>(string, nat) shared_vars_c \<Rightarrow> _ \<Rightarrow> assn\<close> where
   \<open>perfect_shared_vars_assn \<equiv> arl_assn string_assn \<times>\<^sub>a hm_fmap_assn string_assn uint64_nat_assn\<close>
+
 abbreviation shared_vars_assn where
   \<open>shared_vars_assn \<equiv> hr_comp perfect_shared_vars_assn (perfect_shared_vars_rel_c Id)\<close>
 

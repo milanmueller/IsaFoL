@@ -532,6 +532,22 @@ lemma vars_hs_member_hnr[sepref_fr_rules]:
   unfolding vars_hs_member_impl_def vars_hs_assn_def
   by (rule hs_member_hnr[OF strl_hash_rule str_eq_rule])
 
+text \<open>Membership as a plain triple at the \<^emph>\<open>composed\<close> \<open>vars_hs_assn\<close> level, for
+  use as a \<open>vcg_rule\<close> inside hand-written walks that test many strings against
+  the same set (e.g.\ the \<open>vars_of_monom_in\<close>/\<open>vars_of_poly_in\<close> ladder of the
+  LPAC checker): the \<open>hr_comp\<close> is unfolded once here; callers keep the set
+  assertion folded and never see the bucket list.\<close>
+
+lemma vars_hs_member_rule:
+  \<open>llvm_htriple
+    (vars_hs_assn \<V> vi ** strl_assn x xi)
+    (vars_hs_member_impl xi vi)
+    (\<lambda>r. vars_hs_assn \<V> vi ** strl_assn x xi ** \<upharpoonleft>bool.assn (x \<in> \<V>) r)\<close>
+  unfolding vars_hs_assn_def hs_set_assn_def vars_hs_member_impl_def
+  supply [vcg_rules] = hs_member_impl_rule[OF strl_hash_rule str_eq_rule]
+  supply [simp] = hr_comp_def hs_rel_def in_br_conv hs_member_correct sep_conj_exists
+  by vcg
+
 lemma vars_hs_insert_hnr[sepref_fr_rules]:
   \<open>(uncurry vars_hs_insert_impl, uncurry (RETURN oo op_set_insert))
     \<in> strl_assn\<^sup>k *\<^sub>a vars_hs_assn\<^sup>d \<rightarrow>\<^sub>a vars_hs_assn\<close>

@@ -2,7 +2,6 @@ theory LPAC_Efficient_Checker_Synthesis
   imports
     LPAC_Efficient_Checker
     LPAC_Perfectly_Shared_Vars
-    LPAC_Steps_Refine
     PAC_Checker_LLVM.PAC_Checker_Synthesis
 begin
 
@@ -230,14 +229,14 @@ proof -
   proof (induction f' xs' ys' arbitrary: f xs ys rule: merge.induct)
     case (1 f' x' xs' y' y's)
     have \<open>f' x' y' \<Longrightarrow>
-      (PAC_Checker_Init.merge f (tl xs) ys, PAC_Checker_Init.merge f' xs' (y' # y's)) \<in> \<langle>R\<rangle>list_rel\<close>
+      (merge f (tl xs) ys, merge f' xs' (y' # y's)) \<in> \<langle>R\<rangle>list_rel\<close>
       apply (rule 1)
       apply assumption
       apply (rule 1(3); auto dest: in_set_tlD)
       using 1(4-5) apply (auto simp: list_rel_split_left_iff)
       done
     moreover have \<open>\<not>f' x' y' \<Longrightarrow>
-      (PAC_Checker_Init.merge f ( xs) (tl ys), PAC_Checker_Init.merge f' (x' # xs') (y's)) \<in> \<langle>R\<rangle>list_rel\<close>
+      (merge f ( xs) (tl ys), merge f' (x' # xs') (y's)) \<in> \<langle>R\<rangle>list_rel\<close>
       apply (rule 1)
       apply assumption
       apply (rule 1(3); auto dest: in_set_tlD)
@@ -247,8 +246,15 @@ proof -
       using 1(1,4-5) 1(3)[of \<open>hd xs\<close> \<open>hd ys\<close> x' y']
       by (auto simp: list_rel_split_left_iff)
   qed  (auto simp: list_rel_split_left_iff)
-
 qed
+
+lemma list_rel_takeD:
+  \<open>(a, b) \<in> \<langle>R\<rangle>list_rel \<Longrightarrow> (n, n')\<in> Id \<Longrightarrow> (take n a, take n' b) \<in> \<langle>R\<rangle>list_rel\<close>
+  by (simp add: list_rel_eq_listrel listrel_iff_nth relAPP_def)
+
+lemma list_rel_dropD:
+  \<open>(a, b) \<in> \<langle>R\<rangle>list_rel \<Longrightarrow> (n, n')\<in> Id \<Longrightarrow> (drop n a, drop n' b) \<in> \<langle>R\<rangle>list_rel\<close>
+  by (simp add: list_rel_eq_listrel listrel_iff_nth relAPP_def)
 
 lemma msort_list_rel:
   assumes  \<open>\<And>x y x' y'. x\<in>set xs \<Longrightarrow> y\<in>set xs \<Longrightarrow> x'\<in>set xs' \<Longrightarrow> y'\<in>set xs' \<Longrightarrow> (x,x')\<in>R \<Longrightarrow> (y,y')\<in>R \<Longrightarrow> f x y = f' x' y'\<close> and
@@ -274,9 +280,9 @@ proof -
         using 3(4) apply (auto simp: list_rel_imp_same_length dest: list_rel_dropD)
         done
       done
-    have H: \<open>(PAC_Checker_Init.merge f (msort f (x # take (length xsaa div 2) (xa # xsaa)))
+    have H: \<open>(merge f (msort f (x # take (length xsaa div 2) (xa # xsaa)))
       (msort f (drop (length xsaa div 2) (xa # xsaa))),
-      PAC_Checker_Init.merge f''  (msort f'' (v # take (length vc div 2) (vb # vc)))
+      merge f''  (msort f'' (v # take (length vc div 2) (vb # vc)))
       (msort f'' (drop (length vc div 2) (vb # vc))))
       \<in> \<langle>R\<rangle>list_rel\<close>
       if \<open>xs = x # xa # xsaa\<close> and
@@ -509,8 +515,7 @@ definition full_normalize_poly_s where
   }\<close>
 
 lemma sort_all_coeffs_s_sort_all_coeffs:
-  fixes xs :: \<open>sllist_polynomial\<close> and
-    \<V> :: \<open>(nat,string)shared_vars\<close>
+  fixes xs :: \<open>sllist_polynomial\<close> and \<V> :: \<open>(nat,string)shared_vars\<close>
   assumes
     \<open>(xs, xs') \<in> perfectly_shared_polynom \<V>\<close> and
     \<V>: \<open>(\<V>, \<D>\<V>) \<in> perfectly_shared_vars_rel\<close> and
@@ -720,33 +725,37 @@ proof -
      auto
 qed
 
-
 lemma op_eq_uint64_nat[sepref_fr_rules]:
-  \<open>(uncurry (return oo ((=) :: uint64 \<Rightarrow> _)), uncurry (RETURN oo (=))) \<in>
-    uint64_nat_assn\<^sup>k *\<^sub>a uint64_nat_assn\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
-  by sepref_to_hoare (sep_auto simp: uint64_nat_rel_def br_def)
+  \<open>(uncurry ll_icmp_eq, uncurry (RETURN oo (=))) \<in>
+    (unat_assn' TYPE(64))\<^sup>k *\<^sub>a (unat_assn' TYPE(64))\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  by sepref
 
+(* We will have to see how this is used, it might make trouble *)
 abbreviation ordered_assn :: \<open>ordered \<Rightarrow> _ \<Rightarrow> _\<close> where
   \<open>ordered_assn \<equiv> id_assn\<close>
-
+(* does not make sense in llvm i think
 lemma op_eq_ordered_assn[sepref_fr_rules]:
   \<open>(uncurry (return oo ((=) :: ordered \<Rightarrow> _)), uncurry (RETURN oo (=))) \<in>
     ordered_assn\<^sup>k *\<^sub>a ordered_assn\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
   by sepref_to_hoare (sep_auto simp: uint64_nat_rel_def br_def)
-
+*)
 
 abbreviation monom_s_rel where
   \<open>monom_s_rel \<equiv> \<langle>uint64_nat_rel\<rangle>list_rel\<close>
 
 abbreviation monom_s_assn where
-  \<open>monom_s_assn \<equiv> list_assn uint64_nat_assn\<close>
+  \<open>monom_s_assn \<equiv> os_assn (unat_assn' TYPE(64))\<close>
 
 abbreviation poly_s_assn where
-  \<open>poly_s_assn \<equiv> list_assn (monom_s_assn \<times>\<^sub>a int_assn)\<close>
+  \<open>poly_s_assn \<equiv> ol_assn (monom_s_assn \<times>\<^sub>a sbi_assn)\<close>
+
+(* TODO: We have to instanciate all template functions from
+   ol_assn to get actually executable llvm code *)
 
 sepref_decl_intf wordered is ordered
 
 sepref_register EQUAL LESS GREATER UNKNOWN get_var_nameS perfect_shared_var_order_s perfect_shared_term_order_rel_s
+(* TODO: Probably needs identification with integers aswell *)
 lemma [sepref_fr_rules]:
   \<open>(uncurry0 (return EQUAL), uncurry0 (RETURN EQUAL)) \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a id_assn\<close>
   \<open>(uncurry0 (return LESS), uncurry0 (RETURN LESS)) \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a id_assn\<close>

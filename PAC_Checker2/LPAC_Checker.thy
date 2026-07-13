@@ -11,6 +11,7 @@ theory LPAC_Checker
     PAC_Checker_LLVM.PAC_Checker
     Show.Show
     Show.Show_Instances
+    PAC_Checker_LLVM.IICF_Owning_List
 begin
 
 hide_const (open) PAC_Checker_Specification.PAC_checker_step
@@ -47,25 +48,27 @@ fun pac_step_rel_raw :: \<open>('olbl \<times> 'lbl) set \<Rightarrow> ('a \<tim
    (i, j) \<in> R1 \<and> (x, x') \<in> R3 \<and> (p1, p1') \<in> R2\<close> |
 \<open>pac_step_rel_raw R1 R2 R3 _ _ \<longleftrightarrow> False\<close>
 
-fun pac_step_rel_assn :: \<open>('olbl \<Rightarrow> 'lbl \<Rightarrow> assn) \<Rightarrow> ('a \<Rightarrow> 'b \<Rightarrow> assn) \<Rightarrow> ('c \<Rightarrow> 'd \<Rightarrow> assn) \<Rightarrow> ('a, 'c, 'olbl) pac_step \<Rightarrow> ('b, 'd, 'lbl) pac_step \<Rightarrow> assn\<close> where
+(* TODO: We probably want to define and insert pac_step_assn here? *)
+fun pac_step_rel_assn
+  :: \<open>('olbl \<Rightarrow> 'lbl::llvm_rep \<Rightarrow> assn) \<Rightarrow> ('a \<Rightarrow> 'b::llvm_rep \<Rightarrow> assn) \<Rightarrow>
+      ('c \<Rightarrow> 'd \<Rightarrow> assn) \<Rightarrow> ('a, 'c, 'olbl) pac_step \<Rightarrow> ('b, 'd, 'lbl) pac_step \<Rightarrow> assn\<close> where
 \<open>pac_step_rel_assn R1 R2 R3 (CL p i r) (CL p' i' r') =
-   list_assn (R2 \<times>\<^sub>a R1) p p' * R1 i i' * R2 r r'\<close> |
+   (ol_assn (R2 \<times>\<^sub>a R1) p p' ** R1 i i' ** R2 r r')\<close> |
 \<open>pac_step_rel_assn R1 R2 R3 (Del p1) (Del p1') =
    R1 p1 p1'\<close> |
 \<open>pac_step_rel_assn R1 R2 R3 (Extension i x p1) (Extension i' x' p1') =
-   R1 i i' * R3 x x' * R2 p1 p1'\<close> |
-\<open>pac_step_rel_assn R1 R2 _ _ _ = false\<close>
+   (R1 i i' ** R3 x x' ** R2 p1 p1')\<close> |
+\<open>pac_step_rel_assn R1 R2 _ _ _ = sep_false\<close>
 
 lemma pac_step_rel_assn_alt_def:
   \<open>pac_step_rel_assn R1 R2 R3 x y = (
   case (x, y) of
       (CL p i r, CL p' i' r') \<Rightarrow>
-        list_assn (R2 \<times>\<^sub>a R1) p p' * R1 i i' * R2 r r'
+        al_assn' TYPE(64) (R2 \<times>\<^sub>a R1) p p' ** R1 i i' ** R2 r r'
     | (Del p1, Del p1') \<Rightarrow> R1 p1 p1'
-    | (Extension i x p1, Extension i' x' p1') \<Rightarrow> R1 i i' * R3 x x' * R2 p1 p1'
-    | _ \<Rightarrow> false)\<close>
+    | (Extension i x p1, Extension i' x' p1') \<Rightarrow> R1 i i' ** R3 x x' ** R2 p1 p1'
+    | _ \<Rightarrow> sep_false)\<close>
     by (auto split: pac_step.splits)
-
 
 paragraph \<open>Addition checking\<close>
 
@@ -185,7 +188,7 @@ where
         }
       }
     }
-           }\<close>
+  }\<close>
 
 
 

@@ -89,6 +89,23 @@ lemmas status_pure_reassembly =
   ENTAILS_def entails_def sep_algebra_simps pred_lift_extract_simps sep_conj_exists
   vcg_tag_defs
 
+text \<open>Dead error-message temporaries must be freeable (sepref inserts frees for
+  dropped \<open>^k\<close> results, e.g. the string bound before \<open>error_msg\<close> in
+  \<open>linear_combi_l\<close>); the erased string is heap-free, so freeing is a no-op.\<close>
+
+lemma raw_string_assn_free[sepref_frame_free_rules]:
+  \<open>MK_FREE raw_string_assn (\<lambda>_. Mreturn ())\<close>
+  by (rule MK_FREEI) vcg
+
+text \<open>Same for statuses (pure in content, but not syntactically \<open>pure R\<close>, so the
+  built-in \<open>mk_free_pure\<close> does not apply): needed e.g.\ by the
+  \<open>monadic_WHILEIT\<close> free-old-state hook of loops threading a status.\<close>
+
+lemma status_assn_free[sepref_frame_free_rules]:
+  \<open>MK_FREE (status_assn R) (\<lambda>_. Mreturn ())\<close>
+  unfolding status_assn_def
+  by (rule MK_FREEI) vcg
+
 lemma SUCCESS_hnr[sepref_fr_rules]:
   \<open>(uncurry0 (Mreturn (0, 0)), uncurry0 (RETURN CSUCCESS)) \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a status_assn R\<close>
   unfolding status_assn_def

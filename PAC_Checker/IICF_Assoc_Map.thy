@@ -924,6 +924,14 @@ text \<open>One \<open>hr_comp\<close> step to @{typ \<open>nat \<rightharpoonup
 definition pam_map_assn :: \<open>('v, 'vi::llvm_rep) dr_assn \<Rightarrow> (nat \<rightharpoonup> 'v) \<Rightarrow> 'vi pam_impl \<Rightarrow> assn\<close>
   where \<open>pam_map_assn V \<equiv> hr_comp (\<upharpoonleft>(pam_assn V)) pam_rel\<close>
 
+text \<open>Interface type for hfref arguments: the IICF map operations are registered
+  against \<open>('k,'v) i_map\<close>, while \<open>intf_of_assn_fallback\<close> would assign the plain
+  \<open>nat \<rightharpoonup> 'v\<close> type (see the analogous \<open>f_map\<close> note in \<open>Polys_Assn.thy\<close>).\<close>
+
+lemma pam_map_assn_intf[intf_of_assn]:
+  \<open>intf_of_assn (pam_map_assn V) TYPE((nat, 'v) i_map)\<close>
+  by simp
+
 text \<open>Default bin count, as for the string hash set. TODO: \<open>remap_polys\<close> knows
   \<open>upper_bound_on_dom\<close> of the input map; a size-hinted constructor would fit there.\<close>
 
@@ -1047,6 +1055,25 @@ lemma pam_delete_hnr[sepref_fr_rules]:
         sep_algebra_simps pred_lift_extract_simps entails_refl)
   done
 
+text \<open>Membership. Same skeleton as deletion, but with both arguments kept: the
+  bucket list extracted from the precondition witnesses the (unchanged)
+  postcondition, and \<open>pam_contains_correct\<close> converts the bucket-local answer of
+  @{thm pam_contains_impl_rule} into \<open>k \<in> dom (pam_map_of bss)\<close> under the
+  invariant. The boolean result goes through @{thm bool.assn_is_rel} (folded
+  with @{thm bool1_rel_def}) \<^emph>\<open>before\<close> \<open>sepref_to_hoare\<close>, exactly like the key
+  through @{thm unat.assn_is_rel} (cf.\ \<open>hs_member_hnr\<close> in
+  \<^file>\<open>IICF_Hash_Set.thy\<close>).\<close>
+
+lemma pam_contains_hnr[sepref_fr_rules]:
+  \<open>(uncurry pam_contains_impl, uncurry (RETURN oo op_map_contains_key))
+    \<in> (unat_assn' TYPE(64))\<^sup>k *\<^sub>a (pam_map_assn V)\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding pam_map_assn_def unat_rel_def unat.assn_is_rel[symmetric]
+    bool1_rel_def bool.assn_is_rel[symmetric]
+  apply sepref_to_hoare
+  supply [simp] = hr_comp_def pam_rel_def in_br_conv pam_contains_correct
+    op_map_contains_key_def sep_conj_exists
+  by vcg
+
 text \<open>Lookup\<close>
 context
 begin
@@ -1107,11 +1134,6 @@ lemma pam_map_assn_free[sepref_frame_free_rules]:
 
 text \<open>
   Open points:
-  \<^item> \<^bold>\<open>dom_m tests\<close>: the synthesis rewrites \<open>k \<in># dom_m A\<close> to
-    \<open>\<not>is_None (fmlookup' k A)\<close> (\<open>in_dom_m_lookup_iff\<close>), which would force a value
-    copy per membership test with option (1). Better: register
-    \<open>pam_contains_impl\<close> for \<open>op_map_contains_key\<close> and add a \<open>def_pat_rules\<close>
-    pattern rewriting the \<open>dom_m\<close> test to it directly.
   \<^item> \<^bold>\<open>fmupd argument mode\<close>: call sites currently use \<open>poly_assn\<^sup>k\<close> for the inserted
     value (pure values in Imperative HOL); with owning values this becomes \<open>V\<^sup>d\<close>,
     and the abstract code must stop using the polynomial after insertion (it

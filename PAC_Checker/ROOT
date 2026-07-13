@@ -9,6 +9,10 @@ session PAC_Checker_LLVM = "Sepref_IICF" +
     "HOL-Algebra"
     "Polynomials"
     Nested_Multisets_Ordinals
+    Isabelle_LLVM
+    BigInt_LLVM
+    Examples
+    Show
   theories
     PAC_More_Poly
     Finite_Map_Multiset

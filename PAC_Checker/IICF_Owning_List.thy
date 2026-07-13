@@ -188,6 +188,16 @@ lemma fold_ol_empty:
   \<open>mop_list_empty = RETURN op_ol_empty\<close>
   by simp_all
 
+text \<open>Guard discipline for emptiness tests on \<open>ol\<close> lists (e.g.\ while-loop guards
+  \<open>xs \<noteq> []\<close>): unfold \<open>conv_to_is_Nil\<close> first (protecting the \<open>[]\<close> from the
+  \<open>fold_ol_empty\<close> rewrite above), then fold \<open>is_Nil\<close> straight into
+  \<^const>\<open>op_list_is_empty\<close>, served by \<open>ol_is_empty_hnr\<close> below. Do NOT unfold
+  \<open>is_Nil_def\<close> instead: that expands into a \<open>case_list\<close> combinator, and no
+  case-combinator rule exists at \<open>ol_assn\<close>.\<close>
+
+lemma fold_is_Nil_is_empty: \<open>is_Nil l = op_list_is_empty l\<close>
+  by (cases l) auto
+
 subsubsection \<open>Raw Rules\<close>
 
 text \<open>One-node operations get direct proofs mirroring their \<open>os_list_assn\<close> counterparts,
