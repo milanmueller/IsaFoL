@@ -314,8 +314,35 @@ lemma pac_step_assn_intf[intf_of_assn]:
     \<Longrightarrow> intf_of_assn (pac_step_assn Rp Rv) TYPE(('ip, 'iv, nat) i_pac_step)\<close>
   by simp
 
-sepref_register CL Extension Del is_CL is_Extension is_Del new_id pac_src1
-  mop_dest_CL mop_dest_Extension mop_dest_Del
+text \<open>The registrations must carry EXPLICIT \<open>i_pac_step\<close> interface types: a plain
+  \<open>sepref_register\<close> uses the raw HOL type as interface (there is no automatic
+  HOL-type\<open>\<rightarrow>\<close>interface conversion \<emdash> \<open>sepref_decl_intf\<close> only introduces the type, and
+  no \<open>map_type_eqs\<close> rules are set up). Arguments refined by \<open>pac_step_assn\<close> get
+  \<open>i_pac_step\<close> from \<open>pac_step_assn_intf\<close>, so raw-typed operations would leave the id
+  phase stuck on \<open>ID st ?x TYPE((?'a,?'b,?'c) pac_step)\<close>.\<close>
+
+sepref_register
+  CL :: \<open>('a \<times> 'lbl) list \<Rightarrow> 'lbl \<Rightarrow> 'a \<Rightarrow> ('a, 'b, 'lbl) i_pac_step\<close>
+sepref_register
+  Extension :: \<open>'lbl \<Rightarrow> 'b \<Rightarrow> 'a \<Rightarrow> ('a, 'b, 'lbl) i_pac_step\<close>
+sepref_register
+  Del :: \<open>'lbl \<Rightarrow> ('a, 'b, 'lbl) i_pac_step\<close>
+sepref_register
+  is_CL :: \<open>('a, 'b, 'lbl) i_pac_step \<Rightarrow> bool\<close>
+sepref_register
+  is_Extension :: \<open>('a, 'b, 'lbl) i_pac_step \<Rightarrow> bool\<close>
+sepref_register
+  is_Del :: \<open>('a, 'b, 'lbl) i_pac_step \<Rightarrow> bool\<close>
+sepref_register
+  new_id :: \<open>('a, 'b, 'lbl) i_pac_step \<Rightarrow> 'lbl\<close>
+sepref_register
+  pac_src1 :: \<open>('a, 'b, 'lbl) i_pac_step \<Rightarrow> 'lbl\<close>
+sepref_register
+  mop_dest_CL :: \<open>('a, 'b, 'lbl) i_pac_step \<Rightarrow> (('a \<times> 'lbl) list \<times> 'lbl \<times> 'a) nres\<close>
+sepref_register
+  mop_dest_Extension :: \<open>('a, 'b, 'lbl) i_pac_step \<Rightarrow> ('lbl \<times> 'b \<times> 'a) nres\<close>
+sepref_register
+  mop_dest_Del :: \<open>('a, 'b, 'lbl) i_pac_step \<Rightarrow> 'lbl nres\<close>
 
 
 section \<open>Experiments / smoke tests\<close>

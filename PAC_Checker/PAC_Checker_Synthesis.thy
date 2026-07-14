@@ -206,7 +206,7 @@ definition \<open>add_poly_keep \<equiv> \<lambda>(x, y). add_poly_alt (COPY x, 
 lemma add_poly_keep: \<open>add_poly_alt = add_poly_keep\<close>
   unfolding add_poly_keep_def COPY_def by simp
 
-sepref_definition add_poly_impl
+sepref_def add_poly_impl
   is \<open>add_poly_l\<close>
   :: \<open>(poly_assn \<times>\<^sub>a poly_assn)\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
   unfolding add_poly_alt add_poly_keep 
@@ -276,7 +276,7 @@ definition \<open>mult_monoms_keep \<equiv> \<lambda>x y. mult_monoms_alt (COPY 
 lemma mult_monoms_keep: \<open>mult_monoms_alt = mult_monoms_keep\<close>
   unfolding mult_monoms_keep_def COPY_def by simp
 
-sepref_definition mult_monoms_impl
+sepref_def mult_monoms_impl
   is \<open>uncurry (RETURN oo mult_monoms)\<close>
   :: \<open>(monom_assn)\<^sup>k *\<^sub>a (monom_assn)\<^sup>k \<rightarrow>\<^sub>a (monom_assn)\<close>
   supply [[goals_limit=1]]
@@ -288,7 +288,7 @@ sepref_definition mult_monoms_impl
 
 declare mult_monoms_impl.refine[sepref_fr_rules]
 
-sepref_definition mult_monomials_impl
+sepref_def mult_monomials_impl
   is \<open>uncurry (RETURN oo mult_monomials)\<close>
   :: \<open>(monomial_assn)\<^sup>k *\<^sub>a (monomial_assn)\<^sup>k \<rightarrow>\<^sub>a (monomial_assn)\<close>
   supply [[goals_limit=1]]
@@ -337,7 +337,7 @@ definition \<open>map_append_poly_mult_keep \<equiv> \<lambda>a b xs. map_append
 lemma map_append_poly_mult_keep: \<open>map_append_poly_mult_alt = map_append_poly_mult_keep\<close>
   unfolding map_append_poly_mult_keep_def COPY_def by simp
 
-sepref_definition map_append_poly_mult_impl
+sepref_def map_append_poly_mult_impl
   is \<open>uncurry2 (RETURN ooo map_append_poly_mult)\<close>
   :: \<open>monomial_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
   supply [[goals_limit=1]]
@@ -400,7 +400,7 @@ definition \<open>mult_poly_raw_keep \<equiv> \<lambda>p q. mult_poly_raw_alt (C
 lemma mult_poly_raw_keep: \<open>mult_poly_raw_alt = mult_poly_raw_keep\<close>
   unfolding mult_poly_raw_keep_def COPY_def by simp
 
-sepref_definition mult_poly_raw_impl
+sepref_def mult_poly_raw_impl
   is \<open>uncurry (RETURN oo mult_poly_raw)\<close>
   :: \<open>poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
   supply [[goals_limit=1]]
@@ -411,7 +411,7 @@ sepref_definition mult_poly_raw_impl
 
 declare mult_poly_raw_impl.refine[sepref_fr_rules]
 
-sepref_definition mult_poly_impl
+sepref_def mult_poly_impl
   is \<open>uncurry mult_poly_full\<close>
   :: \<open>poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
   supply [[goals_limit=1]]
@@ -440,7 +440,7 @@ lemma eq_poly_rel_eq[sepref_import_param]:
  * lemma weak_equality_l_keep: \<open>weak_equality_l = weak_equality_l_keep\<close>
  *   unfolding weak_equality_l_keep_def COPY_def by simp *)
 
-sepref_definition weak_equality_l_impl
+sepref_def weak_equality_l_impl
   is \<open>uncurry weak_equality_l\<close>
   :: \<open>poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   unfolding weak_equality_l_def
@@ -643,7 +643,7 @@ proof -
     by (intro frefI nres_relI) auto
 qed
 
-sepref_definition uminus_poly_alt_impl is \<open>uminus_poly_alt\<close>
+sepref_def uminus_poly_alt_impl is \<open>uminus_poly_alt\<close>
   :: \<open>poly_assn\<^sup>d \<rightarrow>\<^sub>a poly_assn\<close>
   unfolding uminus_poly_alt_def
   by sepref
@@ -716,6 +716,9 @@ sepref_register PAC_Polynomials_Operations.normalize_poly
   pac_src1 pac_src2 new_id pac_mult case_pac_step check_mult_l
   check_addition_l check_del_l check_extension_l
 
+(* Dead since the owning poly_assn: the concrete side of poly_assn is a pointer, not a
+   list, so this statement no longer type-checks (and pac_step refinement now goes
+   through PAC_Step_Assn's tagged tuple anyway). Unused.
 lemma pac_step_rel_assn_alt_def2:
   \<open>hn_ctxt (pac_step_rel_assn nat_assn poly_assn id_assn) b bi =
        hn_val
@@ -725,6 +728,7 @@ lemma pac_step_rel_assn_alt_def2:
   by (induction nat_assn poly_assn \<open>id_assn :: string \<Rightarrow> _\<close> b bi rule: pac_step_rel_assn.induct)
    (auto simp: p2rel_def hn_val_unfold pac_step_rel_raw.simps relAPP_def
     pure_app_eq)
+*)
 
 (* this will not work in llvm, since K and V will not be pure
 lemma is_AddD_import[sepref_fr_rules]:
@@ -832,6 +836,10 @@ sepref_definition PAC_checker_l_impl
 declare PAC_checker_l_impl.refine[sepref_fr_rules]
 *)
 
+(* Dead since the LLVM migration: the input-polynomial map was an Imperative-HOL
+   iam (iam_fmap_assn/nat_assn/vars_assn no longer exist); remap_polys needs a fresh
+   implementation over the port's map structures. Commented out so the batch build
+   reaches the LPAC theories.
 abbreviation polys_assn_input where
   \<open>polys_assn_input \<equiv> iam_fmap_assn nat_assn poly_assn\<close>
 
@@ -902,6 +910,7 @@ sepref_definition PAC_update_impl
   :: \<open>nat_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k *\<^sub>a (polys_assn_input)\<^sup>d \<rightarrow>\<^sub>a polys_assn_input\<close>
   unfolding comp_def
   by sepref
+*)
 
 (* Dead in LPAC: shadowed by LPAC's own PAC_empty_impl / empty_vars_impl
 sepref_definition PAC_empty_impl
@@ -984,11 +993,13 @@ begin
 definition full_poly_assn where
   \<open>full_poly_assn = hr_comp poly_assn (fully_unsorted_poly_rel O mset_poly_rel)\<close>
 
+(* Dead since the LLVM migration: depends on the commented-out polys_assn_input above.
 definition full_poly_input_assn where
   \<open>full_poly_input_assn = hr_comp
         (hr_comp polys_assn_input
           (\<langle>nat_rel, fully_unsorted_poly_rel O mset_poly_rel\<rangle>fmap_rel))
         polys_rel\<close>
+*)
 
 (* Dead in LPAC: correctness-theorem plumbing.
    Only full_poly_assn / full_poly_input_assn above are reused (by LPAC_Efficient_Checker_Synthesis).

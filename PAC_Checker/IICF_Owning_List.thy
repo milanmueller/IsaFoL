@@ -149,6 +149,16 @@ lemma ol_assn_free[sepref_frame_free_rules]:
   unfolding ol_assn_conv
   by (rule ol_delete_rule[OF assms])
 
+text \<open>Propagate the ELEMENT interface type to the list: without this rule an
+  \<open>ol_assn A\<close> argument falls back to its raw abstract type, so elements popped from it
+  get the raw element type during identification \<emdash> which cannot match operations
+  registered at an \<open>i_\<close>interface (e.g. \<open>i_pac_step\<close>). The premise resolves via other
+  \<open>intf_of_assn\<close> rules or the raw fallback, so element assertions without a declared
+  interface behave exactly as before.\<close>
+lemma ol_assn_intf[intf_of_assn]:
+  \<open>intf_of_assn A TYPE('ia) \<Longrightarrow> intf_of_assn (ol_assn A) TYPE('ia list)\<close>
+  by simp
+
 subsection \<open>Structural Operations\<close>
 
 text \<open>All implementations are the unchanged raw ops from \<open>LLVM_DS_Open_List\<close> /
@@ -905,6 +915,52 @@ begin
   sepref_def nest_test_impl' is \<open>nest_test'\<close>
     :: \<open>w8ss_assn\<^sup>d \<rightarrow>\<^sub>a w8ss_assn\<close>
     unfolding nest_test'_def by sepref
+
+end
+
+text \<open>Minimal test for \<open>ol_assn_intf\<close>: interface-type propagation from the element
+  assertion to the list argument. \<open>tok_assn\<close> is just \<open>unat_assn\<close> behind a fresh constant
+  with its own declared interface \<open>i_tok\<close> (the same setup as any container/step assertion
+  with an \<open>i_\<close>interface), and \<open>tok_val\<close> is an operation registered AT that interface.
+  A popped element's id-type is the element slot of the list argument's interface, so
+  without \<open>ol_assn_intf\<close> the argument falls back to raw \<open>nat list\<close> and the id phase
+  stalls on \<open>ID x ?x' TYPE(i_tok)\<close> for the popped element.\<close>
+
+experiment
+begin
+
+  sepref_decl_intf i_tok is "nat"
+
+  definition tok_assn :: \<open>nat \<Rightarrow> 64 word \<Rightarrow> assn\<close> where
+    \<open>tok_assn \<equiv> unat_assn' TYPE(64)\<close>
+
+  lemma tok_assn_intf[intf_of_assn]: \<open>intf_of_assn tok_assn TYPE(i_tok)\<close>
+    by simp
+
+  definition tok_val :: \<open>nat \<Rightarrow> nat\<close> where \<open>tok_val n = n\<close>
+
+  sepref_register tok_val :: \<open>i_tok \<Rightarrow> nat\<close>
+
+  lemma tok_val_hnr[sepref_fr_rules]:
+    \<open>(Mreturn, RETURN o tok_val) \<in> tok_assn\<^sup>k \<rightarrow>\<^sub>a unat_assn' TYPE(64)\<close>
+    unfolding tok_assn_def tok_val_def
+    apply sepref_to_hoare
+    by vcg
+
+  lemma tok_free[sepref_frame_free_rules]: \<open>MK_FREE tok_assn (\<lambda>_. Mreturn ())\<close>
+    unfolding tok_assn_def
+    by (rule mk_free_pure)
+
+  lemma tok_list_free[sepref_frame_free_rules]:
+    \<open>MK_FREE (ol_assn tok_assn) (ol_delete (\<lambda>_. Mreturn ()))\<close>
+    by (rule ol_assn_free[OF tok_free])
+
+  definition tok_test :: \<open>nat list \<Rightarrow> nat nres\<close> where
+    \<open>tok_test xs = doN { (x, _) \<leftarrow> mop_list_pop_front xs; RETURN (tok_val x) }\<close>
+
+  sepref_definition tok_test_impl is \<open>tok_test\<close>
+    :: \<open>(ol_assn tok_assn)\<^sup>d \<rightarrow>\<^sub>a unat_assn' TYPE(64)\<close>
+    unfolding tok_test_def by sepref
 
 end
 

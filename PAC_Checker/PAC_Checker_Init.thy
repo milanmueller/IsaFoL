@@ -81,7 +81,7 @@ lemma merge_coeffs_alt_def:
     done
   done
 
-sepref_definition merge_coeffs_impl
+sepref_def merge_coeffs_impl
   is \<open>RETURN o merge_coeffs\<close>
   :: \<open>poly_assn\<^sup>d \<rightarrow>\<^sub>a poly_assn\<close>
   unfolding merge_coeffs_alt_def
@@ -171,7 +171,7 @@ lemmas sort_poly_spec_hnr_msort[sepref_fr_rules] =
 
 declare merge_coeffs_impl.refine[sepref_fr_rules]
 
-sepref_definition normalize_poly_impl
+sepref_def normalize_poly_impl
   is \<open>normalize_poly\<close> :: \<open>poly_assn\<^sup>d \<rightarrow>\<^sub>a poly_assn\<close>
   unfolding normalize_poly_def
   by sepref
@@ -230,7 +230,7 @@ lemma merge_coeffs0_alt_def:
   subgoal by (subst RECT_unfold, refine_mono) (auto simp: refine_pw_simps)
   done
 
-sepref_definition merge_coeffs0_impl
+sepref_def merge_coeffs0_impl
   is \<open>RETURN o merge_coeffs0\<close>
   :: \<open>poly_assn\<^sup>d \<rightarrow>\<^sub>a poly_assn\<close>
   unfolding merge_coeffs0_alt_def
@@ -289,7 +289,7 @@ lemma sort_all_coeffs2_sort_all_coeffs:
   unfolding sort_all_coeffs2_def sort_all_coeffs_def
   by (intro frefI nres_relI) (auto intro: sort_all_coeffs2_aux[simplified])
 
-sepref_definition sort_all_coeffs_impl
+sepref_def sort_all_coeffs_impl
   is \<open>sort_all_coeffs2\<close>
   :: \<open>poly_assn\<^sup>d \<rightarrow>\<^sub>a poly_assn\<close>
   unfolding sort_all_coeffs2_def
@@ -299,7 +299,7 @@ lemmas sort_all_coeffs_hnr[sepref_fr_rules] =
   sort_all_coeffs_impl.refine[FCOMP sort_all_coeffs2_sort_all_coeffs,
     unfolded list_rel_id_simp hr_comp_Id2]
 
-sepref_definition fully_normalize_poly_impl
+sepref_def fully_normalize_poly_impl
   is \<open>full_normalize_poly\<close>
   :: \<open>poly_assn\<^sup>d \<rightarrow>\<^sub>a poly_assn\<close>
   unfolding full_normalize_poly_def

@@ -1270,20 +1270,16 @@ qed
 
 end
 
-
-
-export_code add_poly_l' in SML module_name test
-
 definition PAC_checker_l where
   \<open>PAC_checker_l spec A b st = do {
   (S, _) \<leftarrow> WHILE\<^sub>T
-  (\<lambda>((b, A), n). \<not>is_cfailed b \<and> n \<noteq> [])
-  (\<lambda>((bA), n). do {
-  ASSERT(n \<noteq> []);
-  S \<leftarrow> PAC_checker_l_step spec bA (hd n);
-  RETURN (S, tl n)
-  })
-  ((b, A), st);
+    (\<lambda>((b, A), n). \<not>is_cfailed b \<and> n \<noteq> [])
+    (\<lambda>((bA), n). do {
+      ASSERT(n \<noteq> []);
+      S \<leftarrow> PAC_checker_l_step spec bA (hd n);
+      RETURN (S, tl n)
+    })
+    ((b, A), st);
   RETURN S
   }\<close>
 
