@@ -1,0 +1,14 @@
+# Style for the PAC checker C driver. Matches the existing pasteque.c:
+# 4-space indent, attached braces, right-aligned pointers, 80-column limit.
+BasedOnStyle: LLVM
+IndentWidth: 2
+TabWidth: 2
+UseTab: Never
+ColumnLimit: 80
+PointerAlignment: Right
+AlignAfterOpenBracket: Align
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: false
+KeepEmptyLinesAtTheStartOfBlocks: false
+# Leave hand-laid-out comments (BNF grammar, citations) alone.
+ReflowComments: false
