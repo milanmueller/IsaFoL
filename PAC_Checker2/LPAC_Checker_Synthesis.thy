@@ -21,18 +21,44 @@ section \<open>Code Synthesis of the Complete Checker\<close>
 definition check_linear_combi_l_pre_err_impl 
   :: \<open>nat \<Rightarrow> bool \<Rightarrow> bool \<Rightarrow> bool \<Rightarrow> string\<close> where
   \<open>check_linear_combi_l_pre_err_impl i adom emptyl ivars =
-  ''Precondition for '%' failed '' @ show i @
+  ''Precondition for '%' failed '' @ show i @jjj
   ''(already in domain: '' @ show adom @
-  ''; empty CL'' @ show emptyl @
+  ''; empty CL'' @ show emptyl @re
   ''; new vars: '' @ show ivars @ '')''\<close>
 *)
 
-lemma [sepref_fr_rules]:
-  \<open>(uncurry3 (\<lambda>_ _ _ _. Mreturn 0), uncurry3 check_linear_combi_l_pre_err)
-  \<in> (unat_assn' TYPE(64))\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k \<rightarrow>\<^sub>a raw_string_assn\<close>
-  unfolding check_linear_combi_l_pre_err_def
-  apply sepref_to_hoare
-  by (vcg; auto simp: status_pure_reassembly)
+definition \<open>print4 \<equiv> \<lambda>_ _ _ _. RETURN 0\<close>
+
+(* How to do printing: *)
+sepref_def print4_impl is \<open>uncurry3 print4\<close>
+  :: \<open>(unat_assn' TYPE(64))\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k \<rightarrow>\<^sub>a (unat_assn' TYPE(1))\<close>
+  unfolding print4_def
+  apply (annot_unat_const "TYPE(1)")
+  by sepref
+
+lemma print4_refine: \<open>(uncurry3 print4, uncurry3 check_linear_combi_l_pre_err)
+  \<in> (((Id \<times>\<^sub>r Id) \<times>\<^sub>r Id) \<times>\<^sub>r Id) \<rightarrow>\<^sub>f \<langle>{(a, b). True}\<rangle>nres_rel\<close>
+  unfolding print4_def check_linear_combi_l_pre_err_def 
+  apply (intro frefI nres_relI)
+  apply auto
+  by (simp add: RETURN_RES_refine)
+
+lemmas [sepref_fr_rules] = print4_impl.refine[FCOMP print4_refine]
+sepref_register check_linear_combi_l_pre_err
+sepref_def test is \<open>uncurry3 check_linear_combi_l_pre_err\<close>
+  :: \<open>[\<lambda>bb. True]⇩a (unat_assn' TYPE(64))⇧k *⇩a bool1_assn⇧k *⇩a bool1_assn⇧k *⇩a
+        bool1_assn⇧k \<rightarrow> pure (unat_rel' TYPE(1) O {(b::(nat \<times> string)). True})\<close>
+  by sepref
+
+export_llvm test
+
+
+(* lemma [sepref_fr_rules]:
+ *   \<open>(print4, uncurry3 check_linear_combi_l_pre_err)
+ *   \<in> (unat_assn' TYPE(64))\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k \<rightarrow>\<^sub>a raw_string_assn\<close>
+ *   unfolding check_linear_combi_l_pre_err_def
+ *   apply sepref_to_hoare
+ *   by (vcg; auto simp: status_pure_reassembly) *)
 
 (* again - we ignore printing for now
 definition check_linear_combi_l_dom_err_impl :: \<open> _ \<Rightarrow> uint64 \<Rightarrow> string\<close> where
@@ -81,15 +107,6 @@ lemma lincomb_free_simps[llvm_code]:
 lemmas [llvm_pre_simp] = lincomb_free_def[symmetric]
 lemma lincomb_assn_free[sepref_frame_free_rules]: \<open>MK_FREE lincomb_assn lincomb_free\<close>
   unfolding lincomb_free_def by (rule ol_assn_free[OF lincomb_tup_assn_free])
-
-text \<open>\<open>hd\<close>/\<open>tl\<close> have no implementation on owning lists (\<open>ol_assn\<close>): \<open>hd\<close> would
-  hand out the element while the list retains it, the same sharing problem as
-  map lookup. The owning replacement is \<^const>\<open>op_list_pop_front\<close>
-  (\<open>ol_pop_front_hnr\<close> in \<open>IICF_Owning_List.thy\<close>: one node visit, ownership of the
-  head moves to the caller, no copy). Since the error branch of
-  \<open>linear_combi_l\<close> keeps \<open>xs\<close> unchanged while the success branches take
-  \<open>tl xs\<close>, the pop-front form re-prepends the popped entry in the (cold) error
-  branch: O(1), and abstractly the identity \<open>hd xs # tl xs = xs\<close>.\<close>
 
 definition linear_combi_l2 where
   \<open>linear_combi_l2 i A \<V> xs = do {
@@ -313,10 +330,6 @@ sepref_register merge_cstatus full_normalize_poly new_var is_Add
 sepref_register check_linear_combi_l check_extension_l2
     term check_extension_l2
 
-text \<open>The body of this definition must match the text of the \<^term>\<open>SPEC\<close> inside
-  \<^term>\<open>check_extension_l2\<close> \<^emph>\<open>syntactically\<close> \<emdash> otherwise the fold
-  \<open>check_extension_l2_cond_def[symmetric]\<close> below silently does nothing and sepref stalls
-  in the translation phase on a bare \<^term>\<open>SPEC\<close>.\<close>
 definition check_extension_l2_cond :: \<open>nat \<Rightarrow> _\<close> where
   \<open>check_extension_l2_cond i A \<V> v = SPEC (\<lambda>b. b \<longrightarrow> i \<notin># dom_m A \<and> v \<notin> \<V>)\<close>
 
@@ -388,6 +401,23 @@ lemma[sepref_fr_rules]:
   apply sepref_to_hoare
   by vcg
 
+definition \<open>pempty p \<equiv> (p = [])\<close> 
+
+lemma weak_equality_l_pempty: \<open>(\<lambda>p. weak_equality_l p []) = RETURN o pempty\<close>
+  using pempty_def weak_equality_l_def by fastforce
+
+sepref_def pempty_impl is \<open>RETURN o pempty\<close>
+  :: \<open>poly_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding pempty_def
+  by sepref
+
+sepref_register pempty
+sepref_definition test is \<open>\<lambda>p. weak_equality_l p []\<close>
+  :: \<open>poly_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding weak_equality_l_pempty
+  by sepref
+
+sepref_register weak_equality_l
 sepref_definition check_extension_l_impl
   is \<open>uncurry5 check_extension_l2\<close>
     :: \<open>poly_assn\<^sup>k *\<^sub>a polys_assn\<^sup>k *\<^sub>a vars_hs_assn\<^sup>k *\<^sub>a (unat_assn' TYPE(64))\<^sup>k *\<^sub>a
@@ -398,6 +428,7 @@ sepref_definition check_extension_l_impl
   unfolding uminus_poly_def[symmetric]
   unfolding check_extension_l2_cond_def[symmetric]
   unfolding vars_llist_alt_def
+  unfolding weak_equality_l_pempty
   apply sepref_dbg_keep
   apply sepref_dbg_trans_keep
   apply sepref_dbg_trans_step_keep
