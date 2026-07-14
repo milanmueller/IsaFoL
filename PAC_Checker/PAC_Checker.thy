@@ -187,7 +187,6 @@ paragraph \<open>Extension checking\<close>
 definition check_extension_l_dom_err :: \<open>nat \<Rightarrow> string nres\<close> where
   \<open>check_extension_l_dom_err p = SPEC (\<lambda>_. True)\<close>
 
-
 definition check_extension_l_no_new_var_err :: \<open>llist_polynomial \<Rightarrow> string nres\<close> where
   \<open>check_extension_l_no_new_var_err p = SPEC (\<lambda>_. True)\<close>
 

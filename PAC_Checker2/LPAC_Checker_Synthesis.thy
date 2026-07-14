@@ -7,6 +7,7 @@ theory LPAC_Checker_Synthesis
   imports
     LPAC_Checker
     LPAC_Version
+    LPAC_Step_Assn
     PAC_Checker_LLVM.More_Loops
     PAC_Checker_LLVM.PAC_Checker_Relation
     PAC_Checker_LLVM.PAC_Checker_Synthesis
@@ -160,16 +161,6 @@ lemma vars_llist_alt_def:
   by (induction xs)
    (auto simp: vars_llist_def vars_of_monom_in_alt_def)
 
-text \<open>The fold-form synthesis of the original AFP (\<open>vars_of_monom_in_alt_def2\<close> +
-  \<open>by sepref\<close>) does not port: \<open>fold\<close> is not a sepref combinator in this
-  framework (monadify stalls on \<open>EVAL $ (\<lambda>x. \<dots>)\<close>), and there is no generic
-  read-only iteration over owning lists anyway. Instead the test is a fused
-  recursive walk in the \<open>poly_eq_impl\<close>/\<open>mnml_eq_impl\<close> ladder style: walk the
-  polynomial spine, per monomial walk the string spine, one hash-set membership
-  per variable (\<open>vars_hs_member_rule\<close>, \<open>String_Assn.thy\<close>), early exit on the
-  first miss. Everything is keep-mode; the set assertion stays folded
-  throughout.\<close>
-
 partial_function (M) vars_of_monom_in_impl ::
   \<open>8 word os_list hs_impl \<Rightarrow> monom_conc \<Rightarrow> 1 word llM\<close> where
   \<open>vars_of_monom_in_impl vi p = (if p = null then Mreturn 1
@@ -256,10 +247,6 @@ lemma vars_of_poly_in_hnr[sepref_fr_rules]:
    to copy the hd out of the list *)
 sepref_definition linear_combi_l_impl
   is \<open>uncurry3 linear_combi_l\<close>
-  \<comment> \<open>The id \<open>i\<close> is \<open>unat\<close>, not \<open>snat\<close>: inside \<open>linear_combi_l\<close> it is only used in
-    the precondition ASSERT (no operation), but the caller
-    (\<open>check_linear_combi_l\<close>) feeds the \<^emph>\<open>same\<close> id to \<open>op_fmap_contains_key\<close> and
-    \<open>error_msg\<close>, whose keys are \<open>unat\<close> \<comment> \<open>the assertions must agree at the call.\<close>\<close>
   :: \<open>(unat_assn' TYPE(64))\<^sup>k *\<^sub>a polys_assn\<^sup>k *\<^sub>a vars_hs_assn\<^sup>k *\<^sub>a lincomb_assn\<^sup>d
        \<rightarrow>\<^sub>a poly_assn \<times>\<^sub>a lincomb_assn \<times>\<^sub>a status_assn raw_string_assn\<close>
   unfolding linear_combi_l2_linear_combi_l[symmetric]
@@ -288,19 +275,6 @@ lemma has_failed_hnr[sepref_fr_rules]:
   by (vcg; auto simp: status_pure_reassembly bool.assn_def refine_pw_simps)
 
 sepref_register check_linear_combi_l_pre_err
-
-text \<open>\<open>linear_combi_l\<close> is \<^emph>\<open>inlined\<close> here rather than called as a registered
-  operation. A registered call fails: \<open>linear_combi_l\<close> returns a triple carrying an
-  \<^emph>\<open>owning\<close> list (\<open>lincomb_assn\<close>), and \<open>sepref_register\<close> gives its \<open>fmap\<close> argument the
-  plain \<open>fmap\<close> interface rather than \<open>f_map\<close>, so the argument-\<open>ID\<close>s never resolve.
-  Inlining sidesteps both, and \<^const>\<open>check_linear_combi_l\<close> itself returns a simple
-  status, so \<^emph>\<open>it\<close> registers cleanly for \<open>check_step\<close> (mirrors the AFP, where
-  \<open>check_addition_l\<close> inlines its loop). The unfold set is
-  \<open>linear_combi_l_impl\<close>'s (pop-front \<open>linear_combi_l2\<close> + loop discipline) plus
-  \<open>check_linear_combi_l\<close>'s own outer control: \<open>has_failed_def[symmetric]\<close> for the
-  \<open>RES UNIV\<close> allocation-failure nondeterminism, \<open>conv_to_is_Nil\<close>/\<open>fold_is_Nil_is_empty\<close>
-  for the \<open>xs = []\<close> tests, \<open>vars_llist_alt_def\<close> for the subset tests. The leftover
-  owning list from the loop is discarded in \<open>check\<close> and freed by \<open>lincomb_assn_free\<close>.\<close>
 
 sepref_definition check_linear_combi_l_impl
   is \<open>uncurry5 check_linear_combi_l\<close>
@@ -339,41 +313,40 @@ sepref_register merge_cstatus full_normalize_poly new_var is_Add
 sepref_register check_linear_combi_l check_extension_l2
     term check_extension_l2
 
+text \<open>The body of this definition must match the text of the \<^term>\<open>SPEC\<close> inside
+  \<^term>\<open>check_extension_l2\<close> \<^emph>\<open>syntactically\<close> \<emdash> otherwise the fold
+  \<open>check_extension_l2_cond_def[symmetric]\<close> below silently does nothing and sepref stalls
+  in the translation phase on a bare \<^term>\<open>SPEC\<close>.\<close>
 definition check_extension_l2_cond :: \<open>nat \<Rightarrow> _\<close> where
-  \<open>check_extension_l2_cond i A \<V> v = SPEC (\<lambda>b. b \<longrightarrow> fmlookup' i A = None \<and> v \<notin> \<V>)\<close>
+  \<open>check_extension_l2_cond i A \<V> v = SPEC (\<lambda>b. b \<longrightarrow> i \<notin># dom_m A \<and> v \<notin> \<V>)\<close>
 
 definition check_extension_l2_cond2 :: \<open>nat \<Rightarrow> _\<close> where
   \<open>check_extension_l2_cond2 i A \<V> v = RETURN (fmlookup' i A = None \<and> v \<notin> \<V>)\<close>
 
-(* TODO: We don't have a refinment target for option types, we need to manually refine this
-   to the bool valued contains test *)
+lemma lookup_none_by_contains:
+  \<open>fmlookup' i A = None \<equiv> \<not>op_fmap_contains_key i A\<close>
+  unfolding fmlookup'_def op_fmap_contains_key_def
+  by (simp add: in_dom_m_lookup_iff)
 
 sepref_definition check_extension_l2_cond2_impl
   is \<open>uncurry3 check_extension_l2_cond2\<close>
     :: \<open>(unat_assn' TYPE(64))\<^sup>k *\<^sub>a polys_assn\<^sup>k *\<^sub>a vars_hs_assn\<^sup>k *\<^sub>a strl_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   supply [[goals_limit=1]]
-  unfolding check_extension_l2_cond2_def
-    in_dom_m_lookup_iff
-    not_not is_None_def
-  apply sepref_dbg_preproc
-  apply sepref_dbg_cons_init
-  apply sepref_dbg_id
-  apply sepref_dbg_id_keep
-  apply sepref_dbg_monadify
-  apply sepref_dbg_opt_init
-  apply sepref_dbg_trans
-  apply sepref_dbg_opt
-  apply sepref_dbg_cons_solve
-  apply sepref_dbg_cons_solve
-  apply sepref_dbg_cons_solve_cp
-  apply sepref_dbg_constraints
-  oops
+  unfolding check_extension_l2_cond2_def lookup_none_by_contains
+  by sepref
 
 lemma check_extension_l2_cond2_check_extension_l2_cond:
   \<open>(uncurry3 check_extension_l2_cond2, uncurry3 check_extension_l2_cond) \<in>
   (((nat_rel \<times>\<^sub>r Id) \<times>\<^sub>r Id) \<times>\<^sub>r Id) \<rightarrow>\<^sub>f \<langle>bool_rel\<rangle>nres_rel\<close>
   by (auto intro!: RES_refine nres_relI frefI
-    simp: check_extension_l2_cond_def check_extension_l2_cond2_def)
+    simp: check_extension_l2_cond_def check_extension_l2_cond2_def in_dom_m_lookup_iff)
+
+text \<open>The interface type must be given explicitly: a plain \<open>sepref_register\<close> derives it
+  from the HOL type, leaving the map argument at plain \<^typ>\<open>(nat, 'v) fmap\<close> \<emdash> but the
+  argument's assertion \<open>polys_assn\<close> yields interface \<open>(nat, 'v) f_map\<close>, so the id phase
+  gets stuck on an unsolvable \<open>ID\<close> goal.\<close>
+sepref_register check_extension_l2_cond
+  :: \<open>nat \<Rightarrow> (nat, 'v) f_map \<Rightarrow> 'a set \<Rightarrow> 'a \<Rightarrow> bool nres\<close>
 
 lemmas [sepref_fr_rules] =
   check_extension_l2_cond2_impl.refine[FCOMP check_extension_l2_cond2_check_extension_l2_cond]
@@ -408,18 +381,28 @@ lemma [sepref_fr_rules]:
   apply sepref_to_hoare
   by (vcg; auto simp: status_pure_reassembly)
 
+lemma[sepref_fr_rules]:
+  \<open>(\<lambda>_. Mreturn 1, check_extension_l_dom_err)
+  \<in> (unat_assn' TYPE(64))\<^sup>k \<rightarrow>\<^sub>a raw_string_assn\<close>
+  unfolding check_extension_l_dom_err_def
+  apply sepref_to_hoare
+  by vcg
+
 sepref_definition check_extension_l_impl
   is \<open>uncurry5 check_extension_l2\<close>
     :: \<open>poly_assn\<^sup>k *\<^sub>a polys_assn\<^sup>k *\<^sub>a vars_hs_assn\<^sup>k *\<^sub>a (unat_assn' TYPE(64))\<^sup>k *\<^sub>a
     strl_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a status_assn raw_string_assn\<close>
   supply [[goals_limit=1]]
   unfolding check_extension_l2_def
-    in_dom_m_lookup_iff
-    not_not is_None_def
-    uminus_poly_def[symmetric]
-    check_extension_l2_cond_def[symmetric]
-    vars_llist_alt_def
+  unfolding not_not is_None_def
+  unfolding uminus_poly_def[symmetric]
+  unfolding check_extension_l2_cond_def[symmetric]
+  unfolding vars_llist_alt_def
   apply sepref_dbg_keep
+  apply sepref_dbg_trans_keep
+  apply sepref_dbg_trans_step_keep
+  apply sepref_dbg_side_unfold
+  term uminus_poly (* this is gonna need some work *)
   oops
 
 lemmas [sepref_fr_rules] =

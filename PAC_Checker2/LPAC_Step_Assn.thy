@@ -1,50 +1,23 @@
 (*
   File:         PAC_Step_Assn.thy
-  Author:       Milan Müller (with Claude)
-
-  An LLVM refinement assertion for the pac_step certificate datatype.
-
-  The certificate steps carry OWNING polynomial payloads, so pac_step needs a
-  concrete llvm_rep representation.  We encode it as a tagged flat tuple (the
-  same trick as code_status/status_assn in PAC_Checker_Synthesis.thy): a tag
-  byte 0/1/2 discriminates the constructor, and one slot per distinct field
-  holds the payloads.  Because the tuple is passed by value (no heap cell of its
-  own) only the pointer fields point into the heap, so destructuring a step is a
-  pure projection that transfers ownership of the owning fields out; the unused
-  slots (filled with `init`) are never owned and are simply dropped/skipped.
-
-  This is a self-contained EXPERIMENT theory over the Isabelle_LLVM image: it
-  defines a local minimal copy of pac_step so the test session builds fast.  For
-  integration, delete the local datatype and import LPAC_Checker_Specification
-  instead — the assertion and all operations below are unchanged (they only use
-  the auto-derived selectors/discriminators, which the real datatype provides).
+  Authors:      Milan Müller, Anthropic Opus 4.8
 *)
-theory PAC_Step_Assn
-  imports IICF_Owning_List
+theory LPAC_Step_Assn
+  imports
+    PAC_Checker_LLVM.IICF_Owning_List
+    LPAC_Checker_Specification
 begin
 
-section \<open>Local minimal copy of the \<open>pac_step\<close> datatype\<close>
+section \<open>Concrete Representation and Refinement Assertion\<close>
 
-text \<open>Identical in shape to \<open>LPAC_Checker_Specification\<close> (the real one pulls the
-  whole polynomial/AFP closure, which we avoid here). Auto-derives the selectors
-  \<open>pac_srcs\<close>/\<open>new_id\<close>/\<open>pac_res\<close>/\<open>new_var\<close>/\<open>pac_src1\<close> and the discriminators
-  \<open>is_CL\<close>/\<open>is_Extension\<close>/\<open>is_Del\<close>.\<close>
+text \<open>For the concrete data, we use a tag (8 word) to select the constructor.
+  Then, we have a field for every possible inner value.
+  For every constructors, some fields will be emtpy (e.g. Del holds no poly)\<close>
 
-datatype ('a, 'b, 'lbls) pac_step =
-  CL (pac_srcs: \<open>('a \<times> 'lbls) list\<close>) (new_id: 'lbls) (pac_res: 'a)
-| Extension (new_id: 'lbls) (new_var: 'b) (pac_res: 'a)
-| Del (pac_src1: 'lbls)
-
-
-section \<open>Concrete representation and the refinement assertion\<close>
-
-text \<open>Tagged flat tuple: \<open>(tag, id, res-poly, CL-sources, var)\<close>. The id/label is fixed to
-  \<^typ>\<open>64 word\<close> (\<open>unat_assn' TYPE(64)\<close>); the assertion is parametric in the poly assertion
-  \<open>Rp\<close> and the variable assertion \<open>Rv\<close>. Unused slots per constructor are left unconstrained
-  (never owned).\<close>
-
+text \<open>We fix ids to 64 bit words - maybe it could be \<open>'l::len\<close> aswell...\<close>
 type_synonym ('pi, 'vi) pac_step_impl =
   \<open>8 word \<times> 64 word \<times> 'pi \<times> ('pi \<times> 64 word) os_list \<times> 'vi\<close>
+  (*  tag \<times> new_id  \<times> res \<times> srcs                    \<times> var *)
 
 definition pac_step_assn ::
   \<open>('a \<Rightarrow> 'pi::llvm_rep \<Rightarrow> assn) \<Rightarrow> ('b \<Rightarrow> 'vi::llvm_rep \<Rightarrow> assn)
@@ -59,21 +32,20 @@ definition pac_step_assn ::
         \<up>(tag = 2) ** unat_assn' TYPE(64) i idc)\<close>
 
 lemma pac_step_assn_CL[simp]:
-  \<open>pac_step_assn Rp Rv (CL p i r) (tag, idc, res, srcs, var) =
+  \<open>pac_step_assn Rp Rv (CL p i r) (tag, idc, res, srcs, nvar) =
     (\<up>(tag = 0) ** unat_assn' TYPE(64) i idc
       ** ol_assn (Rp \<times>\<^sub>a unat_assn' TYPE(64)) p srcs ** Rp r res)\<close>
   unfolding pac_step_assn_def by simp
 
 lemma pac_step_assn_Extension[simp]:
-  \<open>pac_step_assn Rp Rv (Extension i x r) (tag, idc, res, srcs, var) =
-    (\<up>(tag = 1) ** unat_assn' TYPE(64) i idc ** Rv x var ** Rp r res)\<close>
+  \<open>pac_step_assn Rp Rv (Extension i x r) (tag, idc, res, srcs, nvar) =
+    (\<up>(tag = 1) ** unat_assn' TYPE(64) i idc ** Rv x nvar ** Rp r res)\<close>
   unfolding pac_step_assn_def by simp
 
 lemma pac_step_assn_Del[simp]:
-  \<open>pac_step_assn Rp Rv (Del i) (tag, idc, res, srcs, var) =
+  \<open>pac_step_assn Rp Rv (Del i) (tag, idc, res, srcs, nvar) =
     (\<up>(tag = 2) ** unat_assn' TYPE(64) i idc)\<close>
   unfolding pac_step_assn_def by simp
-
 
 section \<open>Raw word comparison and reassembly bundle\<close>
 
@@ -297,7 +269,7 @@ definition CL_impl ::
 
 definition Extension_impl ::
   \<open>64 word \<Rightarrow> 'vi \<Rightarrow> 'pi \<Rightarrow> ('pi::llvm_rep, 'vi::llvm_rep) pac_step_impl llM\<close>
-  where [llvm_code, llvm_inline]: \<open>Extension_impl idc var res \<equiv> Mreturn (1, idc, res, init, var)\<close>
+  where [llvm_code, llvm_inline]: \<open>Extension_impl idc nvar res \<equiv> Mreturn (1, idc, res, init, nvar)\<close>
 
 definition Del_impl ::
   \<open>64 word \<Rightarrow> ('pi::llvm_rep, 'vi::llvm_rep) pac_step_impl llM\<close>
@@ -350,7 +322,7 @@ section \<open>Experiments / smoke tests\<close>
 
 experiment begin
 
-text \<open>T1 — pure elements (\<open>Rp = Rv = unat_assn\<close>): build a \<open>Del\<close> step and read its tag back.
+text \<open>T1 \<emdash> pure elements (\<open>Rp = Rv = unat_assn\<close>): build a \<open>Del\<close> step and read its tag back.
   Exercises the producer reassembly, the discriminator, and the tag logic end-to-end.\<close>
 
 sepref_definition t1_impl is \<open>\<lambda>i. do { s \<leftarrow> RETURN (Del i); RETURN (is_Del s) }\<close>
@@ -372,7 +344,7 @@ abbreviation pstub_assn :: \<open>nat list \<Rightarrow> 64 word os_list \<Right
 abbreviation src_assn :: \<open>(nat list \<times> nat) list \<Rightarrow> (64 word os_list \<times> 64 word) os_list \<Rightarrow> assn\<close>
   where \<open>src_assn \<equiv> ol_assn (pstub_assn \<times>\<^sub>a id64_assn)\<close>
 
-text \<open>Sanity: the owning stand-in assertions themselves move (\<open>\<^sup>d\<close> identity) through \<open>sepref\<close> —
+text \<open>Sanity: the owning stand-in assertions themselves move (\<open>\<^sup>d\<close> identity) through \<open>sepref\<close> \<emdash>
   the nested \<open>ol_assn\<close>-of-\<open>ol_assn\<close> representation and the composed free machinery are sound.\<close>
 
 sepref_definition pd_test is \<open>RETURN o (\<lambda>x::nat list. x)\<close> :: \<open>pstub_assn\<^sup>d \<rightarrow>\<^sub>a pstub_assn\<close>
@@ -381,7 +353,7 @@ sepref_definition pd_test is \<open>RETURN o (\<lambda>x::nat list. x)\<close> :
 sepref_definition sd_test is \<open>RETURN o (\<lambda>x::(nat list \<times> nat) list. x)\<close> :: \<open>src_assn\<^sup>d \<rightarrow>\<^sub>a src_assn\<close>
   by sepref
 
-text \<open>T2 — owning roundtrip: build a \<open>CL\<close> step from an owning sources list and an owning result
+text \<open>T2 \<emdash> owning roundtrip: build a \<open>CL\<close> step from an owning sources list and an owning result
   poly, destructure it, return only \<open>(id, res)\<close>. The sources list is dropped, so \<open>sepref\<close> must
   synthesize its deep free (the composed \<open>ol_assn\<close>/entry free chain).
 
@@ -401,7 +373,7 @@ sepref_definition t2_impl is \<open>t2\<close>
   supply [sepref_fr_rules] = CL_impl_hnr
   by sepref
 
-text \<open>T3 — free acid-test: build a full step and drop it unused (return only the separate id).
+text \<open>T3 \<emdash> free acid-test: build a full step and drop it unused (return only the separate id).
   \<open>sepref\<close> must synthesize the tag-dispatching deep free for the dead step.\<close>
 
 definition t3 :: \<open>(nat list \<times> nat) list \<times> nat \<times> nat list \<Rightarrow> nat nres\<close> where

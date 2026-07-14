@@ -605,15 +605,61 @@ sepref_register check_extension_l_dom_err fmlookup'
 definition uminus_poly :: \<open>llist_polynomial \<Rightarrow> llist_polynomial\<close> where
   \<open>uminus_poly p' = map (\<lambda>(a, b). (a, - b)) p'\<close>
 
-sepref_register uminus_poly
-lemma [sepref_import_param]:
-  \<open>(map (\<lambda>(a, b). (a, - b)), uminus_poly) \<in> poly_rel \<rightarrow> poly_rel\<close>
-  unfolding uminus_poly_def
-  apply (intro fun_relI)
-  subgoal for p p'
-    by (induction p p' rule: list_rel_induct)
-     auto
-  done
+definition \<open>uminus_poly_alt \<equiv> REC\<^sub>T (\<lambda>f p.
+    if p = [] then RETURN p
+    else doN {
+      ((vars, n), ps) \<leftarrow> mop_list_pop_front p;
+      ps' \<leftarrow> f ps;
+      RETURN ((vars, -n) # ps')
+    })\<close>
+
+lemma uminus_poly_alt_simps:
+  \<open>uminus_poly_alt p = (if p = [] then RETURN p
+    else doN {
+      ((vars, n), ps) \<leftarrow> mop_list_pop_front p;
+      ps' \<leftarrow> uminus_poly_alt ps;
+      RETURN ((vars, -n) # ps')
+    })\<close>
+  unfolding uminus_poly_alt_def
+  apply (subst RECT_unfold)
+  apply refine_mono
+  by simp
+
+lemma uminus_poly_alt_refine:
+  \<open>(uminus_poly_alt, RETURN o uminus_poly) \<in> Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+proof -
+  have \<open>uminus_poly_alt p = RETURN (uminus_poly p)\<close> for p
+  proof (induction p)
+    case Nil
+    then show ?case
+      by (subst uminus_poly_alt_simps) (simp add: uminus_poly_def)
+  next
+    case (Cons a p)
+    then show ?case
+      by (subst uminus_poly_alt_simps)
+        (auto simp: uminus_poly_def mop_list_pop_front_def split: prod.splits)
+  qed
+  then show ?thesis
+    by (intro frefI nres_relI) auto
+qed
+
+sepref_definition uminus_poly_alt_impl is \<open>uminus_poly_alt\<close>
+  :: \<open>poly_assn\<^sup>d \<rightarrow>\<^sub>a poly_assn\<close>
+  unfolding uminus_poly_alt_def
+  by sepref
+
+lemmas uminus_poly_hnr[sepref_fr_rules] = 
+  uminus_poly_alt_impl.refine[FCOMP uminus_poly_alt_refine]
+
+(* TODO: this won't work with llvm *)
+(* lemma [sepref_import_param]:
+ *   \<open>(map (\<lambda>(a, b). (a, - b)), uminus_poly) \<in> poly_rel \<rightarrow> poly_rel\<close>
+ *   unfolding uminus_poly_def
+ *   apply (intro fun_relI)
+ *   subgoal for p p'
+ *     by (induction p p' rule: list_rel_induct)
+ *      auto
+ *   done *)
 
 sepref_register (* vars_of_poly_in is dead in LPAC *)
   weak_equality_l
