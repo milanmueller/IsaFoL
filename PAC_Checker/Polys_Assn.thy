@@ -233,28 +233,10 @@ text \<open>The map-level operations (\<open>pam_update_impl\<close>, \<open>pam
   @{thm llvm_inline_bind_laws(1)}; the unit-typed variant needed for the former is
   added here.\<close>
 
-text \<open>The bucket walks access the entry pairs with plain \<open>fst\<close>/\<open>snd\<close>, which the code
-  generator cannot translate (\<open>llc_parse_const\<close> only knows \<open>init\<close>/\<open>null\<close>/literals).
-  The preprocessor's monadify stage hoists compound operands into \<open>Mreturn\<close>-bindings
-  and the \<open>[llvm_pre_simp]\<close> interceptors turn those into extract/insert instructions
-  (cf. \<open>inline_return_prod\<close>/\<open>inline_return_node_case\<close>); \<open>fst\<close>/\<open>snd\<close> just lack their
-  interceptors \<emdash> added here.\<close>
-
-lemma inline_return_fst[llvm_pre_simp]:
-  \<open>Mreturn (fst x) = prod_extract_fst x\<close>
-  by (cases x) (simp add: prod_ops_simp)
-
-lemma inline_return_snd[llvm_pre_simp]:
-  \<open>Mreturn (snd x) = prod_extract_snd x\<close>
-  by (cases x) (simp add: prod_ops_simp)
-
-lemma Mbind_return_unit[llvm_pre_simp]: \<open>Mbind (m :: unit llM) (\<lambda>_. Mreturn ()) = m\<close>
-proof -
-  have \<open>(\<lambda>_ :: unit. Mreturn ()) = Mreturn\<close>
-    by (simp add: fun_eq_iff)
-  then show ?thesis
-    by (simp add: llvm_inline_bind_laws(1))
-qed
+text \<open>The \<open>fst\<close>/\<open>snd\<close> and unit-bind code-generator interceptors
+  (\<open>inline_return_fst\<close>/\<open>inline_return_snd\<close>/\<open>Mbind_return_unit\<close>) used to live here;
+  they are generic and now sit in \<^file>\<open>IICF_Assoc_Map.thy\<close>, shared with the string
+  hash map export in \<open>String_Assn.thy\<close>.\<close>
 
 lemmas [llvm_inline] = pam_entry_free_impl_def pam_update_impl_def pam_delete_impl_def
   pam_lookup_impl_def pam_the_lookup_impl_def pam_free_impl_def

@@ -1145,6 +1145,32 @@ text \<open>
     before export.
 \<close>
 
+subsection \<open>Code-generator interceptors\<close>
+
+text \<open>The bucket walks access the entry pairs with plain \<open>fst\<close>/\<open>snd\<close>, which the code
+  generator cannot translate (\<open>llc_parse_const\<close> only knows \<open>init\<close>/\<open>null\<close>/literals).
+  The preprocessor's monadify stage hoists compound operands into \<open>Mreturn\<close>-bindings
+  and the \<open>[llvm_pre_simp]\<close> interceptors turn those into extract/insert instructions
+  (cf.\ \<open>inline_return_prod\<close>/\<open>inline_return_node_case\<close>); \<open>fst\<close>/\<open>snd\<close> just lack their
+  interceptors \<emdash> added here (generic; needed by every export of the pam/phm
+  family, e.g.\ \<open>Polys_Assn.thy\<close> and the string map in \<open>String_Assn.thy\<close>).\<close>
+
+lemma inline_return_fst[llvm_pre_simp]:
+  \<open>Mreturn (fst x) = prod_extract_fst x\<close>
+  by (cases x) (simp add: prod_ops_simp)
+
+lemma inline_return_snd[llvm_pre_simp]:
+  \<open>Mreturn (snd x) = prod_extract_snd x\<close>
+  by (cases x) (simp add: prod_ops_simp)
+
+lemma Mbind_return_unit[llvm_pre_simp]: \<open>Mbind (m :: unit llM) (\<lambda>_. Mreturn ()) = m\<close>
+proof -
+  have \<open>(\<lambda>_ :: unit. Mreturn ()) = Mreturn\<close>
+    by (simp add: fun_eq_iff)
+  then show ?thesis
+    by (simp add: llvm_inline_bind_laws(1))
+qed
+
 
 subsection \<open>Tests\<close>
 

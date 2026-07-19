@@ -442,6 +442,276 @@ end
 
 end
 
+subsection \<open>Conversion from and to Fixed-Size Arrays\<close>
+
+text \<open>Conversions between open lists and fixed-size arrays. The array side is the
+  length-carrying array (\<open>larray_assn\<close>, @{theory Isabelle_LLVM.IICF_Array}): a bare
+  \<open>array_assn\<close> is a plain pointer without runtime length, so the array-to-list
+  direction could not be implemented against it (and the list-to-array direction
+  would have to return the length separately); a \<open>larray\<close> is exactly the pair of an
+  \<open>snat\<close> length and an \<open>narray\<close> pointer. \<open>arl_assn\<close> (dynamic array with capacity) is
+  not fixed-size, and the eo/woarray family targets impure elements, which \<open>os_assn\<close>
+  excludes anyway.
+
+  Both directions are destructive (\<open>\<^sup>d\<close>): list-to-array consumes the nodes
+  (\<open>os_pop\<close>) while filling the freshly allocated array; array-to-list frees the
+  array after prepending its elements back-to-front (building the list from the
+  back avoids a reversal). Abstractly both conversions are the identity on
+  \<open>'a list\<close>.\<close>
+
+text \<open>\<open>raw_larray_assn\<close> is a sepref-level composition; for the hand-written vcg
+  proofs below it is decomposed once into its dr_assn-level parts
+  (cf. \<open>string_assn_decomp\<close> in \<open>String_Hash_Map\<close>).\<close>
+
+lemma raw_larray_assn_decomp:
+  \<open>raw_larray_assn xs (n, p) = (\<upharpoonleft>snat.assn (length xs) n ** \<upharpoonleft>narray_assn xs p)\<close>
+  unfolding raw_larray_assn_def hr_comp_def
+  apply (intro ext)
+  apply (auto simp: larray1_rel_prenorm array_assn_def snat_rel_def
+    snat.assn_is_rel[symmetric] sep_algebra_simps pred_lift_extract_simps)
+  done
+
+subsubsection \<open>List to Array\<close>
+
+text \<open>Fill a preallocated array from an open list, consuming the list's nodes. The
+  counter serves as loop guard (\<open>i < n\<close>), so non-emptiness of the remaining list
+  suffix is available \<^emph>\<open>purely\<close> in the loop body \<emdash> this avoids both the
+  \<open>ll_ptrcmp\<close> guard and the \<open>i < length xs \<or> p = null\<close> invariant disjunct that
+  \<open>os_list_length\<close> needs.\<close>
+
+definition os_fill_arr :: \<open>'a::llvm_rep ptr \<Rightarrow> 'a os_list \<Rightarrow> 'l::len2 word \<Rightarrow> unit llM\<close>
+  where [llvm_code]:
+  \<open>os_fill_arr a p n \<equiv> doM {
+    llc_while
+      (\<lambda>(q, i). ll_icmp_ult i n)
+      (\<lambda>(q, i). doM {
+        (x, q) \<leftarrow> os_pop q;
+        array_upd a i x;
+        i \<leftarrow> ll_add i (signed_nat 1);
+        Mreturn (q, i)
+      }) (p, signed_nat 0);
+    Mreturn ()
+  }\<close>
+
+context begin
+
+private lemma drop_Suc_tl: \<open>drop (Suc i) xs = tl (drop i xs)\<close>
+  by (simp add: drop_Suc tl_drop)
+
+text \<open>Writing the next list element into the array grows the written prefix.\<close>
+private lemma fill_step_upd:
+  assumes \<open>i < length xs\<close> \<open>length ys = length xs\<close>
+  shows \<open>(take i xs @ drop i ys)[i := xs ! i] = take (Suc i) xs @ drop (Suc i) ys\<close>
+proof -
+  have D: \<open>drop i ys = ys ! i # drop (Suc i) ys\<close>
+    using assms by (simp add: Cons_nth_drop_Suc)
+  have \<open>(take i xs @ drop i ys)[i := xs ! i] = take i xs @ (drop i ys)[0 := xs ! i]\<close>
+    using assms by (simp add: list_update_append min_absorb1)
+  also have \<open>(drop i ys)[0 := xs ! i] = xs ! i # drop (Suc i) ys\<close>
+    by (subst D) simp
+  also have \<open>take i xs @ xs ! i # drop (Suc i) ys = take (Suc i) xs @ drop (Suc i) ys\<close>
+    using assms by (simp add: take_Suc_conv_app_nth)
+  finally show ?thesis .
+qed
+
+lemma os_fill_arr_rule[vcg_rules]:
+  \<open>llvm_htriple
+    (\<upharpoonleft>snat.assn (length xs) n ** raw_os_assn xs p ** \<upharpoonleft>narray_assn ys a
+      ** \<up>(length ys = length xs) ** \<up>(length xs < max_snat LENGTH('l)))
+    (os_fill_arr a p (n :: 'l::len2 word))
+    (\<lambda>_. \<upharpoonleft>snat.assn (length xs) n ** \<upharpoonleft>narray_assn xs a)\<close>
+  unfolding os_fill_arr_def
+  apply (rewrite annotate_llc_while [where
+    I = \<open>\<lambda>(q, ii) t. EXS i. \<upharpoonleft>snat.assn i ii
+         ** \<upharpoonleft>os_list_assn (drop i xs) q
+         ** \<upharpoonleft>narray_assn (take i xs @ drop i ys) a
+         ** \<up>(i \<le> length xs)
+         ** \<up>\<^sub>!(t = length xs - i)\<close>
+    and R = \<open>measure id\<close>])
+  supply [simp] = fill_step_upd hd_drop_conv_nth drop_Suc_tl min_absorb1
+    sep_conj_exists
+  apply vcg_monadify
+  apply vcg'
+  subgoal
+    by (auto simp: os_list_assn_simps extract_pure_assn snat.assn_pure
+      sep_algebra_simps pred_lift_extract_simps ENTAILS_def entails_def)
+  by (tactic \<open>Defer_Slot.remove_slot_tac\<close>)
+
+end
+
+definition os_to_larr :: \<open>'a::llvm_rep os_list \<Rightarrow> ('l::len2 word \<times> 'a ptr) llM\<close>
+  where [llvm_code]:
+  \<open>os_to_larr p \<equiv> doM {
+    n \<leftarrow> os_list_length p;
+    a \<leftarrow> narray_new TYPE('a) n;
+    os_fill_arr a p n;
+    Mreturn (n, a)
+  }\<close>
+
+lemma os_to_larr_rule[vcg_rules]:
+  \<open>length xs < max_snat LENGTH('l) \<Longrightarrow> llvm_htriple
+    (raw_os_assn xs p)
+    (os_to_larr p :: ('l::len2 word \<times> 'a::llvm_rep ptr) llM)
+    (\<lambda>c. raw_larray_assn xs c)\<close>
+  unfolding os_to_larr_def
+  supply [simp] = raw_larray_assn_decomp
+  apply vcg_monadify
+  apply vcg'
+  done
+
+subsubsection \<open>Array to List\<close>
+
+context begin
+
+text \<open>Prepending the array element left of the already-converted suffix extends
+  the suffix by one (stated in the \<open>i - Suc 0\<close> normal form the ambient simpset
+  produces, plus the literal \<open>i - 1\<close> variant).\<close>
+private lemma drop_prepend:
+  assumes \<open>0 < i\<close> \<open>i \<le> length xs\<close>
+  shows \<open>xs ! (i - Suc 0) # drop i xs = drop (i - Suc 0) xs\<close>
+proof -
+  from assms have B: \<open>i - Suc 0 < length xs\<close> by auto
+  from assms have A: \<open>Suc (i - Suc 0) = i\<close> by auto
+  show ?thesis
+    using Cons_nth_drop_Suc[OF B] unfolding A .
+qed
+
+private lemma drop_prepend':
+  assumes \<open>0 < i\<close> \<open>i \<le> length xs\<close>
+  shows \<open>xs ! (i - 1) # drop i xs = drop (i - 1) xs\<close>
+  using drop_prepend[OF assms] by simp
+
+definition larr_to_os :: \<open>'l::len2 word \<times> 'a ptr \<Rightarrow> 'a::llvm_rep os_list llM\<close>
+  where [llvm_code]:
+  \<open>larr_to_os \<equiv> \<lambda>(n, a). doM {
+    (p, _) \<leftarrow> llc_while
+      (\<lambda>(p, i). ll_cmp (i \<noteq> 0))
+      (\<lambda>(p, i). doM {
+        i \<leftarrow> ll_sub i (signed_nat 1);
+        x \<leftarrow> array_nth a i;
+        p \<leftarrow> os_prepend x p;
+        Mreturn (p, i)
+      }) (null, n);
+    narray_free a;
+    Mreturn p
+  }\<close>
+
+lemma larr_to_os_rule[vcg_rules]:
+  \<open>llvm_htriple
+    (raw_larray_assn xs c)
+    (larr_to_os c)
+    (\<lambda>p. raw_os_assn xs p)\<close>
+  apply (cases c; hypsubst)
+  apply (simp only: larr_to_os_def prod.case raw_larray_assn_decomp)
+  subgoal for n a
+    apply (rewrite annotate_llc_while [where
+      I = \<open>\<lambda>(q, ii) t. EXS i. \<upharpoonleft>snat.assn i ii
+           ** \<upharpoonleft>os_list_assn (drop i xs) q
+           ** \<upharpoonleft>narray_assn xs a
+           ** \<up>(i \<le> length xs)
+           ** \<up>\<^sub>!(t = i)\<close>
+      and R = \<open>measure id\<close>])
+    supply [simp] = drop_prepend drop_prepend' os_list_assn_simps(1)
+      sep_conj_exists
+    apply vcg_monadify
+    apply vcg'
+    done
+  done
+
+text \<open>Non-destructive variant: same back-to-front prepend walk, but the array is
+  only read (\<open>array_nth\<close>) and stays intact \<emdash> the resulting open list is a copy.
+  Element copying is the identity here since \<open>os_assn\<close> elements are pure; this is
+  the workhorse for importing borrowed C arrays (cf. \<open>LPAC_C_Interface\<close>).\<close>
+
+definition larr_to_os_copy :: \<open>'l::len2 word \<times> 'a ptr \<Rightarrow> 'a::llvm_rep os_list llM\<close>
+  where [llvm_code]:
+  \<open>larr_to_os_copy \<equiv> \<lambda>(n, a). doM {
+    (p, _) \<leftarrow> llc_while
+      (\<lambda>(p, i). ll_cmp (i \<noteq> 0))
+      (\<lambda>(p, i). doM {
+        i \<leftarrow> ll_sub i (signed_nat 1);
+        x \<leftarrow> array_nth a i;
+        p \<leftarrow> os_prepend x p;
+        Mreturn (p, i)
+      }) (null, n);
+    Mreturn p
+  }\<close>
+
+lemma larr_to_os_copy_rule[vcg_rules]:
+  \<open>llvm_htriple
+    (raw_larray_assn xs c)
+    (larr_to_os_copy c)
+    (\<lambda>p. raw_os_assn xs p ** raw_larray_assn xs c)\<close>
+  apply (cases c; hypsubst)
+  apply (simp only: larr_to_os_copy_def prod.case raw_larray_assn_decomp)
+  subgoal for n a
+    apply (rewrite annotate_llc_while [where
+      I = \<open>\<lambda>(q, ii) t. EXS i. \<upharpoonleft>snat.assn i ii
+           ** \<upharpoonleft>os_list_assn (drop i xs) q
+           ** \<upharpoonleft>narray_assn xs a
+           ** \<up>(i \<le> length xs)
+           ** \<up>\<^sub>!(t = i)\<close>
+      and R = \<open>measure id\<close>])
+    supply [simp] = drop_prepend drop_prepend' os_list_assn_simps(1)
+      sep_conj_exists
+    apply vcg_monadify
+    apply vcg'
+    done
+  done
+
+end
+
+subsubsection \<open>Interface Bindings\<close>
+
+text \<open>Abstractly both conversions are the identity on \<open>'a list\<close>; each direction gets
+  its own interface operation (cf. \<open>mop_woarray_to_array\<close> in
+  \<open>Proto_IICF_EOArray\<close>, which is not in this theory's import closure). The concrete \<open>larray\<close> word width is
+  not fixed by the abstract program \<emdash> pin it at the \<open>sepref_def\<close> signature via
+  \<open>larray_assn' TYPE(_)\<close>, cf. the regression tests below.\<close>
+
+sepref_decl_op os_to_larray: \<open>\<lambda>xs::'a list. xs\<close> :: \<open>\<langle>A\<rangle>list_rel \<rightarrow> \<langle>A\<rangle>list_rel\<close> .
+sepref_decl_op larray_to_os: \<open>\<lambda>xs::'a list. xs\<close> :: \<open>\<langle>A\<rangle>list_rel \<rightarrow> \<langle>A\<rangle>list_rel\<close> .
+sepref_decl_op larray_to_os_copy: \<open>\<lambda>xs::'a list. xs\<close> :: \<open>\<langle>A\<rangle>list_rel \<rightarrow> \<langle>A\<rangle>list_rel\<close> .
+
+context
+  notes [simp] = refine_pw_simps
+begin
+
+private lemma os_n_unf: \<open>hr_comp raw_os_assn (\<langle>the_pure A\<rangle>list_rel) = os_assn A\<close>
+  unfolding os_assn_def ..
+
+context
+  notes [fcomp_norm_unfold] = os_n_unf larray_assn_def[symmetric] larray_assn_comp
+begin
+
+context
+  fixes l_dummy :: \<open>'l::len2 itself\<close>
+  and L defines [simp]: \<open>L \<equiv> LENGTH('l)\<close>
+begin
+
+lemma os_to_larr_hnr_aux:
+  \<open>(os_to_larr :: 'a::llvm_rep os_list \<Rightarrow> ('l word \<times> 'a ptr) llM, RETURN o op_os_to_larray)
+    \<in> [\<lambda>xs. length xs < max_snat L]\<^sub>a raw_os_assn\<^sup>d \<rightarrow> raw_larray_assn\<close>
+  by (sepref_to_hoare, vcg_monadify, vcg')
+sepref_decl_impl os_to_larr: os_to_larr_hnr_aux
+  by (auto simp: fun_rel_def dest: list_rel_imp_same_length)
+
+end
+
+lemma larr_to_os_hnr_aux:
+  \<open>(larr_to_os, RETURN o op_larray_to_os) \<in> raw_larray_assn\<^sup>d \<rightarrow>\<^sub>a raw_os_assn\<close>
+  by (sepref_to_hoare, vcg_monadify, vcg')
+sepref_decl_impl larr_to_os: larr_to_os_hnr_aux .
+
+lemma larr_to_os_copy_hnr_aux:
+  \<open>(larr_to_os_copy, RETURN o op_larray_to_os_copy) \<in> raw_larray_assn\<^sup>k \<rightarrow>\<^sub>a raw_os_assn\<close>
+  by (sepref_to_hoare, vcg_monadify, vcg')
+sepref_decl_impl larr_to_os_copy: larr_to_os_copy_hnr_aux .
+
+end
+
+end
+
 subsection \<open>Interface Coverage\<close>
 
 text \<open>Status of the IICF list interface (\<open>sepref_decl_op\<close>s in \<open>IICF_List\<close>) for \<open>os_assn\<close>:
@@ -484,7 +754,11 @@ text \<open>Status of the IICF list interface (\<open>sepref_decl_op\<close>s in
 
   Further raw operations available in \<open>LLVM_DS_Open_List\<close> without an interface counterpart:
   \<open>os_pop\<close> (destructive \<open>hd\<close>+\<open>tl\<close> in one traversal-free step) and \<open>os_rem\<close> (\<open>removeAll\<close>,
-  which is not part of the IICF list interface).\<close>
+  which is not part of the IICF list interface).
+
+  Additionally, destructive conversions from and to fixed-size arrays (\<open>larray_assn\<close>)
+  are available via the identity ops \<open>op_os_to_larray\<close>/\<open>op_larray_to_os\<close>, see
+  \<^emph>\<open>Conversion from and to Fixed-Size Arrays\<close> above.\<close>
 
 subsection \<open>Ad-Hoc Regression Tests\<close>
 
@@ -619,6 +893,29 @@ begin
   sepref_def nested_case_impl' is \<open>uncurry (RETURN oo nested_case)\<close>
     :: \<open>id_assn\<^sup>k *\<^sub>a w8w64s_assn\<^sup>k \<rightarrow>\<^sub>a id_assn\<close>
     unfolding nested_case_def list.case_eq_if by sepref
+
+  text \<open>(13) conversion to a fixed-size array; bound via ASSERT, width pinned by the
+    signature \<emdash> works\<close>
+  definition to_arr_test :: \<open>8 word list \<Rightarrow> 8 word list nres\<close> where
+    \<open>to_arr_test xs = doN { ASSERT (length xs < max_snat 64); mop_os_to_larray xs }\<close>
+
+  sepref_def to_arr_test_impl is \<open>to_arr_test\<close>
+    :: \<open>w8s_assn\<^sup>d \<rightarrow>\<^sub>a larray_assn' TYPE(64) id_assn\<close>
+    unfolding to_arr_test_def by sepref
+
+  text \<open>(14) conversion back from the array \<emdash> works\<close>
+  sepref_def from_arr_test_impl is \<open>mop_larray_to_os\<close>
+    :: \<open>(larray_assn' TYPE(64) id_assn)\<^sup>d \<rightarrow>\<^sub>a w8s_assn\<close>
+    by sepref
+
+  text \<open>(15) non-destructive conversion from a kept array\<close>
+  sepref_def from_arr_copy_test_impl is \<open>mop_larray_to_os_copy\<close>
+    :: \<open>(larray_assn' TYPE(64) id_assn)\<^sup>k \<rightarrow>\<^sub>a w8s_assn\<close>
+    by sepref
+
+  text \<open>Code-generation check for the conversions (incl. the tuple-lambda in
+    \<open>larr_to_os\<close> and the \<open>os_pop\<close>/\<open>llc_while\<close> in \<open>os_fill_arr\<close>).\<close>
+  export_llvm to_arr_test_impl from_arr_test_impl from_arr_copy_test_impl
 
 end
 

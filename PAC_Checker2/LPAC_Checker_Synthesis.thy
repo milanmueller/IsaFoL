@@ -258,6 +258,126 @@ lemma vars_of_poly_in_hnr[sepref_fr_rules]:
   apply sepref_to_hoare
   by vcg
 
+subsubsection \<open>Collecting the Variables of a Polynomial\<close>
+
+text \<open>The var-collection sibling of the \<open>vars_of_poly_in\<close> walk: insert every
+  variable of a (kept) polynomial into the variable hash set. \<open>vars_hs_insert\<close>
+  keeps its element argument (it copies internally on actual insertion), so the
+  walk borrows the strings from the polynomial without any explicit copies.\<close>
+
+fun union_vars_monom :: \<open>string list \<Rightarrow> string set \<Rightarrow> string set\<close> where
+  \<open>union_vars_monom [] \<V> = \<V>\<close> |
+  \<open>union_vars_monom (x # xs) \<V> = union_vars_monom xs (insert x \<V>)\<close>
+
+fun union_vars_poly :: \<open>llist_polynomial \<Rightarrow> string set \<Rightarrow> string set\<close> where
+  \<open>union_vars_poly [] \<V> = \<V>\<close> |
+  \<open>union_vars_poly ((ys, _) # xs) \<V> = union_vars_poly xs (union_vars_monom ys \<V>)\<close>
+
+lemma union_vars_monom_alt_def:
+  \<open>union_vars_monom xs \<V> = \<V> \<union> set xs\<close>
+  by (induction xs arbitrary: \<V>) auto
+
+lemma union_vars_poly_alt_def:
+  \<open>union_vars_poly xs \<V> = \<V> \<union> vars_llist xs\<close>
+proof (induction xs arbitrary: \<V>)
+  case Nil
+  then show ?case by simp
+next
+  case (Cons a xs)
+  then show ?case
+    by (metis Un_ac(1) list.distinct(1) list.simps(1) prod.sel(1) union_vars_monom_alt_def union_vars_poly.elims vars_llist(3)) 
+qed
+
+
+(*
+   (auto simp: vars_llist_def union_vars_monom_alt_def)
+*)
+lemma vars_hs_insert_rule:
+  \<open>llvm_htriple
+    (vars_hs_assn \<V> vi ** strl_assn x xi)
+    (vars_hs_insert_impl xi vi)
+    (\<lambda>r. vars_hs_assn (insert x \<V>) r ** strl_assn x xi)\<close>
+  unfolding vars_hs_assn_def hs_set_assn_def vars_hs_insert_impl_def
+  supply [vcg_rules] = hs_insert_impl_rule[OF strl_hash_rule str_eq_rule strl_copy_rule]
+  supply [simp] = hr_comp_def hs_rel_def in_br_conv sep_conj_exists
+  apply vcg
+  by (smt (verit, best) ENTAILS_def entails_def hs_ins_abs hs_ins_invar pure_true_conv sep_conj_empty' set_concat)
+
+partial_function (M) union_vars_monom_impl ::
+  \<open>monom_conc \<Rightarrow> 8 word os_list hs_impl \<Rightarrow> 8 word os_list hs_impl llM\<close> where
+  \<open>union_vars_monom_impl p vi = (if p = null then Mreturn vi
+    else doM {
+      n \<leftarrow> ll_load p;
+      vi \<leftarrow> vars_hs_insert_impl (node.val n) vi;
+      union_vars_monom_impl (node.next n) vi
+    })\<close>
+
+lemmas [llvm_code] = union_vars_monom_impl.simps
+
+lemma union_vars_monom_impl_rule[vcg_rules]:
+  \<open>llvm_htriple
+    (monom_assn xs p ** vars_hs_assn \<V> vi)
+    (union_vars_monom_impl p vi)
+    (\<lambda>r. monom_assn xs p ** vars_hs_assn (union_vars_monom xs \<V>) r)\<close>
+  unfolding ol_assn_conv
+proof (induction xs arbitrary: p \<V> vi)
+  case Nil
+  show ?case
+    apply (subst union_vars_monom_impl.simps)
+    by vcg
+next
+  case (Cons e es)
+  note [vcg_rules] = Cons.IH vars_hs_insert_rule
+  show ?case
+    supply [simp, named_ss fri_prepare_simps] = ol_seg_cons
+    supply [simp] = sep_conj_exists
+    apply (subst union_vars_monom_impl.simps)
+    apply (cases \<open>p = null\<close>; simp)
+    by vcg
+qed
+
+partial_function (M) union_vars_poly_impl ::
+  \<open>(monom_conc \<times> sbin_conc \<times> 1 word) os_list \<Rightarrow> 8 word os_list hs_impl
+     \<Rightarrow> 8 word os_list hs_impl llM\<close> where
+  \<open>union_vars_poly_impl p vi = (if p = null then Mreturn vi
+    else doM {
+      n \<leftarrow> ll_load p;
+      vi \<leftarrow> union_vars_monom_impl (fst (node.val n)) vi;
+      union_vars_poly_impl (node.next n) vi
+    })\<close>
+
+lemmas [llvm_code] = union_vars_poly_impl.simps
+
+lemma union_vars_poly_impl_rule[vcg_rules]:
+  \<open>llvm_htriple
+    (poly_assn xs p ** vars_hs_assn \<V> vi)
+    (union_vars_poly_impl p vi)
+    (\<lambda>r. poly_assn xs p ** vars_hs_assn (union_vars_poly xs \<V>) r)\<close>
+  unfolding ol_assn_conv
+proof (induction xs arbitrary: p \<V> vi)
+  case Nil
+  show ?case
+    apply (subst union_vars_poly_impl.simps)
+    by vcg
+next
+  case (Cons e es)
+  note [vcg_rules] = Cons.IH union_vars_monom_impl_rule[unfolded ol_assn_conv]
+  show ?case
+    supply [simp, named_ss fri_prepare_simps] = ol_seg_cons
+    supply [simp] = sep_conj_exists
+    apply (subst union_vars_poly_impl.simps)
+    apply (cases \<open>p = null\<close>; cases e; simp)
+    by vcg
+qed
+
+sepref_register union_vars_poly
+
+lemma union_vars_poly_hnr[sepref_fr_rules]:
+  \<open>(uncurry union_vars_poly_impl, uncurry (RETURN oo union_vars_poly))
+    \<in> poly_assn\<^sup>k *\<^sub>a vars_hs_assn\<^sup>d \<rightarrow>\<^sub>a vars_hs_assn\<close>
+  apply sepref_to_hoare
+  by vcg
+
 (* Note that we have to destroy lincomb - Check in outer loop if 
    that could be tolerated by contiuing with tl, otherwise we need
    to copy the hd out of the list *)
@@ -673,24 +793,230 @@ where
     }
   }\<close>
 
-sepref_def full_checker_l_impl
-  is \<open>uncurry2 full_checker_l2\<close>
-  :: \<open>poly_assn\<^sup>d *\<^sub>a polys_assn\<^sup>d *\<^sub>a (ol_assn (pac_step_assn poly_assn strl_assn))\<^sup>k \<rightarrow>\<^sub>a
+subsection \<open>Input Polynomials as an Association List\<close>
+
+text \<open>No parser naturally produces the \<open>fmap\<close> that \<open>remap_polys_l\<close> consumes: the
+  map only comes into existence during the remapping itself. \<open>remap_polys_l4\<close>
+  therefore takes the input polynomials as an association list \<open>(id, polynomial)\<close>
+  and folds \<open>fmupd\<close> over it (with normalization, variable collection and the spec
+  check exactly as in \<open>remap_polys_l\<close>), consuming the list front-to-back with
+  \<open>op_list_pop_front\<close> (cf. \<open>linear_combi_l2\<close>). Duplicate ids are rejected on the
+  fly via the accumulated map's domain; this instantiates the \<open>failed\<close> branch of
+  \<open>remap_polys_l\<close>, which unconditionally permits an error result. On the error
+  path the variable set of \<open>remap_polys_l\<close>'s error result is its \<^emph>\<open>input\<close> set;
+  since the fold consumes its set destructively, \<open>remap_polys_l4\<close> fixes the input
+  set to \<open>{}\<close> (the only instantiation the checker uses) and returns a fresh empty
+  set there.\<close>
+
+definition remap_polys_l4 :: \<open>llist_polynomial \<Rightarrow> (nat \<times> llist_polynomial) list \<Rightarrow>
+   (string code_status \<times> string set \<times> (nat, llist_polynomial) fmap) nres\<close> where
+  \<open>remap_polys_l4 spec xs = do {
+    (_, err, b, \<V>, A) \<leftarrow> WHILE\<^sub>T
+      (\<lambda>(xs, err, b, \<V>, A). xs \<noteq> [] \<and> \<not>is_cfailed err)
+      (\<lambda>(xs, err, b, \<V>, A'). do {
+         ASSERT (xs \<noteq> []);
+         let ((i, p\<^sub>0), xs') = op_list_pop_front xs;
+         if i \<in># dom_m A' then do {
+           c \<leftarrow> remap_polys_l_dom_err;
+           RETURN (xs', error_msg (0::nat) c, b, \<V>, A')
+         } else do {
+           let \<V> = union_vars_poly p\<^sub>0 \<V>;
+           p \<leftarrow> full_normalize_poly p\<^sub>0;
+           eq \<leftarrow> weak_equality_l p spec;
+           RETURN (xs', err, b \<or> eq, \<V>, fmupd i p A')
+         }
+       })
+      (xs, CSUCCESS, False, {}, fmempty);
+    if is_cfailed err
+    then RETURN (err, {}, fmempty)
+    else RETURN (if b then CFOUND else CSUCCESS, \<V>, A)
+  }\<close>
+
+context
+begin
+
+private lemma bind_SPEC_refineI:
+  \<open>\<Phi> x \<Longrightarrow> S \<le> \<Down>R (f x) \<Longrightarrow> S \<le> \<Down>R (do {x \<leftarrow> SPEC \<Phi>; f x})\<close>
+  by (simp add: rhs_step_bind_SPEC)
+
+private lemma bind_ASSERT_refineI:
+  \<open>P \<Longrightarrow> S \<le> \<Down>R f \<Longrightarrow> S \<le> \<Down>R (do {ASSERT P; f})\<close>
+  by (auto simp: pw_le_iff refine_pw_simps)
+
+private lemma dom_m_fmap_of_list:
+  \<open>i \<in># dom_m (fmap_of_list xs) \<longleftrightarrow> i \<in> fst ` set xs\<close>
+  by (simp add: fmap_of_list.rep_eq in_dom_m_lookup_iff map_of_eq_None_iff)
+
+private lemma fmlookup_fmap_of_list_nth:
+  \<open>distinct (map fst xs) \<Longrightarrow> (i, p) \<in> set xs \<Longrightarrow> fmlookup (fmap_of_list xs) i = Some p\<close>
+  by (simp add: fmlookup_of_list)
+
+private lemma refine_Id_self: \<open>M \<le> \<Down>Id M\<close>
+  by (auto simp: pw_le_iff refine_pw_simps)
+
+private lemma R_st_step_witness:
+  \<open>xs = pre @ (i, p\<^sub>0) # xs' \<Longrightarrow> i \<notin># dom_m A \<Longrightarrow> set_mset (dom_m A) = fst ` set pre \<Longrightarrow>
+     \<exists>pre'. xs = pre' @ xs' \<and> set_mset (dom_m (fmupd i p A)) = fst ` set pre'\<close>
+  by (rule exI[of _ \<open>pre @ [(i, p\<^sub>0)]\<close>]) auto
+
+private lemma is_cfailed_error_msg[simp]: \<open>is_cfailed (error_msg n c)\<close>
+  by (auto simp: error_msg_def)
+
+private lemma l4_err_prefix_snocI:
+  \<open>xs = pre @ y # xs' \<Longrightarrow> \<exists>pre'. xs = pre' @ xs'\<close>
+  by (rule exI[of _ \<open>pre @ [y]\<close>]) auto
+
+private lemma no_cons_eq_Nil[simp]: \<open>(\<forall>a b ys. ad \<noteq> (a, b) # ys) \<longleftrightarrow> ad = []\<close>
+  by (cases ad) auto
+
+text \<open>The error-case invariant holds for \<^emph>\<open>arbitrary\<close> results of the loop body's
+  monadic steps, so all that is needed about them is that they cannot fail.\<close>
+
+private lemma full_normalize_poly_nofail: \<open>nofail (full_normalize_poly p)\<close>
+proof -
+  have \<open>nofail (monadic_nfoldli p (\<lambda>_. RETURN True)
+     (\<lambda>(a, n) b. do {a \<leftarrow> sort_coeff a; RETURN ((a, n) # b)}) acc)\<close> for acc
+  proof (induction p arbitrary: acc)
+    case Nil
+    then show ?case by (subst monadic_nfoldli_eq) (auto simp: refine_pw_simps)
+  next
+    case (Cons x p)
+    then show ?case
+      by (subst monadic_nfoldli_eq)
+        (auto simp: refine_pw_simps sort_coeff_def split: prod.splits)
+  qed
+  then show ?thesis
+    unfolding full_normalize_poly_def sort_all_coeffs_def sort_poly_spec_def
+    by (auto simp: refine_pw_simps)
+qed
+
+private lemma l4_err_step_witness:
+  \<open>xs = pre @ (i, p\<^sub>0) # xs' \<Longrightarrow> i \<notin> fst ` set pre \<Longrightarrow> distinct (map fst pre) \<Longrightarrow>
+   \<exists>pre'. xs = pre' @ xs' \<and> distinct (map fst pre') \<and>
+      insert i (fst ` set pre) = fst ` set pre'\<close>
+  by (rule exI[of _ \<open>pre @ [(i, p\<^sub>0)]\<close>]) auto
+
+lemma remap_polys_l4_remap_polys_l:
+  \<open>remap_polys_l4 spec xs \<le> \<Down>Id (remap_polys_l spec {} (fmap_of_list xs))\<close>
+proof (cases \<open>distinct (map fst xs)\<close>)
+  case True
+  note dist = this
+  text \<open>Simulate the \<open>FOREACH\<close> after resolving its nondeterminism: iterate the
+    domain in list order, do not fail.\<close>
+  define R_st :: \<open>((nat \<times> llist_polynomial) list \<times> string code_status \<times> bool \<times> string set \<times>
+      (nat, llist_polynomial) fmap) \<times> nat list \<times> bool \<times> string set \<times> (nat, llist_polynomial) fmap \<Rightarrow> bool\<close>
+    where \<open>R_st = (\<lambda>((xsr, err, b, \<V>, A), (itr, br, \<V>r, Ar)).
+      itr = map fst xsr \<and> err = CSUCCESS \<and> br = b \<and> \<V>r = \<V> \<and> Ar = A \<and>
+      (\<exists>pre. xs = pre @ xsr \<and> set_mset (dom_m A) = fst ` set pre))\<close>
+  have init: \<open>R_st ((xs, CSUCCESS, False, {}, fmempty), (map fst xs, False, {}, fmempty))\<close>
+    by (auto simp: R_st_def)
+  show ?thesis
+    unfolding remap_polys_l4_def remap_polys_l_def FOREACH_def FOREACHc_def FOREACHci_def
+      FOREACHoci_def WHILET_def
+    apply (insert dist)
+    apply (rule bind_SPEC_refineI[where x = \<open>set (map fst xs)\<close>])
+    subgoal by (auto simp: dom_m_fmap_of_list)
+    apply (rule bind_SPEC_refineI[where x = False])
+    subgoal by simp
+    apply (simp only: if_False nres_monad1 nres_monad3)
+    apply (rule bind_ASSERT_refineI)
+    subgoal by simp
+    apply (rule bind_SPEC_refineI[where x = \<open>map fst xs\<close>])
+    subgoal by simp
+    apply (refine_rcg WHILEIT_refine[where R = \<open>{(a, b). R_st (a, b)}\<close>])
+    subgoal using init by simp
+    subgoal by (auto simp: R_st_def FOREACH_cond_def)
+    subgoal
+      by (auto simp: pw_le_iff refine_pw_simps R_st_def FOREACH_body_def
+        FOREACH_cond_def op_list_pop_front_def Let_def union_vars_poly_alt_def
+        neq_Nil_conv dom_m_fmap_of_list fmlookup_fmap_of_list_nth
+        intro: R_st_step_witness
+        split: prod.splits if_splits)
+    subgoal by (auto simp: R_st_def)
+    subgoal \<comment> \<open>loop step\<close>
+      apply (clarsimp simp: R_st_def FOREACH_body_def op_list_pop_front_def
+        neq_Nil_conv Let_def union_vars_poly_alt_def nres_monad1 nres_monad3
+        dom_m_fmap_of_list fset_of_list.rep_eq
+        split: prod.splits)
+      apply (refine_rcg)
+      apply (auto simp: R_st_def fset_of_list.rep_eq pair_in_Id_conv
+        remap_polys_l_dom_err_def
+        intro: R_st_step_witness refine_Id_self)
+      apply (metis list.sel(3))
+      done
+    subgoal \<comment> \<open>post-loop continuation\<close>
+      by (auto simp: R_st_def nres_monad1 pw_le_iff refine_pw_simps)
+    done
+next
+  case False
+  text \<open>A duplicate id will be hit; the result is an error, which the \<open>failed\<close>
+    branch of \<open>remap_polys_l\<close> permits.\<close>
+  have l4_err: \<open>remap_polys_l4 spec xs \<le> SPEC (\<lambda>(err, \<V>, A).
+      (\<exists>c. err = error_msg (0::nat) c) \<and> \<V> = {} \<and> A = fmempty)\<close>
+    unfolding remap_polys_l4_def op_list_pop_front_def
+    apply (insert False)
+    apply (refine_vcg WHILET_rule[where
+      I = \<open>\<lambda>(xsr, err, b, \<V>, A). \<exists>pre. xs = pre @ xsr \<and>
+            (\<not>is_cfailed err \<longrightarrow> distinct (map fst pre) \<and> set_mset (dom_m A) = fst ` set pre) \<and>
+            (is_cfailed err \<longrightarrow> (\<exists>c. err = error_msg (0::nat) c))\<close> and
+      R = \<open>measure (\<lambda>(xsr, _). length xsr)\<close>])
+    subgoal by auto
+    subgoal by (rule exI[of _ \<open>[]\<close>]) auto
+    apply (auto simp: neq_Nil_conv Let_def union_vars_poly_alt_def
+      weak_equality_l_def full_normalize_poly_nofail remap_polys_l_dom_err_def
+      pw_le_iff refine_pw_simps
+      intro: l4_err_prefix_snocI l4_err_step_witness
+      split: prod.splits)
+    done
+  show ?thesis
+    apply (rule order_trans[OF l4_err])
+    by (auto simp: remap_polys_l_def remap_polys_l_dom_err_def
+      pw_le_iff refine_pw_simps)
+qed
+
+end
+
+definition full_checker_l3
+  :: \<open>llist_polynomial \<Rightarrow> (nat \<times> llist_polynomial) list \<Rightarrow> (_, string, nat) pac_step list \<Rightarrow>
+    (string code_status \<times> _) nres\<close>
+where
+  \<open>full_checker_l3 spec xs st = do {
+    spec' \<leftarrow> full_normalize_poly (COPY spec);
+    (b, \<V>, A) \<leftarrow> remap_polys_l4 spec xs;
+    if is_cfailed b
+    then RETURN (b, \<V>, A)
+    else do {
+      PAC_checker_l spec' (\<V>, A) b st
+    }
+  }\<close>
+
+lemma full_checker_l3_full_checker_l2:
+  \<open>full_checker_l3 spec xs st \<le> \<Down>Id (full_checker_l2 spec (fmap_of_list xs) st)\<close>
+  unfolding full_checker_l3_def full_checker_l2_def
+  apply (rule bind_refine[where R' = Id])
+  subgoal by auto
+  apply (rule bind_refine[where R' = Id])
+  subgoal by (rule remap_polys_l4_remap_polys_l)
+  subgoal by (auto split: prod.splits)
+  done
+
+abbreviation inputs_assn where
+  \<open>inputs_assn \<equiv> ol_assn (unat_assn' TYPE(64) \<times>\<^sub>a poly_assn)\<close>
+
+sepref_def full_checker_l3_impl
+  is \<open>uncurry2 full_checker_l3\<close>
+  :: \<open>poly_assn\<^sup>k *\<^sub>a inputs_assn\<^sup>d *\<^sub>a (ol_assn (pac_step_assn poly_assn strl_assn))\<^sup>d \<rightarrow>\<^sub>a
     status_assn raw_string_assn \<times>\<^sub>a vars_hs_assn \<times>\<^sub>a polys_assn\<close>
   supply [[goals_limit=1]]
-  unfolding full_checker_l_def
+  unfolding full_checker_l3_def
+    remap_polys_l4_def
     PAC_checker_l_alt_def
-    full_checker_l2_def
     vars_hs.fold_custom_empty
+    conv_to_is_Nil
+    fold_is_Nil_is_empty
+  apply (annot_unat_const \<open>TYPE(64)\<close>)
   apply sepref_dbg_keep
-  apply sepref_dbg_trans_keep
-  apply sepref_dbg_trans_step_keep
-  apply sepref_dbg_side_unfold
-  (* For now we're stuck with `remap_polys_l` which made sense for the old
-   * poly input format from Imperative-HOL, but not for llvm.
-   * Before we can continue, we first need to decide how we're gonna parse stuff in c
-   * and what preprocessing we need on the isabelle side...*)
-  oops
+  done
 
 (* Don't think any of this stuff is needed for llvm... *)
 (* sepref_definition PAC_empty_impl

@@ -139,6 +139,7 @@ lemma get_var_name_c_get_var_nameS:
       dest: multi_member_split)
   done
 
+
 abbreviation perfect_shared_vars_assn :: \<open>(string, nat) shared_vars_c \<Rightarrow> _ \<Rightarrow> assn\<close> where
   \<open>perfect_shared_vars_assn \<equiv> arl_assn string_assn \<times>\<^sub>a hm_fmap_assn string_assn uint64_nat_assn\<close>
 

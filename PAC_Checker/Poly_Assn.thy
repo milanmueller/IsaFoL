@@ -111,4 +111,18 @@ lemmas [llvm_pre_simp] = poly_free_def[symmetric]
 lemma poly_assn_free[sepref_frame_free_rules]: \<open>MK_FREE poly_assn poly_free\<close>
   unfolding poly_free_def by (rule ol_assn_free[OF mnml_assn_free])
 
+subsection \<open>The Constant-One Polynomial\<close>
+
+text \<open>Producer for the polynomial \<open>1\<close> (one monomial: empty variable list,
+  coefficient \<open>1\<close>). Needed by the C import layer: a summand without an explicit
+  coefficient polynomial (\<open>poly_ptr = NULL\<close>) denotes a factor of \<open>1\<close>.\<close>
+
+definition poly_one :: \<open>(char list list \<times> int) list nres\<close> where
+  \<open>poly_one = RETURN [([], 1)]\<close>
+
+sepref_def poly_one_impl is \<open>uncurry0 poly_one\<close>
+  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
+  unfolding poly_one_def fold_ol_empty
+  by sepref
+
 end

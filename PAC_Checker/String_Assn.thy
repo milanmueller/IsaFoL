@@ -1,5 +1,5 @@
 theory String_Assn
-  imports LLVM_Sort Char_Assn IICF_Hash_Set
+  imports LLVM_Sort Char_Assn IICF_Hash_Set IICF_Hash_Map
 begin
 
 text \<open>Implement String by Open List\<close>
@@ -558,6 +558,472 @@ lemma vars_hs_assn_free[sepref_frame_free_rules]:
   \<open>MK_FREE vars_hs_assn vars_hs_free_impl\<close>
   unfolding vars_hs_assn_def vars_hs_free_impl_def
   by (rule hs_set_assn_free[OF os_assn_free])
+
+section \<open>Hash Maps from Strings to Machine Numbers\<close>
+
+text \<open>Instantiation of the generic hash map (\<^file>\<open>IICF_Hash_Map.thy\<close>) for the
+  shared-variables store: entries are (string, number) pairs
+  (\<open>strl_assn \<times>\<^sub>a unat_assn' TYPE(64)\<close>), keyed by their string component
+  (\<open>kabs = fst\<close>) under FNV-1a hashing (\<^const>\<open>fnv_1a_of_str\<close> / \<^const>\<open>strl_hash\<close>).
+  A stored entry is matched against a probe string by \<^const>\<open>str_eq\<close> on the key
+  component; the-lookup projects the (pure) number component (\<open>ext = snd\<close>), so
+  lookup never copies. On top of the generic \<open>phm\<close> rules, one more relation step
+  (\<open>svm_rel\<close>) collapses the entry-valued map \<open>char list \<rightharpoonup> char list \<times> nat\<close> to the
+  plain \<open>char list \<rightharpoonup> nat\<close> interface, so the standard IICF map operations
+  (\<^const>\<open>op_map_update\<close>, \<^const>\<open>op_map_contains_key\<close>, \<^const>\<open>mop_map_the_lookup\<close>)
+  become directly usable at \<open>svm_assn\<close>.\<close>
+
+subsection \<open>Entry assertion and operation parameters\<close>
+
+type_synonym svm_entry_impl = \<open>8 word os_list \<times> 64 word\<close>
+type_synonym svm_impl = \<open>svm_entry_impl phm_impl\<close>
+
+text \<open>Named constant with an applied-form simp, per the composite-element recipe of
+  \<^file>\<open>IICF_Hash_Map.thy\<close>: the parameter occurrence (inside \<open>phm_chain_assn\<close>) stays
+  folded, applied occurrences atomize.\<close>
+
+definition svm_entry_assn :: \<open>(char list \<times> nat, svm_entry_impl) dr_assn\<close> where
+  \<open>svm_entry_assn \<equiv> mk_assn (strl_assn \<times>\<^sub>a unat_assn' TYPE(64))\<close>
+
+lemma svm_entry_assn_pair[simp]:
+  \<open>\<upharpoonleft>svm_entry_assn (s, v) (si, vi) = (strl_assn s si ** \<upharpoonleft>unat.assn v vi)\<close>
+  unfolding svm_entry_assn_def
+  by (simp add: unat.assn_is_rel unat_rel_def)
+
+lemma svm_entry_assn_conv: \<open>\<upharpoonleft>svm_entry_assn = strl_assn \<times>\<^sub>a unat_assn' TYPE(64)\<close>
+  unfolding svm_entry_assn_def by (intro ext) simp
+
+lemma strl_dr_assn_conv: \<open>\<upharpoonleft>(mk_assn strl_assn) = strl_assn\<close>
+  by (intro ext) simp
+
+text \<open>Entry-vs-probe equality: \<^const>\<open>str_eq\<close> on the key component.\<close>
+
+definition svm_eeq :: \<open>svm_entry_impl \<Rightarrow> 8 word os_list \<Rightarrow> 1 word llM\<close>
+  where [llvm_code]:
+  \<open>svm_eeq e x \<equiv> str_eq (fst e) x\<close>
+
+lemma svm_eeq_rule:
+  \<open>llvm_htriple
+    (\<upharpoonleft>svm_entry_assn e ei ** strl_assn x' xi')
+    (svm_eeq ei xi')
+    (\<lambda>r. \<upharpoonleft>svm_entry_assn e ei ** strl_assn x' xi' ** \<upharpoonleft>bool.assn (fst e = x') r)\<close>
+  unfolding svm_eeq_def
+  apply (cases e; cases ei; simp)
+  by vcg
+
+text \<open>Entry hash: the string hash of the key component.\<close>
+
+definition svm_hashe :: \<open>svm_entry_impl \<Rightarrow> 64 word llM\<close> where [llvm_code]:
+  \<open>svm_hashe e \<equiv> strl_hash (fst e)\<close>
+
+lemma svm_hashe_rule:
+  \<open>llvm_htriple (\<upharpoonleft>svm_entry_assn e ei) (svm_hashe ei)
+    (\<lambda>r. \<upharpoonleft>svm_entry_assn e ei ** \<up>(r = fnv_1a_of_str (fst e)))\<close>
+  unfolding svm_hashe_def
+  apply (cases e; cases ei; simp)
+  by vcg
+
+text \<open>Extraction for the-lookup: the pure value component, no copy.\<close>
+
+lemma svm_ext_rule:
+  \<open>llvm_htriple (\<upharpoonleft>svm_entry_assn e ei) (Mreturn (snd ei))
+    (\<lambda>r. \<upharpoonleft>svm_entry_assn e ei ** \<upharpoonleft>unat.assn (snd e) r)\<close>
+  apply (cases e; cases ei; simp)
+  by vcg
+
+text \<open>Deallocation: free the key string, the value is by-value.\<close>
+
+definition svm_entry_free :: \<open>svm_entry_impl \<Rightarrow> unit llM\<close> where
+  \<open>svm_entry_free \<equiv> \<lambda>(si, _). os_delete si\<close>
+
+lemma svm_entry_free_code[llvm_code]:
+  \<open>svm_entry_free e = os_delete (fst e)\<close>
+  unfolding svm_entry_free_def by (simp add: case_prod_beta)
+
+lemma svm_entry_free_rule: \<open>MK_FREE (\<upharpoonleft>svm_entry_assn) svm_entry_free\<close>
+  supply [vcg_rules] = MK_FREED[OF os_assn_free[where A = char_assn]]
+  apply (rule MK_FREEI)
+  unfolding svm_entry_free_def
+  subgoal for a c
+    apply (cases a; cases c; simp)
+    by vcg
+  done
+
+subsection \<open>From entry-valued maps to string \<open>\<rightharpoonup>\<close> number maps\<close>
+
+text \<open>The generic map abstracts to \<open>char list \<rightharpoonup> char list \<times> nat\<close> (the map stores whole
+  entries, keyed by \<open>kabs = fst\<close>). One more \<open>br\<close> step forgets the key copy inside the
+  entry; the invariant (every stored entry carries its own key) is maintained by
+  \<open>phm_upd fst\<close> itself.\<close>
+
+definition svm_abs :: \<open>(char list \<rightharpoonup> char list \<times> nat) \<Rightarrow> (char list \<rightharpoonup> nat)\<close> where
+  \<open>svm_abs m = map_option snd \<circ> m\<close>
+
+definition svm_invar :: \<open>(char list \<rightharpoonup> char list \<times> nat) \<Rightarrow> bool\<close> where
+  \<open>svm_invar m \<longleftrightarrow> (\<forall>x e. m x = Some e \<longrightarrow> fst e = x)\<close>
+
+definition svm_rel :: \<open>((char list \<rightharpoonup> char list \<times> nat) \<times> (char list \<rightharpoonup> nat)) set\<close> where
+  \<open>svm_rel = br svm_abs svm_invar\<close>
+
+text \<open>Abstraction/invariant facts for the individual operations (the
+  \<open>pam_upd_abs\<close>/\<open>pam_upd_invar\<close> pattern \<comment> \<open>the relation-level proofs below must
+  rewrite whole-map equalities, so pointwise \<open>fun_eq_iff\<close> reasoning is kept local
+  to these lemmas\<close>).\<close>
+
+lemma svm_abs_empty: \<open>svm_abs Map.empty = Map.empty\<close>
+  by (auto simp: svm_abs_def)
+
+lemma svm_invar_empty: \<open>svm_invar Map.empty\<close>
+  by (simp add: svm_invar_def)
+
+lemma dom_svm_abs: \<open>dom (svm_abs m) = dom m\<close>
+  by (auto simp: svm_abs_def dom_def)
+
+lemma svm_abs_upd: \<open>svm_abs (m(k \<mapsto> (k, v))) = (svm_abs m)(k \<mapsto> v)\<close>
+  by (auto simp: svm_abs_def fun_eq_iff)
+
+lemma svm_invar_upd: \<open>svm_invar m \<Longrightarrow> svm_invar (m(k \<mapsto> (k, v)))\<close>
+  by (auto simp: svm_invar_def)
+
+lemma svm_abs_apply: \<open>svm_abs m k = map_option snd (m k)\<close>
+  by (simp add: svm_abs_def)
+
+definition svm_assn :: \<open>(char list \<rightharpoonup> nat) \<Rightarrow> svm_impl \<Rightarrow> assn\<close> where
+  \<open>svm_assn \<equiv> hr_comp (phm_map_assn fst fnv_1a_of_str svm_entry_assn) svm_rel\<close>
+
+lemma svm_assn_intf[intf_of_assn]:
+  \<open>intf_of_assn svm_assn TYPE((char list, nat) i_map)\<close>
+  by simp
+
+subsection \<open>Refinement of the abstract operations through \<open>svm_rel\<close>\<close>
+
+lemma svm_empty_rel:
+  \<open>(uncurry0 (RETURN op_map_empty), uncurry0 (RETURN op_map_empty))
+    \<in> unit_rel \<rightarrow>\<^sub>f \<langle>svm_rel\<rangle>nres_rel\<close>
+  apply (rule fref_param0I)
+  by (auto simp: svm_rel_def in_br_conv svm_abs_empty svm_invar_empty
+      intro!: nres_relI)
+
+lemma svm_contains_rel:
+  \<open>(uncurry (RETURN oo op_map_contains_key), uncurry (RETURN oo op_map_contains_key))
+    \<in> Id \<times>\<^sub>r svm_rel \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  by (auto simp: fref_def nres_rel_def svm_rel_def in_br_conv dom_svm_abs
+      pw_le_iff refine_pw_simps)
+
+text \<open>The insert refinement goes through the intermediate 3-ary update on the
+  entry-valued map (see the insert subsection below).\<close>
+
+definition svm_phm_upd ::
+  \<open>char list \<Rightarrow> nat \<Rightarrow> (char list \<rightharpoonup> char list \<times> nat)
+    \<Rightarrow> (char list \<rightharpoonup> char list \<times> nat)\<close> where
+  \<open>svm_phm_upd k v m = m(k \<mapsto> (k, v))\<close>
+
+lemma svm_upd_rel:
+  \<open>(uncurry2 (RETURN ooo svm_phm_upd), uncurry2 (RETURN ooo op_map_update))
+    \<in> (Id \<times>\<^sub>r Id) \<times>\<^sub>r svm_rel \<rightarrow>\<^sub>f \<langle>svm_rel\<rangle>nres_rel\<close>
+  by (auto simp: fref_def nres_rel_def svm_rel_def in_br_conv svm_phm_upd_def
+      svm_abs_upd svm_invar_upd pw_le_iff refine_pw_simps)
+
+lemma svm_the_lookup_rel:
+  \<open>(uncurry (phm_the_lookup snd), uncurry mop_map_the_lookup)
+    \<in> Id \<times>\<^sub>r svm_rel \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  by (auto simp: fref_def nres_rel_def phm_the_lookup_def svm_rel_def in_br_conv
+      svm_abs_apply pw_le_iff refine_pw_simps split: option.splits)
+
+subsection \<open>Interface rules\<close>
+
+text \<open>Empty, with its own producer-op name (\<open>map_custom_empty\<close> idiom, cf.\
+  \<open>op_vars_hs_empty\<close> above); use \<open>svm.fold_custom_empty\<close> at synthesis sites where
+  the abstract code says \<open>Map.empty\<close>.\<close>
+
+definition op_svm_empty :: \<open>char list \<rightharpoonup> nat\<close> where [simp]:
+  \<open>op_svm_empty \<equiv> op_map_empty\<close>
+
+interpretation svm: map_custom_empty op_svm_empty
+  by unfold_locales simp
+
+lemmas svm_empty_hnr[sepref_fr_rules] =
+  pam_empty_hnr[where V = \<open>phm_chain_assn (\<upharpoonleft>svm_entry_assn)\<close>,
+    FCOMP phm_empty_rel[where kabs = fst and hk = fnv_1a_of_str],
+    folded phm_map_assn_def,
+    FCOMP svm_empty_rel,
+    folded svm_assn_def op_svm_empty_def]
+
+text \<open>Membership against \<^const>\<open>op_map_contains_key\<close>: the generic conditional rule,
+  premises discharged by the string instances, composed through \<open>svm_rel\<close>.\<close>
+
+definition svm_member_impl :: \<open>8 word os_list \<Rightarrow> svm_impl \<Rightarrow> 1 word llM\<close> where
+  \<open>svm_member_impl \<equiv> phm_member_impl strl_hash svm_eeq\<close>
+
+lemmas svm_member_hnr[sepref_fr_rules] =
+  phm_member_hnr[where A = svm_entry_assn and B = \<open>mk_assn strl_assn\<close>
+      and kabs = fst and hk = fnv_1a_of_str and hashx = strl_hash and eeq = svm_eeq,
+    unfolded strl_dr_assn_conv, OF strl_hash_rule svm_eeq_rule,
+    FCOMP svm_contains_rel,
+    folded svm_assn_def svm_member_impl_def]
+
+text \<open>The-lookup against \<^const>\<open>mop_map_the_lookup\<close> (presence asserted, no option,
+  no copy \<comment> \<open>the result is the pure number component\<close>).\<close>
+
+definition svm_the_lookup_impl :: \<open>8 word os_list \<Rightarrow> svm_impl \<Rightarrow> 64 word llM\<close> where
+  \<open>svm_the_lookup_impl \<equiv> phm_the_lookup_impl strl_hash svm_eeq snd\<close>
+
+lemmas svm_the_lookup_hnr[sepref_fr_rules] =
+  phm_the_lookup_hnr[where A = svm_entry_assn and B = \<open>mk_assn strl_assn\<close>
+      and kabs = fst and hk = fnv_1a_of_str and hashx = strl_hash and eeq = svm_eeq
+      and ext = snd and fabs = snd and R = unat.assn,
+    unfolded strl_dr_assn_conv, OF strl_hash_rule svm_eeq_rule svm_ext_rule,
+    FCOMP svm_the_lookup_rel,
+    folded svm_assn_def svm_the_lookup_impl_def,
+    unfolded unat.assn_is_rel unat_rel_def[symmetric]]
+
+text \<open>Insert. The generic rule (\<open>phm_ins_hnr\<close>) consumes the \<^emph>\<open>entry pair\<close> as one
+  argument (\<open>(strl_assn \<times>\<^sub>a unat_assn)\<^sup>d\<close>), but the standard \<^const>\<open>op_map_update\<close> is
+  3-ary (key, value, map) and the two hfref shapes are not interchangeable
+  (\<open>invalid_assn (A \<times>\<^sub>a B) \<noteq> invalid_assn A \<times>\<^sub>a invalid_assn B\<close>). So the
+  split-argument rule is proven directly against the map-level triple, mirroring
+  the \<open>phm_ins_hnr\<close> proof with the entry pre-instantiated to the pair (the
+  pair-instantiation trick from the tests of \<^file>\<open>IICF_Hash_Map.thy\<close>); composition
+  through \<open>svm_rel\<close> then follows the standard \<open>uncurry2\<close> FCOMP route of
+  \<open>pam_update_hnr\<close>. The key string is consumed \<comment> \<open>abstract code that keeps using
+  the key gets an automatic \<open>COPY\<close>.\<close>\<close>
+
+definition svm_ins_impl :: \<open>svm_entry_impl \<Rightarrow> svm_impl \<Rightarrow> svm_impl llM\<close> where
+  \<open>svm_ins_impl \<equiv> phm_ins_impl svm_hashe\<close>
+
+definition svm_upd_impl :: \<open>8 word os_list \<Rightarrow> 64 word \<Rightarrow> svm_impl \<Rightarrow> svm_impl llM\<close>
+  where [llvm_code]:
+  \<open>svm_upd_impl ki vi m \<equiv> svm_ins_impl (ki, vi) m\<close>
+
+lemma svm_ins_impl_rule:
+  \<open>llvm_htriple
+    (\<upharpoonleft>(phm_map_impl_assn (\<upharpoonleft>svm_entry_assn)) bss p ** strl_assn k ki
+       ** \<upharpoonleft>unat.assn v vi ** \<up>(bss \<noteq> []))
+    (svm_ins_impl (ki, vi) p)
+    (\<lambda>r. \<upharpoonleft>(phm_map_impl_assn (\<upharpoonleft>svm_entry_assn))
+           (phm_pam_ins (unat (fnv_1a_of_str k)) (k, v) bss) r)\<close>
+  unfolding svm_ins_impl_def
+  using phm_ins_impl_rule[where A = \<open>\<upharpoonleft>svm_entry_assn\<close> and hashe = svm_hashe
+      and he = \<open>\<lambda>e. fnv_1a_of_str (fst e)\<close> and x = \<open>(k, v)\<close> and xi = \<open>(ki, vi)\<close>
+      and bss = bss and p = p, OF svm_hashe_rule]
+  by simp
+
+context
+begin
+
+private lemma svm_upd_reassemble:
+  assumes I: \<open>pam_invar bss\<close>
+  shows \<open>\<upharpoonleft>(phm_map_impl_assn (\<upharpoonleft>svm_entry_assn))
+      (phm_pam_ins (unat (fnv_1a_of_str k)) (k, v) bss) ci \<turnstile>
+    (\<lambda>s. \<exists>m'. pam_invar m' \<and>
+       phm_map_of fst fnv_1a_of_str (pam_map_of m')
+         = (phm_map_of fst fnv_1a_of_str (pam_map_of bss))(k \<mapsto> (k, v)) \<and>
+       \<upharpoonleft>(phm_map_impl_assn (\<upharpoonleft>svm_entry_assn)) m' ci s)\<close>
+  apply (rule entails_exI[where x = \<open>phm_pam_ins (unat (fnv_1a_of_str k)) (k, v) bss\<close>])
+  using phm_ins_abs[where kabs = fst and hk = fnv_1a_of_str and e = \<open>(k, v)\<close>
+      and m = \<open>pam_map_of bss\<close>]
+  by (simp add: phm_pam_ins_invar[OF I] phm_pam_ins_abs[OF I] entails_refl)
+
+lemma svm_upd_impl_hfref:
+  \<open>(uncurry2 svm_upd_impl, uncurry2 (RETURN ooo svm_phm_upd))
+    \<in> strl_assn\<^sup>d *\<^sub>a (unat_assn' TYPE(64))\<^sup>k
+      *\<^sub>a (phm_map_assn fst fnv_1a_of_str svm_entry_assn)\<^sup>d
+      \<rightarrow>\<^sub>a phm_map_assn fst fnv_1a_of_str svm_entry_assn\<close>
+  unfolding phm_map_assn_def pam_map_assn_def unat_rel_def unat.assn_is_rel[symmetric]
+    svm_upd_impl_def
+  apply sepref_to_hoare
+  supply [vcg_rules] = svm_ins_impl_rule
+  supply [simp] = hr_comp_def phm_rel_def pam_rel_def in_br_conv sep_conj_exists
+  apply vcg
+  subgoal
+    unfolding vcg_tag_defs ENTAILS_def
+    apply (simp add: svm_phm_upd_def sep_algebra_simps pred_lift_extract_simps
+        extract_pure_assn[OF unat.assn_pure])
+    by (rule svm_upd_reassemble; assumption)
+  done
+
+end
+
+lemmas svm_upd_hnr[sepref_fr_rules] =
+  svm_upd_impl_hfref[FCOMP svm_upd_rel, folded svm_assn_def]
+
+text \<open>Deallocation.\<close>
+
+definition svm_free_impl :: \<open>svm_impl \<Rightarrow> unit llM\<close> where
+  \<open>svm_free_impl \<equiv> phm_free_impl svm_entry_free\<close>
+
+lemma svm_assn_free[sepref_frame_free_rules]:
+  \<open>MK_FREE svm_assn svm_free_impl\<close>
+  unfolding svm_assn_def svm_free_impl_def
+  by (intro MK_FREE_hrcompI phm_map_assn_free svm_entry_free_rule)
+
+subsection \<open>First-order specializations (code export)\<close>
+
+text \<open>All walks are higher-order in \<open>eeq\<close>/\<open>ext\<close>/\<open>efree\<close>; specialize them per the
+  \<open>vars_hs_*\<close> pattern above. Insert needs no walk specialization
+  (\<^const>\<open>phm_bucket_ins_impl\<close> is first-order, code equations in
+  \<^file>\<open>IICF_Hash_Map.thy\<close>); \<open>svm_upd_impl\<close> is synthesized, hence \<open>[llvm_code]\<close>
+  already.\<close>
+
+definition svm_chain_member_impl ::
+  \<open>8 word os_list \<Rightarrow> svm_entry_impl phm_chain_impl \<Rightarrow> 1 word llM\<close> where
+  \<open>svm_chain_member_impl \<equiv> phm_chain_member_impl svm_eeq\<close>
+
+lemma svm_chain_member_impl_simps[llvm_code]:
+  \<open>svm_chain_member_impl x p = (if p = null then Mreturn 0
+    else doM {
+      n \<leftarrow> ll_load p;
+      eq \<leftarrow> svm_eeq (node.val n) x;
+      if to_bool eq then Mreturn 1
+      else svm_chain_member_impl x (node.next n)
+    })\<close>
+  unfolding svm_chain_member_impl_def
+  by (rule phm_chain_member_impl.simps)
+
+definition svm_chain_find_impl ::
+  \<open>8 word os_list \<Rightarrow> svm_entry_impl phm_chain_impl \<Rightarrow> 64 word llM\<close> where
+  \<open>svm_chain_find_impl \<equiv> phm_chain_find_impl svm_eeq (Mreturn o snd)\<close>
+
+lemma svm_chain_find_impl_simps[llvm_code]:
+  \<open>svm_chain_find_impl x p = (if p = null then Mreturn init
+    else doM {
+      n \<leftarrow> ll_load p;
+      eq \<leftarrow> svm_eeq (node.val n) x;
+      if to_bool eq then Mreturn (snd (node.val n))
+      else svm_chain_find_impl x (node.next n)
+    })\<close>
+  unfolding svm_chain_find_impl_def comp_def
+  by (rule phm_chain_find_impl.simps)
+
+definition svm_bucket_member_impl ::
+  \<open>64 word \<Rightarrow> 8 word os_list \<Rightarrow> svm_entry_impl phm_chain_impl pam_bucket_impl
+    \<Rightarrow> 1 word llM\<close> where
+  \<open>svm_bucket_member_impl \<equiv> phm_bucket_member_impl svm_eeq\<close>
+
+lemma svm_bucket_member_impl_simps[llvm_code]:
+  \<open>svm_bucket_member_impl k x p = (if p = null then Mreturn 0
+    else doM {
+      n \<leftarrow> ll_load p;
+      eq \<leftarrow> ll_icmp_eq (fst (node.val n)) k;
+      if to_bool eq then svm_chain_member_impl x (snd (node.val n))
+      else svm_bucket_member_impl k x (node.next n)
+    })\<close>
+  unfolding svm_bucket_member_impl_def svm_chain_member_impl_def
+  by (rule phm_bucket_member_impl.simps)
+
+definition svm_bucket_find_impl ::
+  \<open>64 word \<Rightarrow> 8 word os_list \<Rightarrow> svm_entry_impl phm_chain_impl pam_bucket_impl
+    \<Rightarrow> 64 word llM\<close> where
+  \<open>svm_bucket_find_impl \<equiv> phm_bucket_find_impl svm_eeq snd\<close>
+
+lemma svm_bucket_find_impl_simps[llvm_code]:
+  \<open>svm_bucket_find_impl k x p = (if p = null then Mreturn init
+    else doM {
+      n \<leftarrow> ll_load p;
+      eq \<leftarrow> ll_icmp_eq (fst (node.val n)) k;
+      if to_bool eq then svm_chain_find_impl x (snd (node.val n))
+      else svm_bucket_find_impl k x (node.next n)
+    })\<close>
+  unfolding svm_bucket_find_impl_def svm_chain_find_impl_def
+  by (rule phm_bucket_find_impl.simps)
+
+lemma svm_member_impl_code[llvm_code]:
+  \<open>svm_member_impl x s = doM {
+      h \<leftarrow> strl_hash x;
+      case s of (n, a) \<Rightarrow> doM {
+        i \<leftarrow> ll_urem h n;
+        bin \<leftarrow> nao_nth a i;
+        found \<leftarrow> svm_bucket_member_impl h x bin;
+        nao_rejoin a i;
+        Mreturn found } }\<close>
+  unfolding svm_member_impl_def phm_member_impl_def phm_member_hashed_impl_def
+    svm_bucket_member_impl_def
+  by (simp split: prod.split)
+
+lemma svm_the_lookup_impl_code[llvm_code]:
+  \<open>svm_the_lookup_impl x s = doM {
+      h \<leftarrow> strl_hash x;
+      case s of (n, a) \<Rightarrow> doM {
+        i \<leftarrow> ll_urem h n;
+        bin \<leftarrow> nao_nth a i;
+        r \<leftarrow> svm_bucket_find_impl h x bin;
+        nao_rejoin a i;
+        Mreturn r } }\<close>
+  unfolding svm_the_lookup_impl_def phm_the_lookup_impl_def
+    phm_the_lookup_hashed_impl_def svm_bucket_find_impl_def
+  by (simp split: prod.split)
+
+lemma svm_ins_impl_code[llvm_code]:
+  \<open>svm_ins_impl x s = doM { h \<leftarrow> svm_hashe x; phm_ins_hashed_impl h x s }\<close>
+  unfolding svm_ins_impl_def phm_ins_impl_def
+  by simp
+
+definition svm_chain_free_impl :: \<open>svm_entry_impl phm_chain_impl \<Rightarrow> unit llM\<close> where
+  \<open>svm_chain_free_impl \<equiv> phm_chain_free_impl svm_entry_free\<close>
+
+lemma svm_chain_free_impl_simps[llvm_code]:
+  \<open>svm_chain_free_impl p = (if p = null then Mreturn () else doM {
+      n \<leftarrow> ll_load p;
+      svm_entry_free (node.val n);
+      ll_free p;
+      svm_chain_free_impl (node.next n)
+    })\<close>
+  unfolding svm_chain_free_impl_def phm_chain_free_impl_def
+  by (rule ol_delete.simps)
+
+definition svm_bucket_free_impl ::
+  \<open>svm_entry_impl phm_chain_impl pam_bucket_impl \<Rightarrow> unit llM\<close> where
+  \<open>svm_bucket_free_impl \<equiv> pam_bucket_free_impl svm_chain_free_impl\<close>
+
+lemma svm_bucket_free_impl_simps[llvm_code]:
+  \<open>svm_bucket_free_impl p = (if p = null then Mreturn () else doM {
+      n \<leftarrow> ll_load p;
+      svm_chain_free_impl (snd (node.val n));
+      ll_free p;
+      svm_bucket_free_impl (node.next n)
+    })\<close>
+  unfolding svm_bucket_free_impl_def pam_bucket_free_impl_def
+  apply (subst ol_delete.simps)
+  by (simp add: pam_entry_free_impl_def case_prod_beta)
+
+lemma svm_free_impl_code[llvm_code]:
+  \<open>svm_free_impl s = (case s of (n, a) \<Rightarrow> nao_free svm_bucket_free_impl a n)\<close>
+  unfolding svm_free_impl_def phm_free_impl_def pam_free_impl_def
+    svm_bucket_free_impl_def svm_chain_free_impl_def
+  by (simp split: prod.split)
+
+subsection \<open>Interface tests\<close>
+
+experiment begin
+
+  text \<open>Insert-then-member through sepref: the key is consumed by the update, the
+    map is built from the custom empty, queried, and dropped via \<open>MK_FREE\<close>.\<close>
+
+  definition svm_ins_mem_test :: \<open>char list \<Rightarrow> char list \<Rightarrow> nat \<Rightarrow> bool\<close> where
+    \<open>svm_ins_mem_test x y n = (x \<in> dom (op_svm_empty(y \<mapsto> n)))\<close>
+
+  sepref_def svm_ins_mem_test_impl is \<open>uncurry2 (RETURN ooo svm_ins_mem_test)\<close>
+    :: \<open>strl_assn\<^sup>k *\<^sub>a strl_assn\<^sup>d *\<^sub>a (unat_assn' TYPE(64))\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+    unfolding svm_ins_mem_test_def
+    by sepref
+
+  text \<open>Insert-then-the-lookup: \<open>y\<close> is used twice (consumed by the update, probed by
+    the lookup). The consumed use gets an \<^emph>\<open>explicit\<close> \<open>COPY\<close> (resolved by
+    \<open>strl_copy_hnr\<close>) \<comment> \<open>sepref's automatic recovery of an invalidated argument only
+    works for pure assertions, so owned keys must be copied at the call site; this
+    is the intended one-copy-per-import pattern of the shared-variables store.\<close>\<close>
+
+  definition svm_ins_lookup_test :: \<open>char list \<Rightarrow> nat \<Rightarrow> nat nres\<close> where
+    \<open>svm_ins_lookup_test y n = mop_map_the_lookup y (op_svm_empty(COPY y \<mapsto> n))\<close>
+
+  sepref_def svm_ins_lookup_test_impl is \<open>uncurry svm_ins_lookup_test\<close>
+    :: \<open>strl_assn\<^sup>k *\<^sub>a (unat_assn' TYPE(64))\<^sup>k \<rightarrow>\<^sub>a unat_assn' TYPE(64)\<close>
+    unfolding svm_ins_lookup_test_def
+    by sepref
+
+  export_llvm svm_ins_mem_test_impl svm_ins_lookup_test_impl
+
+end
 
 section \<open>Testing\<close>
 
