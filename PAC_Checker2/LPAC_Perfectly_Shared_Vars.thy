@@ -3,8 +3,8 @@ theory LPAC_Perfectly_Shared_Vars
     LPAC_Perfectly_Shared
     PAC_Checker_LLVM.PAC_Checker_Relation
     PAC_Checker_LLVM.PAC_Map_Rel
+    PAC_Checker_LLVM.Shared_Vars_Assn
 begin
-thm import_variableS_def
 
 type_synonym ('string2, 'nat) shared_vars_c = \<open>'string2 list \<times> ('string2, 'nat) fmap\<close>
 
@@ -140,232 +140,234 @@ lemma get_var_name_c_get_var_nameS:
   done
 
 
-abbreviation perfect_shared_vars_assn :: \<open>(string, nat) shared_vars_c \<Rightarrow> _ \<Rightarrow> assn\<close> where
-  \<open>perfect_shared_vars_assn \<equiv> arl_assn string_assn \<times>\<^sub>a hm_fmap_assn string_assn uint64_nat_assn\<close>
+section \<open>LLVM implementation\<close>
 
-abbreviation shared_vars_assn where
-  \<open>shared_vars_assn \<equiv> hr_comp perfect_shared_vars_assn (perfect_shared_vars_rel_c Id)\<close>
+text \<open>The abstract shared-variables triple \<open>(\<D>, \<V>, \<A>) :: (nat, string) shared_vars\<close>
+  is implemented by the \<open>shared_vars_l\<close> triple of \<open>Shared_Vars_Assn\<close>
+  (\<open>PAC_Checker_LLVM\<close>): a fresh-index counter \<open>n\<close> (replacing the
+  multiset \<open>\<D>\<close>, which carries no executable content beyond freshness), the
+  index-to-name map \<open>\<V>\<close> (pam with owning string values) and the name-to-index
+  string hash map \<open>\<A>\<close>. The old middle layer (\<open>shared_vars_c\<close> over pure literal
+  strings, arl + hashmap, uint64) is gone; the \<open>_c\<close> definitions above are kept
+  only as documentation of the original design.
 
-lemmas [sepref_fr_rules] = hm.lookup_hnr[FCOMP op_map_lookup_fmlookup]
+  Two mode changes against the old Imperative-HOL setup:
+  \<^item> strings are heap-owned (\<open>strl_assn\<close>), so \<open>import_variableS\<close> \<^emph>\<open>consumes\<close> its
+    name argument (\<open>\<^sup>d\<close>) \<comment> \<open>call sites that keep the name must \<open>COPY\<close>\<close>;
+  \<^item> \<open>get_var_nameS\<close> returns a fresh copy of the stored name (the pam
+    the-lookup copies via \<open>strl_copy\<close>).\<close>
 
-sepref_definition get_var_pos_c_impl
-  is \<open>uncurry get_var_pos_c\<close>
-  :: \<open>perfect_shared_vars_assn\<^sup>k *\<^sub>a string_assn\<^sup>k \<rightarrow>\<^sub>a uint64_nat_assn\<close>
-  supply [simp] = in_dom_m_lookup_iff
-  unfolding get_var_pos_c_def fmlookup'_def[symmetric]
-  by sepref
+subsection \<open>Relation to the abstract triple\<close>
 
-sepref_definition is_new_variable_c_impl
-  is \<open>uncurry is_new_variable_c\<close>
-  :: \<open>string_assn\<^sup>k  *\<^sub>a  perfect_shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
-  supply [simp] = in_dom_m_lookup_iff
-  unfolding is_new_variable_c_def fmlookup'_def[symmetric] in_dom_m_lookup_iff not_not
-  by sepref
+definition perfect_shared_vars_rel_l
+  :: \<open>(shared_vars_l \<times> (nat, string) shared_vars) set\<close>
+where
+  \<open>perfect_shared_vars_rel_l =
+    {((n, \<V>, \<A>), (\<D>', \<V>', \<A>')). (\<forall>i\<in>#dom_m \<V>'. i < n) \<and>
+      \<V> = fmlookup \<V>' \<and> \<A> = fmlookup \<A>'}\<close>
 
-definition nth_uint64 where
-  \<open>nth_uint64 = (!)\<close>
+abbreviation shared_vars_assn
+  :: \<open>(nat, string) shared_vars \<Rightarrow> shared_vars_l_impl \<Rightarrow> assn\<close>
+where
+  \<open>shared_vars_assn \<equiv> hr_comp shared_vars_l_assn perfect_shared_vars_rel_l\<close>
 
-definition arl_get' :: \<open>'a::heap array_list \<Rightarrow> integer \<Rightarrow> 'a Heap\<close> where
-  [code del]: \<open>arl_get' a i = arl_get a (nat_of_integer i)\<close>
+subsection \<open>Memory-allocation flags\<close>
 
-definition arl_get_u :: \<open>'a::heap array_list \<Rightarrow> uint64 \<Rightarrow> 'a Heap\<close> where
-  \<open>arl_get_u \<equiv> \<lambda>a i. arl_get' a (integer_of_uint64 i)\<close>
+text \<open>At the \<open>_l\<close> level allocation failure is a plain \<open>bool\<close> (\<open>True\<close> = failed); the
+  \<open>memory_allocation\<close> datatype is recovered by relational composition.\<close>
 
-lemma arl_get_hnr_u[sepref_fr_rules]:
-  assumes \<open>CONSTRAINT is_pure A\<close>
-  shows \<open>(uncurry arl_get_u, uncurry (RETURN \<circ>\<circ> op_list_get))
-     \<in> [pre_list_get]\<^sub>a (arl_assn A)\<^sup>k *\<^sub>a uint64_nat_assn\<^sup>k \<rightarrow> A\<close>
+definition memory_allocation_rel :: \<open>(bool \<times> memory_allocation) set\<close> where
+  \<open>memory_allocation_rel = {(b, e). b = alloc_failed e}\<close>
+
+abbreviation memory_allocation_assn
+  :: \<open>memory_allocation \<Rightarrow> 1 word \<Rightarrow> assn\<close>
+where
+  \<open>memory_allocation_assn \<equiv> pure (bool1_rel O memory_allocation_rel)\<close>
+
+text \<open>Pure reassembly bundle, cf. \<open>status_pure_reassembly\<close> in the
+  \<open>PAC_Checker_LLVM\<close> synthesis (not in scope here).\<close>
+
+lemmas mem_alloc_pure_reassembly =
+  ENTAILS_def entails_def sep_algebra_simps pred_lift_extract_simps
+  sep_conj_exists vcg_tag_defs
+
+lemma to_bool_01[simp]: \<open>\<not> to_bool (0 :: 1 word)\<close> \<open>to_bool (1 :: 1 word)\<close>
+  by (auto simp: to_bool_def)
+
+lemmas bool1_rel_unfolds =
+  bool1_rel_def bool.rel_def in_br_conv
+
+lemma in_mem_alloc_rel_iff:
+  \<open>(w, e) \<in> bool1_rel O memory_allocation_rel \<longleftrightarrow> (w, alloc_failed e) \<in> bool1_rel\<close>
+  by (auto simp: memory_allocation_rel_def bool1_rel_unfolds)
+
+sepref_register Allocated Mem_Out alloc_failed
+
+lemma alloc_failed_hnr[sepref_fr_rules]:
+  \<open>(Mreturn, RETURN o alloc_failed) \<in> memory_allocation_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  apply sepref_to_hoare
+  by (vcg; auto simp: mem_alloc_pure_reassembly pure_def in_mem_alloc_rel_iff
+    memory_allocation_rel_def)
+
+lemma Allocated_hnr[sepref_fr_rules]:
+  \<open>(uncurry0 (Mreturn 0), uncurry0 (RETURN Allocated))
+    \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a memory_allocation_assn\<close>
+  apply sepref_to_hoare
+  by (vcg; auto simp: mem_alloc_pure_reassembly pure_def in_mem_alloc_rel_iff
+    memory_allocation_rel_def bool1_rel_unfolds)
+
+lemma Mem_Out_hnr[sepref_fr_rules]:
+  \<open>(uncurry0 (Mreturn 1), uncurry0 (RETURN Mem_Out))
+    \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a memory_allocation_assn\<close>
+  apply sepref_to_hoare
+  by (vcg; auto simp: mem_alloc_pure_reassembly pure_def in_mem_alloc_rel_iff
+    memory_allocation_rel_def bool1_rel_unfolds)
+
+subsection \<open>Refinement of the operations\<close>
+
+lemma find_new_idx_l_find_new_idx:
+  assumes \<open>(S, S') \<in> perfect_shared_vars_rel_l\<close>
+  shows \<open>find_new_idx_l S \<le> \<Down>{((b, k), (mem, k')).
+      b = alloc_failed mem \<and> (\<not>b \<longrightarrow> k = k' \<and> k < 2^63-1 \<and> k = fst S)}
+    (find_new_idx S')\<close>
 proof -
-  obtain A' where
-    A: \<open>pure A' = A\<close>
-    using assms pure_the_pure by auto
-  then have A': \<open>the_pure A = A'\<close>
-    by auto
-  have [simp]: \<open>the_pure (\<lambda>a c. \<up> ((c, a) \<in> A')) = A'\<close>
-    unfolding pure_def[symmetric] by auto
+  obtain n \<V> \<A> where S: \<open>S = (n, \<V>, \<A>)\<close> by (cases S)
+  obtain \<D>' \<V>' \<A>' where S': \<open>S' = (\<D>', \<V>', \<A>')\<close> by (cases S')
+  have fresh: \<open>n \<notin># dom_m \<V>'\<close>
+    using assms unfolding S S' perfect_shared_vars_rel_l_def
+    by force
   show ?thesis
-    by sepref_to_hoare
-      (sep_auto simp: uint64_nat_rel_def br_def array_assn_def is_array_def
-        hr_comp_def list_rel_pres_length param_nth arl_assn_def
-        A' A[symmetric] pure_def arl_get_u_def Array.nth'_def arl_get'_def
-     nat_of_uint64_code[symmetric])
+    unfolding find_new_idx_l_def find_new_idx_def S S' prod.case
+    apply (cases \<open>n < 2^63-1\<close>)
+    subgoal
+      by (auto intro!: RETURN_RES_refine exI[where x = \<open>(Allocated, n)\<close>]
+        simp: fresh S)
+    subgoal
+      by (auto intro!: RETURN_RES_refine exI[where x = \<open>(Mem_Out, 0)\<close>])
+    done
 qed
 
+lemma import_variable_l_import_variableS:
+  \<open>(uncurry import_variable_l, uncurry import_variableS)
+    \<in> Id \<times>\<^sub>r perfect_shared_vars_rel_l \<rightarrow>\<^sub>f
+      \<langle>memory_allocation_rel \<times>\<^sub>r perfect_shared_vars_rel_l \<times>\<^sub>r nat_rel\<rangle>nres_rel\<close>
+proof -
+  have H: \<open>import_variable_l v S
+    \<le> \<Down>(memory_allocation_rel \<times>\<^sub>r perfect_shared_vars_rel_l \<times>\<^sub>r nat_rel)
+      (import_variableS v S')\<close>
+    if SS: \<open>(S, S') \<in> perfect_shared_vars_rel_l\<close> for v S S'
+  proof -
+    obtain n \<V> \<A> where S: \<open>S = (n, \<V>, \<A>)\<close> by (cases S)
+    obtain \<D>' \<V>' \<A>' where S': \<open>S' = (\<D>', \<V>', \<A>')\<close> by (cases S')
+    note fni = find_new_idx_l_find_new_idx[OF SS, unfolded S S' fst_conv]
+    show ?thesis
+      unfolding import_variable_l_def import_variableS_def insert_variable_l_def
+        S S' prod.case Let_def COPY_def
+      apply (refine_rcg fni)
+      subgoal by auto
+      subgoal using SS
+        by (auto simp: pw_le_iff refine_pw_simps memory_allocation_rel_def S S')
+      subgoal using SS
+        by (auto simp: pw_le_iff refine_pw_simps perfect_shared_vars_rel_l_def
+            memory_allocation_rel_def fun_eq_iff S S'
+            dest!: in_diffD)
+      done
+  qed
+  show ?thesis
+    by (intro frefI nres_relI) (use H in \<open>auto simp: uncurry_def\<close>)
+qed
 
-definition arl_get_u' where
-  [symmetric, code]: \<open>arl_get_u' = arl_get_u\<close>
+lemma is_new_variable_l_is_new_variableS:
+  \<open>(uncurry is_new_variable_l, uncurry is_new_variableS)
+    \<in> Id \<times>\<^sub>r perfect_shared_vars_rel_l \<rightarrow>\<^sub>f \<langle>bool_rel\<rangle>nres_rel\<close>
+  by (intro frefI nres_relI)
+    (auto simp: is_new_variable_l_def is_new_variableS_def
+      perfect_shared_vars_rel_l_def in_dom_m_lookup_iff dom_def)
 
-lemma arl_get'_nth'[code]: \<open>arl_get' = (\<lambda>(a, n). Array.nth' a)\<close>
-  unfolding arl_get_def arl_get'_def Array.nth'_def
-  by (intro ext) auto
+lemma get_var_pos_l_get_var_posS:
+  \<open>(uncurry get_var_pos_l, uncurry get_var_posS)
+    \<in> perfect_shared_vars_rel_l \<times>\<^sub>r Id \<rightarrow>\<^sub>f \<langle>nat_rel\<rangle>nres_rel\<close>
+  by (intro frefI nres_relI)
+    (auto simp: get_var_pos_l_def get_var_posS_def perfect_shared_vars_rel_l_def
+      in_dom_m_lookup_iff dom_def pw_le_iff refine_pw_simps)
 
-definition nat_of_uint64_s :: \<open>nat \<Rightarrow> nat\<close> where
-  [simp]: \<open>nat_of_uint64_s x = x\<close>
+lemma get_var_name_l_get_var_nameS:
+  \<open>(uncurry get_var_name_l, uncurry get_var_nameS)
+    \<in> perfect_shared_vars_rel_l \<times>\<^sub>r Id \<rightarrow>\<^sub>f \<langle>\<langle>Id\<rangle>list_rel\<rangle>nres_rel\<close>
+  by (intro frefI nres_relI)
+    (auto simp: get_var_name_l_def get_var_nameS_def perfect_shared_vars_rel_l_def
+      in_dom_m_lookup_iff dom_def pw_le_iff refine_pw_simps)
 
-lemma [refine]:
-  \<open>(return o nat_of_uint64, RETURN o nat_of_uint64_s) \<in> uint64_nat_assn\<^sup>k \<rightarrow>\<^sub>a nat_assn\<close>
-  by (sepref_to_hoare)
-    (sep_auto simp: uint64_nat_rel_def br_def)
+subsection \<open>Composed refinement rules\<close>
 
-
-sepref_definition get_var_name_c_impl
-  is \<open>uncurry get_var_name_c\<close>
-  :: \<open>perfect_shared_vars_assn\<^sup>k *\<^sub>a uint64_nat_assn\<^sup>k \<rightarrow>\<^sub>a string_assn\<close>
-  supply [simp] = in_dom_m_lookup_iff
-  unfolding get_var_name_c_def fmlookup'_def[symmetric]
-  by sepref
-
-lemma [sepref_fr_rules]:
-  \<open>(uncurry is_new_variable_c_impl, uncurry is_new_variableS) \<in> string_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
-  using is_new_variable_c_impl.refine[FCOMP is_new_variable_c_is_new_variableS, of Id]
+lemma is_new_variableS_hnr[sepref_fr_rules]:
+  \<open>(uncurry is_new_variable_l_impl, uncurry is_new_variableS)
+    \<in> strl_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  using is_new_variable_l_impl.refine[FCOMP is_new_variable_l_is_new_variableS]
   by auto
 
-lemma [sepref_fr_rules]:
-  \<open>(uncurry get_var_pos_c_impl, uncurry get_var_posS) \<in> shared_vars_assn\<^sup>k *\<^sub>a string_assn\<^sup>k \<rightarrow>\<^sub>a uint64_nat_assn\<close>
-  using get_var_pos_c_impl.refine[FCOMP get_var_pos_c_get_var_posS, of Id]
+lemma get_var_posS_hnr[sepref_fr_rules]:
+  \<open>(uncurry get_var_pos_l_impl, uncurry get_var_posS)
+    \<in> shared_vars_assn\<^sup>k *\<^sub>a strl_assn\<^sup>k \<rightarrow>\<^sub>a unat_assn' TYPE(64)\<close>
+  using get_var_pos_l_impl.refine[FCOMP get_var_pos_l_get_var_posS]
   by auto
 
-lemma [sepref_fr_rules]:
-  \<open>(uncurry get_var_name_c_impl, uncurry get_var_nameS) \<in> shared_vars_assn\<^sup>k *\<^sub>a  uint64_nat_assn\<^sup>k \<rightarrow>\<^sub>a string_assn\<close>
-  using get_var_name_c_impl.refine[FCOMP get_var_name_c_get_var_nameS, of Id]
- by auto
-
-sepref_register get_var_nameS get_var_posS is_new_variableS
-
-
-abbreviation memory_allocation_rel :: \<open>(memory_allocation \<times> memory_allocation) set\<close> where
-  \<open>memory_allocation_rel \<equiv> Id\<close>
-
-abbreviation memory_allocation_assn :: \<open>memory_allocation \<Rightarrow> memory_allocation \<Rightarrow> assn\<close> where
-  \<open>memory_allocation_assn \<equiv> id_assn\<close>
-
-instantiation memory_allocation :: default
-begin
-  definition default_memory_allocation :: \<open>memory_allocation\<close> where
-    \<open>default_memory_allocation = Allocated\<close>
-instance
-  ..
-end
-
-term import_polyS
-lemma [sepref_import_param]:
-  \<open>(Allocated, Allocated) \<in> memory_allocation_rel\<close>
-  \<open>(Mem_Out, Mem_Out) \<in> memory_allocation_rel\<close>
-  \<open>(alloc_failed, alloc_failed) \<in> memory_allocation_rel \<rightarrow> bool_rel\<close>
+lemma get_var_nameS_hnr[sepref_fr_rules]:
+  \<open>(uncurry get_var_name_l_impl, uncurry get_var_nameS)
+    \<in> shared_vars_assn\<^sup>k *\<^sub>a (unat_assn' TYPE(64))\<^sup>k \<rightarrow>\<^sub>a strl_assn\<close>
+  using get_var_name_l_impl.refine[FCOMP get_var_name_l_get_var_nameS]
   by auto
 
-lemma pow_2_63_1: \<open>2 ^ 63 - 1 = (9223372036854775807 :: nat)\<close>
-  by auto
-definition zero_uint64_nat where
-  \<open>zero_uint64_nat = 0\<close>
-sepref_register zero_uint64_nat
-lemma [sepref_fr_rules]:
-  \<open>(uncurry0 (return 0), uncurry0 (RETURN zero_uint64_nat))\<in>unit_assn\<^sup>k \<rightarrow>\<^sub>a uint64_nat_assn\<close>
-  unfolding zero_uint64_nat_def uint64_nat_rel_def br_def
-  by sepref_to_hoare sep_auto
-
-definition length_uint64_nat where
- [simp]: \<open>length_uint64_nat = length\<close>
-
-definition length_arl_u_code :: \<open>('a::heap) array_list \<Rightarrow> uint64 Heap\<close> where
-  \<open>length_arl_u_code xs = do {
-   n \<leftarrow> arl_length xs;
-  return (uint64_of_nat n)}\<close>
-
-definition uint64_max :: nat where
-  \<open>uint64_max = 2 ^64 - 1\<close>
-
-lemma nat_of_uint64_uint64_of_nat: \<open>b \<le> uint64_max \<Longrightarrow> nat_of_uint64 (uint64_of_nat b) = b\<close>
-  unfolding uint64_of_nat_def uint64_max_def nat_of_uint64_def
-  apply (simp add: )
-  unfolding uint64.word_of_word
-  apply (subst le_unat_uoi[of _ 18446744073709551615])
+lemma import_variableS_hnr[sepref_fr_rules]:
+  \<open>(uncurry import_variable_l_impl, uncurry import_variableS)
+    \<in> strl_assn\<^sup>d *\<^sub>a shared_vars_assn\<^sup>d \<rightarrow>\<^sub>a
+      memory_allocation_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a unat_assn' TYPE(64)\<close>
+  using import_variable_l_impl.refine[FCOMP import_variable_l_import_variableS]
   by auto
 
+sepref_register get_var_nameS get_var_posS is_new_variableS import_variableS
 
-lemma length_arl_u_hnr[sepref_fr_rules]:
-  \<open>(length_arl_u_code, RETURN o length_uint64_nat) \<in>
-     [\<lambda>xs. length xs \<le> uint64_max]\<^sub>a (arl_assn R)\<^sup>k \<rightarrow> uint64_nat_assn\<close>
-  by sepref_to_hoare
-    (sep_auto simp: uint64_nat_rel_def
-      length_arl_u_code_def arl_assn_def nat_of_uint64_uint64_of_nat
-      arl_length_def hr_comp_def is_array_list_def list_rel_pres_length[symmetric]
-      br_def)
-
-lemma find_new_idx_c_alt_def:
-  \<open>find_new_idx_c = (\<lambda>(\<V>, \<A>). let k = length \<V> in if k < 2^63-1 then RETURN (Allocated, length_uint64_nat \<V>) else RETURN (Mem_Out, 0) )\<close>
-  unfolding find_new_idx_c_def Let_def by auto
-
-
-sepref_definition find_new_idx_c_impl
-  is \<open>find_new_idx_c\<close>
-  :: \<open>perfect_shared_vars_assn\<^sup>k \<rightarrow>\<^sub>aid_assn \<times>\<^sub>a uint64_nat_assn\<close>
-  supply [simp] = uint64_max_def
-  unfolding find_new_idx_c_alt_def pow_2_63_1 zero_uint64_nat_def[symmetric]
-  by sepref
-
-instantiation String.literal :: default
-begin
-definition default_literal :: \<open>String.literal\<close> where
-  \<open>default_literal = String.implode ''''\<close>
-instance
-  ..
-end
-
-sepref_definition insert_variable_c_impl
-  is \<open>uncurry2 (RETURN ooo insert_variable_c)\<close>
-  :: \<open>string_assn\<^sup>k *\<^sub>a uint64_nat_assn\<^sup>k *\<^sub>a perfect_shared_vars_assn\<^sup>d \<rightarrow>\<^sub>a perfect_shared_vars_assn\<close>
-  supply arl_append_hnr[sepref_fr_rules]
-    marl_append_hnr[sepref_fr_rules del]
-  unfolding insert_variable_c_def
-  by sepref
-
-lemmas [sepref_fr_rules] =
-  find_new_idx_c_impl.refine insert_variable_c_impl.refine
-
-sepref_definition import_variable_c_impl
-  is \<open>uncurry import_variable_c\<close>
-  :: \<open>string_assn\<^sup>k *\<^sub>a perfect_shared_vars_assn\<^sup>d \<rightarrow>\<^sub>a id_assn \<times>\<^sub>a perfect_shared_vars_assn \<times>\<^sub>a uint64_nat_assn\<close>
-  unfolding import_variable_c_def
-  by sepref
-
-lemma import_variable_c_import_variableS':
-  assumes \<open>single_valued R\<close> \<open>single_valued (R\<inverse>)\<close>
-  shows \<open>(uncurry import_variable_c, uncurry import_variableS) \<in> R \<times>\<^sub>r perfect_shared_vars_rel_c R \<rightarrow>\<^sub>f
-    \<langle>memory_allocation_rel \<times>\<^sub>r perfect_shared_vars_rel_c R \<times>\<^sub>r nat_rel\<rangle>nres_rel\<close>
-  using import_variable_c_import_variableS[OF _ _ assms]
-  by (auto intro!: frefI nres_relI)
-
-
-lemma [sepref_fr_rules]:
-  \<open>(uncurry import_variable_c_impl, uncurry import_variableS)
-  \<in> string_assn\<^sup>k *\<^sub>a  shared_vars_assn\<^sup>d \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a uint64_nat_assn\<close>
-  using import_variable_c_impl.refine[FCOMP import_variable_c_import_variableS', of Id]
- by auto
+subsection \<open>The empty store\<close>
 
 definition empty_shared_vars :: \<open>(nat, string) shared_vars\<close> where
   \<open>empty_shared_vars =  ({#}, fmempty, fmempty)\<close>
 
+lemma empty_shared_vars_l_empty_shared_vars:
+  \<open>(uncurry0 (RETURN empty_shared_vars_l), uncurry0 (RETURN empty_shared_vars))
+    \<in> unit_rel \<rightarrow>\<^sub>f \<langle>perfect_shared_vars_rel_l\<rangle>nres_rel\<close>
+  by (auto intro!: frefI nres_relI
+    simp: perfect_shared_vars_rel_l_def empty_shared_vars_l_def
+      empty_shared_vars_def fun_eq_iff)
 
-definition empty_shared_vars_int :: \<open>(string, nat) shared_vars_c\<close> where
-  \<open>empty_shared_vars_int =  ([], fmempty)\<close>
-
-sepref_definition empty_shared_vars_int_impl
-  is \<open>uncurry0 (RETURN empty_shared_vars_int)\<close>
-  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a perfect_shared_vars_assn\<close>
-  unfolding empty_shared_vars_int_def
-    arl.fold_custom_empty
-  by sepref
-
-lemma empty_shared_vars_int_empty_shared_vars:
-  \<open>(uncurry0 (RETURN empty_shared_vars_int), uncurry0 (RETURN empty_shared_vars)) \<in> unit_rel \<rightarrow>\<^sub>f \<langle>perfect_shared_vars_rel_c R\<rangle>nres_rel\<close>
-  by (auto intro!: frefI nres_relI simp: perfect_shared_vars_rel_c_def empty_shared_vars_int_def
-    empty_shared_vars_def)
-
-lemma [sepref_fr_rules]:
-  \<open>(uncurry0 empty_shared_vars_int_impl, uncurry0 (RETURN empty_shared_vars))
-  \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a shared_vars_assn\<close>
-  using empty_shared_vars_int_impl.refine[FCOMP empty_shared_vars_int_empty_shared_vars, of Id]
+lemma empty_shared_vars_hnr[sepref_fr_rules]:
+  \<open>(uncurry0 empty_shared_vars_l_impl, uncurry0 (RETURN empty_shared_vars))
+    \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a shared_vars_assn\<close>
+  using empty_shared_vars_l_impl.refine[FCOMP empty_shared_vars_l_empty_shared_vars]
   by auto
+
 sepref_register empty_shared_vars
+
+subsection \<open>Deallocation\<close>
+
+definition shared_vars_free :: \<open>shared_vars_l_impl \<Rightarrow> unit llM\<close> where [llvm_code]:
+  \<open>shared_vars_free \<equiv> \<lambda>(n, \<V>i, \<A>i). doM {
+     pam_free_impl os_delete \<V>i;
+     svm_free_impl \<A>i;
+     Mreturn ()
+   }\<close>
+
+lemma shared_vars_l_assn_free[sepref_frame_free_rules]:
+  \<open>MK_FREE shared_vars_l_assn shared_vars_free\<close>
+  supply [vcg_rules] = vnm_assn_free[THEN MK_FREED] svm_assn_free[THEN MK_FREED]
+  apply (rule MK_FREEI)
+  unfolding shared_vars_free_def
+  apply (clarsimp simp: prod_assn_def split: prod.splits)
+  apply vcg
+  apply (auto simp: mem_alloc_pure_reassembly pure_def)
+  done
+
+lemma shared_vars_assn_free[sepref_frame_free_rules]:
+  \<open>MK_FREE shared_vars_assn shared_vars_free\<close>
+  by (intro MK_FREE_hrcompI shared_vars_l_assn_free)
+
 end

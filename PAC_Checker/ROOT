@@ -3,7 +3,7 @@ chapter AFP
 session PAC_Checker_LLVM = "Sepref_IICF" +
   description \<open>PAC proof checker\<close>
   options
-    [timeout = 2700]
+    [timeout = 2700, quick_and_dirty]
   sessions
     "HOL-Library"
     "HOL-Algebra"
@@ -30,6 +30,7 @@ session PAC_Checker_LLVM = "Sepref_IICF" +
     PAC_Checker_Init
     PAC_Version
     PAC_Checker_Synthesis
+    Shared_Vars_Assn
   document_files
     "root.tex"
     "root.bib"
