@@ -125,18 +125,11 @@ type_synonym c_input = \<open>64 word \<times> c_polynomial\<close>
 type_synonym c_inputs = \<open>64 word \<times> c_input ptr\<close>
 
 \<comment> \<open>PROOF\<close>
-\<comment> \<open>\<open>summand = {polynomial *poly_ptr; u64 idx}\<close> \<emdash> a (pointer, index) pair, not an
-  array, so it is unaffected by the \<open>larray\<close> ordering convention\<close>
 type_synonym c_summand = \<open>c_polynomial ptr \<times> 64 word\<close>
 type_synonym c_summands = \<open>64 word \<times> c_summand ptr\<close>
-\<comment> \<open>\<open>lc_rule = {u64 target_idx; summands summands; polynomial res}\<close>\<close>
 type_synonym c_lc_rule = \<open>64 word \<times> c_summands \<times> c_polynomial\<close>
-\<comment> \<open>\<open>del_rule = {u64 idx}\<close>; single-field struct collapses to its field\<close>
 type_synonym c_del_rule = \<open>64 word\<close>
-\<comment> \<open>\<open>ext_rule = {u64 idx; slice var; polynomial poly}\<close>\<close>
 type_synonym c_ext_rule = \<open>64 word \<times> c_slice \<times> c_polynomial\<close>
-\<comment> \<open>\<open>rule = {rule_type typ; union {lc_rule lc; del_rule del; ext_rule ext}}\<close>
-  (\<open>typ\<close> as \<^typ>\<open>32 word\<close>, \<open>del\<close> collapsed to \<^typ>\<open>64 word\<close>)\<close>
 type_synonym c_rule = \<open>32 word \<times> (c_lc_rule, c_del_rule, c_ext_rule) ll_union3\<close>
 type_synonym c_proof = \<open>64 word \<times> c_rule ptr\<close>
 
@@ -222,6 +215,9 @@ definition slice_to_str :: \<open>char list \<Rightarrow> char list\<close>
 abbreviation \<open>stra_assn \<equiv> larray_assn' size_t char_assn\<close>
 lemmas stra_ARR2LS_hnr = ARR2LS_hnr[OF char_assn_pure]
 
+lemmas parr_to_list_impl_char_code [llvm_inline] =
+  parr_to_list_impl_def[OF char_assn_pure mk_free_is_pure[OF char_assn_pure]]
+
 text \<open>Note that `c_slice = \<open>64 word \<times> 8 word ptr\<close>`, i.e. `c_slice` is a list of characters.
   In particular, `c_slice` is a refinment target given by `stra_assn`.\<close>
 sepref_def slice_to_str_impl is \<open>RETURN o slice_to_str\<close>
@@ -229,6 +225,16 @@ sepref_def slice_to_str_impl is \<open>RETURN o slice_to_str\<close>
   unfolding slice_to_str_def 
   supply [sepref_fr_rules] = stra_ARR2LS_hnr
   by sepref
+
+(* TEMP placeholder for `str_to_int` - TODO: remove *)
+definition str_to_int :: \<open>8 word list \<Rightarrow> int nres\<close> where
+  \<open>str_to_int \<equiv> \<lambda>_. RETURN 0\<close>
+
+sepref_def str_to_int_impl is \<open>str_to_int\<close>
+  :: \<open>(larray_assn' TYPE(64) (word_assn' TYPE(8)))\<^sup>k \<rightarrow>\<^sub>a sbi_assn\<close>
+  unfolding str_to_int_def
+  apply sepref
+  done
 
 definition slice_to_big_int :: \<open>8 word list \<Rightarrow> int nres\<close> where
   \<open>slice_to_big_int s \<equiv> if length s = 0 then RETURN 0 else str_to_int s\<close>
@@ -266,73 +272,50 @@ end
 
 section \<open>Exported C header\<close>
 
-text \<open>Placeholder entry points, so that \<open>export_llvm\<close> emits the interface types
-  into the generated header. They are replaced by the real (unverified) import
-  functions once those are written.\<close>
-
-definition parse_inputs :: \<open>c_inputs ptr \<Rightarrow> 8 word llM\<close> where[llvm_code]:
-  \<open>parse_inputs \<equiv> \<lambda>a. Mreturn 0\<close>
-definition parse_proof :: \<open>c_proof ptr \<Rightarrow> 8 word llM\<close> where[llvm_code]:
-  \<open>parse_proof \<equiv> \<lambda>a. Mreturn 0\<close>
-definition parse_target :: \<open>c_target ptr \<Rightarrow> 8 word llM\<close> where[llvm_code]:
-  \<open>parse_target \<equiv> \<lambda>a. Mreturn 0\<close>
-
-export_llvm
-  parse_inputs is \<open>char parse_inputs(inputs*)\<close>
-  parse_proof is \<open>char parse_proof(proof*)\<close>
-  parse_target is \<open>char parse_target(polynomial*)\<close>
-  defines \<open>
-    typedef struct {uint64_t len; char *ptr;} slice;
-    typedef struct {uint64_t num_vars; slice *vars_ptr;} term;
-    typedef struct {slice coeff; struct {char neg; term vars;};} monomial;
-    typedef struct {uint64_t num_mnmls; monomial *mnmls_ptr;} polynomial;
-    typedef struct {uint64_t idx; polynomial poly;} input;
-    typedef struct {uint64_t num_inputs; input *inputs;} inputs;
-    typedef struct {polynomial *poly_ptr; uint64_t idx;} summand;
-    typedef struct {uint64_t num_summands; summand *summands_ptr;} summands;
-    typedef struct {uint64_t target_idx; struct {summands summands; polynomial res;};} lc_rule;
-    typedef struct {uint64_t idx; struct {slice var; polynomial poly;};} ext_rule;
-    typedef struct {int32_t typ; union {lc_rule lc; uint64_t del; ext_rule ext;} u;} rule;
-    typedef struct {uint64_t num_rules; rule *rules_ptr;} proof;
-  \<close>
-  file "/tmp/pasteque_interface.ll"
-
-
 section \<open>Importing the C-Parsed Structures\<close>
 
 subsection \<open>Concrete Type Abbreviations\<close>
 
-type_synonym mnml_conc = \<open>monom_conc \<times> sbin_conc \<times> 1 word\<close>
-type_synonym poly_conc = \<open>mnml_conc os_list\<close>
 type_synonym sbi_conc = \<open>sbin_conc \<times> 1 word\<close>
+type_synonym mnml_conc = \<open>monom_conc \<times> sbi_conc\<close>
+type_synonym poly_conc = \<open>mnml_conc os_list\<close>
 type_synonym strl_conc = \<open>8 word os_list\<close>
 type_synonym step_conc = \<open>(poly_conc, strl_conc) pac_step_impl\<close>
 
 subsection \<open>Leaf Imports\<close>
 
-definition imp_term :: \<open>c_term \<Rightarrow> monom_conc\<close> where
-  \<open>imp_term (lt, slp) \<equiv> doN {
-  
+definition imp_term :: \<open>c_term \<Rightarrow> monom_conc llM\<close> where[llvm_code]:
+  \<open>imp_term \<equiv> \<lambda>(lt, slp). doM {
+    tsls \<leftarrow> os_empty;
+    (tsls, _) \<leftarrow> llc_while
+      (\<lambda>(tsls, i). ll_cmp (i \<noteq> 0))
+      (\<lambda>(tsls, i). doM {
+        i \<leftarrow> ll_sub i (signed_nat 1);
+        s \<leftarrow> array_nth slp i;
+        si \<leftarrow> slice_to_str_impl s;
+        tsls \<leftarrow> os_prepend si tsls;
+        Mreturn (tsls, i)
+      }) (tsls, lt);
+    Mreturn tsls
   }\<close>
 
-subsection \<open>Structure Walks\<close>
+definition imp_coeff :: \<open>(c_slice \<times> 8 word) \<Rightarrow> sbi_conc llM\<close> where[llvm_code]:
+  \<open>imp_coeff \<equiv> \<lambda>(sl, sgn). doM {
+    sbi \<leftarrow> slice_to_big_int_impl sl;
+    if sgn = 1 then doM {
+      sbi \<leftarrow> sbi_inv_impl sbi;
+      Mreturn sbi
+    }
+    else
+      Mreturn sbi
+  }\<close>
 
-text \<open>All walks traverse the C array back-to-front and prepend, preserving file
-  order without a final reversal.\<close>
-
-definition imp_monom :: \<open>c_term \<Rightarrow> monom_conc llM\<close> where [llvm_code]:
-  \<open>imp_monom \<equiv> \<lambda>(n, a). doM {
-     (m, _) \<leftarrow> llc_while
-       (\<lambda>(m, i). ll_cmp (i \<noteq> 0))
-       (\<lambda>(m, i). doM {
-          i \<leftarrow> ll_sub i (signed_nat 1);
-          s \<leftarrow> array_nth a i;
-          str \<leftarrow> imp_string s;
-          m \<leftarrow> os_prepend str m;
-          Mreturn (m, i)
-        }) (null, n);
-     Mreturn m
-   }\<close>
+definition imp_monomial :: \<open>c_monomial \<Rightarrow> mnml_conc llM\<close> where[llvm_code]:
+  \<open>imp_monomial \<equiv> \<lambda>(sl, sgn, t). doM {
+    c \<leftarrow> imp_coeff (sl, sgn);
+    n \<leftarrow> imp_term t;
+    Mreturn (n, c)
+  }\<close>
 
 definition imp_poly :: \<open>c_polynomial \<Rightarrow> poly_conc llM\<close> where [llvm_code]:
   \<open>imp_poly \<equiv> \<lambda>(n, a). doM {
@@ -341,18 +324,14 @@ definition imp_poly :: \<open>c_polynomial \<Rightarrow> poly_conc llM\<close> w
        (\<lambda>(p, i). doM {
           i \<leftarrow> ll_sub i (signed_nat 1);
           mo \<leftarrow> array_nth a i;
-          case mo of (cf, neg, vs) \<Rightarrow> doM {
-            c \<leftarrow> imp_coeff cf neg;
-            m \<leftarrow> imp_monom vs;
-            p \<leftarrow> os_prepend (m, c) p;
-            Mreturn (p, i)
-          }
+          m \<leftarrow> imp_monomial mo;
+          p \<leftarrow> os_prepend m p;
+          Mreturn (p, i)
         }) (null, n);
      Mreturn p
    }\<close>
 
-definition imp_inputs :: \<open>c_inputs \<Rightarrow> (64 word \<times> poly_conc) os_list llM\<close>
-  where [llvm_code]:
+definition imp_inputs :: \<open>c_inputs \<Rightarrow> (64 word \<times> poly_conc) os_list llM\<close> where [llvm_code]:
   \<open>imp_inputs \<equiv> \<lambda>(n, a). doM {
      (xs, _) \<leftarrow> llc_while
        (\<lambda>(xs, i). ll_cmp (i \<noteq> 0))
@@ -388,20 +367,20 @@ definition imp_srcs :: \<open>c_summands \<Rightarrow> (poly_conc \<times> 64 wo
 
 definition imp_step :: \<open>c_rule \<Rightarrow> step_conc llM\<close> where [llvm_code]:
   \<open>imp_step \<equiv> \<lambda>(t, u). doM {
-     if t = 0 then doM {          \<comment> \<open>\<open>S_LINCOM\<close> \<open>\<rightarrow>\<close> \<open>CL\<close>\<close>
+     if t = 0 then doM {          \<comment> \<open>S_LINCOM\<close>
        lc \<leftarrow> ll_u3_extr_a u;
        case lc of (tidx, smds, res) \<Rightarrow> doM {
          srcs \<leftarrow> imp_srcs smds;
          r \<leftarrow> imp_poly res;
          CL_impl srcs tidx r
        }
-     } else if t = 1 then doM {   \<comment> \<open>\<open>S_DEL\<close> \<open>\<rightarrow>\<close> \<open>Del\<close>\<close>
+     } else if t = 1 then doM {   \<comment> \<open>S_DEL\<close>
        idx \<leftarrow> ll_u3_extr_b u;
        Del_impl idx
-     } else doM {                 \<comment> \<open>\<open>S_EXT\<close> \<open>\<rightarrow>\<close> \<open>Extension\<close>\<close>
+     } else doM {                 \<comment> \<open>S_EXT\<close>
        er \<leftarrow> ll_u3_extr_c u;
        case er of (idx, vsl, resp) \<Rightarrow> doM {
-         v \<leftarrow> imp_string vsl;
+         v \<leftarrow> slice_to_str_impl vsl;
          r \<leftarrow> imp_poly resp;
          Extension_impl idx v r
        }
@@ -424,5 +403,35 @@ definition imp_proof :: \<open>c_proof \<Rightarrow> step_conc os_list llM\<clos
 
 abbreviation imp_target :: \<open>c_target \<Rightarrow> poly_conc llM\<close> where
   \<open>imp_target \<equiv> imp_poly\<close>
+
+definition run_checker :: \<open>c_inputs ptr \<Rightarrow> c_proof ptr \<Rightarrow> c_target ptr \<Rightarrow> 8 word llM\<close> where[llvm_code]:
+  \<open>run_checker \<equiv> \<lambda> cinpsp cprfp ctgtp. doM {
+    cinps \<leftarrow> ll_load cinpsp;
+    cprf \<leftarrow> ll_load cprfp;
+    ctgt \<leftarrow> ll_load ctgtp;
+    isainps \<leftarrow> imp_inputs cinps; 
+    isaprf \<leftarrow> imp_proof cprf;
+    isatgt \<leftarrow> imp_target ctgt;
+    ((st, res), vs, p) \<leftarrow> full_checker_l3_impl isatgt isainps isaprf;
+    Mreturn st 
+  }\<close>
+
+export_llvm
+  run_checker is \<open>char run_checker(inputs*, proof*, polynomial*)\<close>
+  defines \<open>
+    typedef struct {uint64_t len; char *ptr;} slice;
+    typedef struct {uint64_t num_vars; slice *vars_ptr;} term;
+    typedef struct {slice coeff; struct {char neg; term vars;};} monomial;
+    typedef struct {uint64_t num_mnmls; monomial *mnmls_ptr;} polynomial;
+    typedef struct {uint64_t idx; polynomial poly;} input;
+    typedef struct {uint64_t num_inputs; input *inputs;} inputs;
+    typedef struct {polynomial *poly_ptr; uint64_t idx;} summand;
+    typedef struct {uint64_t num_summands; summand *summands_ptr;} summands;
+    typedef struct {uint64_t target_idx; struct {summands summands; polynomial res;};} lc_rule;
+    typedef struct {uint64_t idx; struct {slice var; polynomial poly;};} ext_rule;
+    typedef struct {int32_t typ; union {lc_rule lc; uint64_t del; ext_rule ext;} u;} rule;
+    typedef struct {uint64_t num_rules; rule *rules_ptr;} proof;
+  \<close>
+  file "/tmp/pasteque_interface.ll"
 
 end

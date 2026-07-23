@@ -257,12 +257,6 @@ lemma pac_step_assn_free[sepref_frame_free_rules]:
 
 section \<open>Constructors (producers): pack the fields into the tagged tuple\<close>
 
-text \<open>Each constructor writes its tag, moves its owning fields into their slots, and fills the
-  unused slots with \<open>init\<close> (never owned). These are producers: their result assertion is
-  unconstrained at rule-application time, so we do NOT register them globally
-  \<open>[sepref_fr_rules]\<close> (they would shadow other syntheses without backtracking); instead they
-  are \<open>supply\<close>-ed locally where needed (cf. the \<open>list_custom_empty\<close> discipline).\<close>
-
 definition CL_impl ::
   \<open>('pi \<times> 64 word) os_list \<Rightarrow> 64 word \<Rightarrow> 'pi \<Rightarrow> ('pi::llvm_rep, 'vi::llvm_rep) pac_step_impl llM\<close>
   where [llvm_code, llvm_inline]: \<open>CL_impl srcs idc res \<equiv> Mreturn (0, idc, res, srcs, init)\<close>
@@ -282,7 +276,7 @@ lemma CL_impl_hnr:
   unfolding CL_impl_def
   apply sepref_to_hoare
   subgoal for res idc srcs resi idci srcsi
-    by (vcg; auto simp: step_pure_reassembly prod_assn_def)
+    by (vcg; auto simp: step_pure_reassembly)
   done
 
 lemma Extension_impl_hnr:
@@ -291,7 +285,7 @@ lemma Extension_impl_hnr:
   unfolding Extension_impl_def
   apply sepref_to_hoare
   subgoal for res var idc resi vari idci
-    by (vcg; auto simp: step_pure_reassembly prod_assn_def)
+    by (vcg; auto simp: step_pure_reassembly)
   done
 
 lemma Del_impl_hnr:
@@ -299,7 +293,7 @@ lemma Del_impl_hnr:
   unfolding Del_impl_def
   apply sepref_to_hoare
   subgoal for i ii
-    by (vcg; auto simp: step_pure_reassembly prod_assn_def)
+    by (vcg; auto simp: step_pure_reassembly)
   done
 
 text \<open>Interface type for \<open>pac_step\<close> and the \<open>intf_of_assn\<close> bridge (mirrors the map/set

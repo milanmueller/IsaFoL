@@ -1002,6 +1002,25 @@ lemma full_checker_l3_full_checker_l2:
 
 abbreviation inputs_assn where
   \<open>inputs_assn \<equiv> ol_assn (unat_assn' TYPE(64) \<times>\<^sub>a poly_assn)\<close>
+definition input_tup_free
+  :: \<open>64 word \<times> (8 word node ptr node ptr \<times> (64 word \<times> 64 word \<times> 64 word ptr) \<times> 1 word) node ptr \<Rightarrow> unit llM\<close>
+  where [llvm_code]:
+  \<open>input_tup_free \<equiv> \<lambda>(n, p). doM { poly_free p; Mreturn () }\<close>
+lemma input_tup_assn_free[sepref_frame_free_rules]:
+  \<open>MK_FREE (unat_assn' TYPE(64) \<times>\<^sub>a poly_assn) input_tup_free\<close>
+  unfolding input_tup_free_def
+  using free_thms(2,3) poly_assn_free by blast
+
+definition \<open>inputs_free \<equiv> ol_delete input_tup_free\<close>
+lemma inputs_free_simps[llvm_code]:
+  \<open>inputs_free l = (if l = null then Mreturn () else doM {
+     n \<leftarrow> ll_load l; input_tup_free (node.val n); ll_free l; inputs_free (node.next n) })\<close>
+  unfolding inputs_free_def by (rule ol_delete.simps)
+
+lemmas [llvm_pre_simp] = inputs_free_def[symmetric]
+lemma inputs_assn_free[sepref_frame_free_rules]:
+  \<open>MK_FREE inputs_assn inputs_free\<close>
+  unfolding inputs_free_def by (rule ol_assn_free[OF input_tup_assn_free])
 
 sepref_def full_checker_l3_impl
   is \<open>uncurry2 full_checker_l3\<close>
