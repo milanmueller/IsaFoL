@@ -10,6 +10,7 @@ session PAC_Checker2_LLVM (AFP) = "Isabelle_LLVM" +
     "Polynomials"
     Nested_Multisets_Ordinals
     PAC_Checker_LLVM
+    BigInt_LLVM
   theories[quick_and_dirty]
     LPAC_Efficient_Checker_Synthesis
   theories
@@ -17,10 +18,18 @@ session PAC_Checker2_LLVM (AFP) = "Isabelle_LLVM" +
     LPAC_Checker_Specification
     LPAC_Checker
     LPAC_Version
+    LPAC_CodeExport
   theories [condition=ISABELLE_MLTON]
     LPAC_Checker_MLton
     LPAC_Efficient_Checker_MLton
   document_files
     "root.tex"
     "root.bib"
+
+session PAC_Checker2_Parser_Test in "parser_test" = PAC_Checker2_LLVM +
+  description \<open>Smoke test for the C-parser importers\<close>
+  options
+    [timeout = 2700]
+  theories
+    Parser_Test
 

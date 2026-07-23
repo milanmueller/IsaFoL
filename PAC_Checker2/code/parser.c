@@ -1,5 +1,9 @@
-/* pasteque.c — trusted C tokenizer/driver for the PAC checker.
+/* parser.c — trusted C tokenizer/parser for the PAC checker.
  * Author: Milan Müller - ALU Freiburg
+ *
+ * The Isabelle-facing data structures come from pasteque.h (via parser.h). This
+ * file also carries a small standalone dump driver (process_file + main), guarded
+ * by PARSER_NO_MAIN so parser.c can be reused as a library (e.g. by parser_test.c).
  */
 
 /* We implement a tokenizer for the syntax given in the paper
@@ -35,6 +39,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* The Isabelle-facing data structures (slice, term, monomial, polynomial,
+ * input, inputs, summand, summands, lc_rule, ext_rule, rule, proof) and the
+ * parser API live in parser.h, which pulls in the generated ABI header
+ * pasteque.h. Their memory layout matches the verified import functions. */
+#include "parser.h"
+
 // -- Arena allocator ---------------------------------------------------------
 // Note that with the current design, the arena would live on, next to the
 // datastructures on the Isabelle side (often lists)...
@@ -42,15 +52,13 @@
 
 #define ARENA_BLOCK_MIN (64u * 1024u)
 
-typedef struct arena_block {
+// `arena_block` is forward-declared in parser.h (opaque); `arena` is defined
+// there too. Only the block layout is private to this file.
+struct arena_block {
   struct arena_block *next;
   size_t used, cap;
   char data[];
-} arena_block;
-
-typedef struct {
-  arena_block *head; // block we are bumping from; full blocks hang off ->next
-} arena;
+};
 
 /* Prefer the ARENA_NEW macro below over calling this directly. */
 static void *arena_alloc(arena *a, size_t n, size_t size, size_t align) {
@@ -99,7 +107,7 @@ static void *arena_alloc(arena *a, size_t n, size_t size, size_t align) {
 
 #define ARENA_NEW(a, T, n) ((T *)arena_alloc((a), (n), sizeof(T), _Alignof(T)))
 
-static void arena_free(arena *a) {
+void arena_free(arena *a) {
   for (arena_block *b = a->head; b != NULL;) {
     arena_block *next = b->next;
     free(b);
@@ -109,10 +117,7 @@ static void arena_free(arena *a) {
 }
 
 // -- token type definitions -----------------------------------------------
-typedef struct {
-  const char *ptr;
-  size_t len;
-} slice;
+// `slice` comes from pasteque.h (length-first: { uint64_t len; char *ptr; }).
 
 typedef enum {
   T_EOF = 0,
@@ -139,10 +144,11 @@ static const char *kind_name(kind k) {
   return names[k];
 }
 
-typedef struct {
+// `token` is forward-declared in parser.h (opaque to callers); define it here.
+struct token {
   kind kind;
   slice content;
-} token;
+};
 
 typedef struct {
   token *data;
@@ -150,11 +156,7 @@ typedef struct {
   size_t cap;
 } token_vec;
 
-// After lexing, we shrink capacity to length
-typedef struct {
-  const token *data;
-  size_t len;
-} token_array;
+// After lexing, we shrink capacity to length; `token_array` is in parser.h.
 
 // -- Lexing ----------------------------------------------------------
 static void tv_push(token_vec *v, token t) {
@@ -173,7 +175,7 @@ static void tv_push(token_vec *v, token t) {
   v->data[v->len++] = t;
 }
 
-static token next_token(const char *buf, size_t n, size_t *pos, size_t *line) {
+static token next_token(char *buf, size_t n, size_t *pos, size_t *line) {
   while (*pos < n && isspace((unsigned char)buf[*pos])) {
     if (buf[*pos] == '\n')
       (*line)++;
@@ -188,35 +190,35 @@ static token next_token(const char *buf, size_t n, size_t *pos, size_t *line) {
   if (isdigit((unsigned char)c)) {
     while (*pos < n && isdigit((unsigned char)buf[*pos]))
       (*pos)++;
-    return (token){T_CONST, {buf + start, *pos - start}};
+    return (token){T_CONST, {.len = *pos - start, .ptr = buf + start}};
   }
 
   if (isalpha((unsigned char)c)) {
     while (*pos < n && isalnum((unsigned char)buf[*pos]))
       (*pos)++;
-    return (token){T_VAR, {buf + start, *pos - start}};
+    return (token){T_VAR, {.len = *pos - start, .ptr = buf + start}};
   }
 
   (*pos)++;
   switch (c) {
   case '*':
-    return (token){T_STAR, {buf + start, 1}};
+    return (token){T_STAR, {.len = 1, .ptr = buf + start}};
   case '+':
-    return (token){T_PLUS, {buf + start, 1}};
+    return (token){T_PLUS, {.len = 1, .ptr = buf + start}};
   case '-':
-    return (token){T_MINUS, {buf + start, 1}};
+    return (token){T_MINUS, {.len = 1, .ptr = buf + start}};
   case ',':
-    return (token){T_COMMA, {buf + start, 1}};
+    return (token){T_COMMA, {.len = 1, .ptr = buf + start}};
   case ';':
-    return (token){T_EOL, {buf + start, 1}};
+    return (token){T_EOL, {.len = 1, .ptr = buf + start}};
   case '=':
-    return (token){T_EQ, {buf + start, 1}};
+    return (token){T_EQ, {.len = 1, .ptr = buf + start}};
   case '%':
-    return (token){T_PERC, {buf + start, 1}};
+    return (token){T_PERC, {.len = 1, .ptr = buf + start}};
   case '(':
-    return (token){T_LPAREN, {buf + start, 1}};
+    return (token){T_LPAREN, {.len = 1, .ptr = buf + start}};
   case ')':
-    return (token){T_RPAREN, {buf + start, 1}};
+    return (token){T_RPAREN, {.len = 1, .ptr = buf + start}};
   default:
     fprintf(stderr, "[ERROR]: Unexpected '%c' on line '%zu'\n", c, *line);
     exit(1);
@@ -236,89 +238,15 @@ static token_array tv_freeze(token_vec *v) {
 }
 
 // -- Isabelle facing types ----------------------------------------------
-
-// BASICs
-
-typedef struct {
-  const slice *vars_ptr;
-  size_t num_vars;
-} term;
-
-typedef struct {
-  // Note that the grammar allows monomials without coefficients
-  // In this case we manually set the coefficient to 1 as we will
-  // Always have a coefficient on the Isabelle side.
-  slice coeff;
-  bool neg;
-  term vars; // Possibly empty
-} monomial;
-
-typedef struct {
-  const monomial *mnmls_ptr;
-  size_t num_mnmls;
-} polynomial;
-
-// INPUTS / SPEC
-
-typedef struct {
-  uint64_t idx;
-  polynomial poly;
-} input;
-
-typedef struct {
-  input *inputs;
-  size_t num_inputs;
-} inputs;
-
-// PROOF
-
-typedef struct {
-  polynomial *poly_ptr; // Might be NULL
-  uint64_t idx;
-} summand;
-
-typedef struct {
-  uint64_t target_idx;
-  summand *summands;
-  size_t num_summands;
-  polynomial res;
-} lc_rule;
-
-typedef struct {
-  uint64_t idx;
-} del_rule;
-
-typedef struct {
-  uint64_t idx;
-  slice var;
-  polynomial poly;
-} ext_rule;
-
-typedef enum {
-  S_LINCOM = 0,
-  S_DEL,
-  S_EXT,
-} rule_type;
-
-typedef struct {
-  rule_type typ;
-  union {
-    lc_rule lc;
-    del_rule del;
-    ext_rule ext;
-  };
-} rule;
-
-typedef struct {
-  rule *rules_ptr;
-  size_t num_rules;
-} proof;
-
-// -- TARGET --
-
-typedef struct {
-  polynomial poly;
-} target;
+//
+// slice, term, monomial, polynomial, input, inputs, summand, summands,
+// lc_rule, ext_rule, rule, proof come from the generated ABI header pasteque.h
+// (via parser.h); rule_type and target come from parser.h. A few layout notes
+// carried over from the hand-written definitions that used to live here:
+//   * monomial has an implicit coefficient of 1 when the grammar drops it, and
+//     wraps { neg; vars } in an anonymous struct (pasteque.h);
+//   * lc_rule embeds a `summands` struct { num_summands; summands_ptr };
+//   * the rule union is a named member `u`, and its del arm is a bare uint64_t.
 
 // -- Parsing ------------------------------------------------------------
 
@@ -404,7 +332,7 @@ static term parse_term(arena *a, const token_array *ta, size_t *pos,
     vars[i] = ta->data[start + 2 * i].content;
 
   *pos = p;
-  return (term){vars, num_vars};
+  return (term){.num_vars = num_vars, .vars_ptr = vars};
 }
 
 // monomial ::= constant | [ constant '*' ] term
@@ -412,8 +340,9 @@ static term parse_term(arena *a, const token_array *ta, size_t *pos,
 static monomial parse_monomial(arena *a, const token_array *ta, size_t *pos,
                                size_t end) {
   static const char one[] = "1";
-  slice coeff = {one, 1}; // the grammar allows dropping a coefficient of 1,
-                          // but the Isabelle side always wants one
+  // the grammar allows dropping a coefficient of 1, but the Isabelle side
+  // always wants one (read-only, so casting away const on the literal is safe)
+  slice coeff = {.len = 1, .ptr = (char *)one};
 
   if (*pos >= end)
     die_unexpected(ta, *pos, "a monomial");
@@ -422,10 +351,14 @@ static monomial parse_monomial(arena *a, const token_array *ta, size_t *pos,
     coeff = ta->data[*pos].content;
     (*pos)++;
     if (*pos >= end || ta->data[*pos].kind != T_STAR)
-      return (monomial){coeff, false, (term){NULL, 0}}; // bare constant
-    (*pos)++;                                           // consume the '*'
+      return (monomial){
+          .coeff = coeff,
+          .neg = false,
+          .vars = (term){.num_vars = 0, .vars_ptr = NULL}}; // bare constant
+    (*pos)++;                                               // consume the '*'
   }
-  return (monomial){coeff, false, parse_term(a, ta, pos, end)};
+  return (monomial){
+      .coeff = coeff, .neg = false, .vars = parse_term(a, ta, pos, end)};
 }
 
 static polynomial parse_polynomial(arena *a, const token_array *ta,
@@ -463,7 +396,7 @@ static polynomial parse_polynomial(arena *a, const token_array *ta,
     }
     (*pos)++;
   }
-  return (polynomial){mnmls, num_mnmls};
+  return (polynomial){.num_mnmls = num_mnmls, .mnmls_ptr = mnmls};
 }
 
 // input ::= id poly ';'
@@ -479,7 +412,7 @@ static input parse_input(arena *a, const token_array *ta, size_t *pos) {
     die_unexpected(ta, *pos, "';'");
   (*pos)++;
 
-  return (input){idx, poly};
+  return (input){.idx = idx, .poly = poly};
 }
 
 /* inputs ::= (id poly ';')*
@@ -488,7 +421,7 @@ static input parse_input(arena *a, const token_array *ta, size_t *pos) {
  * rather than looping `num_inputs` times: an unterminated final input then
  * fails inside parse_input pointing at the missing ';', instead of silently
  * not being parsed and being reported as trailing garbage. */
-static inputs parse_inputs(arena *a, const token_array *ta) {
+inputs parse_inputs(arena *a, const token_array *ta) {
   size_t num_inputs = 0;
   for (size_t i = 0; i < ta->len; i++)
     if (ta->data[i].kind == T_EOL)
@@ -503,7 +436,7 @@ static inputs parse_inputs(arena *a, const token_array *ta) {
   }
   assert(i == num_inputs);
 
-  return (inputs){arr, num_inputs};
+  return (inputs){.num_inputs = num_inputs, .inputs = arr};
 }
 
 // summand ::= id [ '*' '(' poly ')' ]
@@ -514,7 +447,8 @@ static summand parse_summand(arena *a, const token_array *ta, size_t *pos) {
   (*pos)++;
 
   if (*pos >= ta->len || ta->data[*pos].kind != T_STAR)
-    return (summand){NULL, idx}; // no coefficient: an implicit factor of 1
+    return (summand){.poly_ptr = NULL,
+                     .idx = idx}; // no coefficient: an implicit factor of 1
   (*pos)++;
 
   if (*pos >= ta->len || ta->data[*pos].kind != T_LPAREN)
@@ -528,7 +462,7 @@ static summand parse_summand(arena *a, const token_array *ta, size_t *pos) {
     die_unexpected(ta, *pos, "')'");
   (*pos)++;
 
-  return (summand){poly, idx};
+  return (summand){.poly_ptr = poly, .idx = idx};
 }
 
 /* The '+' separating two summands and the '+' inside a coefficient poly such as
@@ -570,11 +504,11 @@ static size_t count_summands(const token_array *ta, size_t pos) {
 static lc_rule parse_lc_rule(arena *a, const token_array *ta, size_t *pos,
                              uint64_t idx) {
   size_t num_summands = count_summands(ta, *pos);
-  summand *summands = ARENA_NEW(a, summand, num_summands);
+  summand *smds = ARENA_NEW(a, summand, num_summands);
 
   for (size_t i = 0;; i++) {
     assert(i < num_summands);
-    summands[i] = parse_summand(a, ta, pos);
+    smds[i] = parse_summand(a, ta, pos);
     if (*pos >= ta->len || ta->data[*pos].kind != T_PLUS) {
       assert(i + 1 ==
              num_summands); // count_summands agrees with what we parsed
@@ -593,7 +527,10 @@ static lc_rule parse_lc_rule(arena *a, const token_array *ta, size_t *pos,
     die_unexpected(ta, *pos, "';'");
   (*pos)++;
 
-  return (lc_rule){idx, summands, num_summands, res};
+  return (lc_rule){.target_idx = idx,
+                   .summands = (summands){.num_summands = num_summands,
+                                          .summands_ptr = smds},
+                   .res = res};
 }
 
 // ext rule ::= id '=' variable ',' poly ';'
@@ -615,7 +552,7 @@ static ext_rule parse_ext_rule(arena *a, const token_array *ta, size_t *pos,
     die_unexpected(ta, *pos, "';'");
   (*pos)++;
 
-  return (ext_rule){idx, var, poly};
+  return (ext_rule){.idx = idx, .var = var, .poly = poly};
 }
 
 // rule ::= lin_com_rule | del rule | ext rule — all three start with an id
@@ -631,10 +568,10 @@ static rule parse_rule(arena *a, const token_array *ta, size_t *pos) {
   switch (ta->data[*pos].kind) {
   case T_PERC:
     (*pos)++;
-    return (rule){.typ = S_LINCOM, .lc = parse_lc_rule(a, ta, pos, idx)};
+    return (rule){.typ = S_LINCOM, .u.lc = parse_lc_rule(a, ta, pos, idx)};
   case T_EQ:
     (*pos)++;
-    return (rule){.typ = S_EXT, .ext = parse_ext_rule(a, ta, pos, idx)};
+    return (rule){.typ = S_EXT, .u.ext = parse_ext_rule(a, ta, pos, idx)};
   case T_VAR: {
     // 'd' is not a keyword to the lexer, so it arrives as a one-letter variable
     slice s = ta->data[*pos].content;
@@ -644,7 +581,7 @@ static rule parse_rule(arena *a, const token_array *ta, size_t *pos) {
     if (*pos >= ta->len || ta->data[*pos].kind != T_EOL)
       die_unexpected(ta, *pos, "';'");
     (*pos)++;
-    return (rule){.typ = S_DEL, .del = (del_rule){idx}};
+    return (rule){.typ = S_DEL, .u.del = idx}; // del arm is a bare uint64_t
   }
   default:
     die_unexpected(ta, *pos, "'%', 'd' or '='");
@@ -655,7 +592,7 @@ static rule parse_rule(arena *a, const token_array *ta, size_t *pos) {
  * Each rule ends in exactly one ';' and no rule contains another, so the number
  * of rules is the number of ';' — the same counting argument as parse_inputs.
  * The ';' inside a coefficient poly is impossible: those are paren-delimited. */
-static proof parse_proof(arena *a, const token_array *ta) {
+proof parse_proof(arena *a, const token_array *ta) {
   size_t num_rules = 0;
   for (size_t i = 0; i < ta->len; i++)
     if (ta->data[i].kind == T_EOL)
@@ -670,11 +607,11 @@ static proof parse_proof(arena *a, const token_array *ta) {
   }
   assert(i == num_rules);
 
-  return (proof){arr, num_rules};
+  return (proof){.num_rules = num_rules, .rules_ptr = arr};
 }
 
 // target ::= poly ';' — the whole file is one polynomial
-static target parse_target(arena *a, const token_array *ta) {
+target parse_target(arena *a, const token_array *ta) {
   size_t pos = 0;
   polynomial poly = parse_polynomial(a, ta, &pos);
 
@@ -685,7 +622,7 @@ static target parse_target(arena *a, const token_array *ta) {
   if (pos < ta->len && ta->data[pos].kind != T_EOF)
     die_unexpected(ta, pos, "end of file after the target polynomial");
 
-  return (target){poly};
+  return (target){.poly = poly};
 }
 
 // -- IO ----------------------------------------------------------------------
@@ -722,7 +659,7 @@ static char *read_file(const char *path, size_t *out_len) {
 /* ONLY for debugging - TODO: remove
  * Prints back in input syntax, so that `pasteque f.input` reproduces f.input
  * verbatim and the parser can be checked by diffing. */
-static void dump_polynomial(const polynomial *p) {
+void dump_polynomial(const polynomial *p) {
   for (size_t i = 0; i < p->num_mnmls; i++) {
     const monomial *m = &p->mnmls_ptr[i];
     if (m->neg)
@@ -743,12 +680,12 @@ static void dump_polynomial(const polynomial *p) {
 }
 
 /* ONLY for debugging - TODO: remove */
-static void dump_rule(const rule *r) {
+void dump_rule(const rule *r) {
   switch (r->typ) {
   case S_LINCOM:
-    printf("%" PRIu64 " %% ", r->lc.target_idx);
-    for (size_t i = 0; i < r->lc.num_summands; i++) {
-      const summand *s = &r->lc.summands[i];
+    printf("%" PRIu64 " %% ", r->u.lc.target_idx);
+    for (size_t i = 0; i < r->u.lc.summands.num_summands; i++) {
+      const summand *s = &r->u.lc.summands.summands_ptr[i];
       if (i > 0)
         printf(" + ");
       printf("%" PRIu64, s->idx);
@@ -759,16 +696,16 @@ static void dump_rule(const rule *r) {
       }
     }
     printf(", ");
-    dump_polynomial(&r->lc.res);
+    dump_polynomial(&r->u.lc.res);
     printf(";\n");
     break;
   case S_DEL:
-    printf("%" PRIu64 " d;\n", r->del.idx);
+    printf("%" PRIu64 " d;\n", r->u.del);
     break;
   case S_EXT:
-    printf("%" PRIu64 " = %.*s, ", r->ext.idx, (int)r->ext.var.len,
-           r->ext.var.ptr);
-    dump_polynomial(&r->ext.poly);
+    printf("%" PRIu64 " = %.*s, ", r->u.ext.idx, (int)r->u.ext.var.len,
+           r->u.ext.var.ptr);
+    dump_polynomial(&r->u.ext.poly);
     printf(";\n");
     break;
   }
@@ -776,7 +713,7 @@ static void dump_rule(const rule *r) {
 
 /* Read a file and tokenize it. On success the caller owns both *buf_out (the
  * text the token slices point into) and ta_out->data. */
-static int lex_file(const char *path, char **buf_out, token_array *ta_out) {
+int lex_file(const char *path, char **buf_out, token_array *ta_out) {
   size_t n = 0;
   char *buf = read_file(path, &n);
   if (buf == NULL)
@@ -797,6 +734,10 @@ static int lex_file(const char *path, char **buf_out, token_array *ta_out) {
   return 0;
 }
 
+/* The standalone dump driver below (process_file + main) is compiled only when
+ * parser.c is built as its own program. When parser.c is reused as a library
+ * (e.g. by parser_test.c), define PARSER_NO_MAIN to drop it. */
+#ifndef PARSER_NO_MAIN
 static int process_file(const char *path, file_type typ) {
   char *buf = NULL;
   token_array ta = {0};
@@ -850,3 +791,4 @@ int main(int argc, char **argv) {
     return 1;
   return 0;
 }
+#endif /* PARSER_NO_MAIN */

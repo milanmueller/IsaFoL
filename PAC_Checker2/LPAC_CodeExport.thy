@@ -432,6 +432,6 @@ export_llvm
     typedef struct {int32_t typ; union {lc_rule lc; uint64_t del; ext_rule ext;} u;} rule;
     typedef struct {uint64_t num_rules; rule *rules_ptr;} proof;
   \<close>
-  file "/tmp/pasteque_interface.ll"
+  file "./code/pasteque.ll"
 
 end
