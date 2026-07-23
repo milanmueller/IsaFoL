@@ -143,6 +143,126 @@ type_synonym c_proof = \<open>64 word \<times> c_rule ptr\<close>
 \<comment> \<open>TARGET: \<open>target = {polynomial poly}\<close>; single-field struct collapses to its field\<close>
 type_synonym c_target = \<open>c_polynomial\<close>
 
+section \<open>Import functions\<close>
+
+subsection \<open>Generic Array to Open List Conversion\<close>
+
+text \<open>We use lists to represent strings (and thus variables) and polynomials.
+  From the c-parser, they are given as arrays, so we need conversion functions.
+  On the HOL level, these functions are essentially trivial list-copy implementations.
+  The important point is that on the array side, they use the `ith` operation while on
+  list side we use cons (which we have implemented for open lists and owning lists...)
+\<close>
+
+text \<open>We define a synonym for `id` to indicate Array to list conversion on the HOL level.
+  Similarly to how we can use `COPY` on the HOL side to enforce copying of structures.\<close>
+definition \<open>ARR2LS = (id :: 'a list \<Rightarrow> 'a list)\<close>
+
+lemma arr2ls_refine: \<open>(\<lambda>x. RETURN x, RETURN o ARR2LS) \<in> Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  apply (intro frefI nres_relI)
+  unfolding ARR2LS_def
+  by auto
+
+definition arr_to_list :: \<open>'a list \<Rightarrow> 'a list nres\<close> where
+  \<open>arr_to_list arr = doN{
+    ASSERT(length arr < max_snat 64);
+    let l = length arr;
+    (ls, _) \<leftarrow> WHILEIT
+      (\<lambda>(ls, i). i \<le> length arr \<and> ls = drop (l-i) arr)
+      (\<lambda>(_, i). i < length arr)
+      (\<lambda>(ls, i). doN {
+        ASSERT(i < length arr);
+        RETURN(arr!(l-i-1) # ls, i+1)
+      })
+      ([], 0);
+    RETURN ls
+  }\<close>
+
+lemma arr_to_list_correct:
+    shows \<open>(arr_to_list, \<lambda>x. RETURN x) \<in> [\<lambda> arr. length arr < max_snat 64]\<^sub>f Id \<rightarrow> \<langle>Id\<rangle>nres_rel\<close>
+  apply (intro frefI nres_relI)
+  subgoal for x y
+    unfolding arr_to_list_def
+    apply (refine_vcg WHILEIT_rule[where R="measure (\<lambda>(_, i). length x - i)"])
+    apply clarsimp_all
+    subgoal by (metis drop_minus rev_nth)
+    subgoal by linarith
+    done
+  done
+
+lemmas arr_to_list_refine = arr_to_list_correct[FCOMP arr2ls_refine]
+
+context
+  fixes A :: \<open>'a \<Rightarrow> 'b::llvm_rep \<Rightarrow> assn\<close>
+    and Afree :: \<open>'b \<Rightarrow> unit llM\<close>
+  assumes A_pure[safe_constraint_rules]: \<open>is_pure A\<close>
+  assumes [sepref_frame_free_rules]: \<open>MK_FREE A Afree\<close>
+begin
+
+sepref_definition parr_to_list_impl is \<open>arr_to_list\<close>
+  :: \<open>(larray_assn' size_t A)\<^sup>k \<rightarrow>\<^sub>a (os_assn A)\<close>
+  unfolding arr_to_list_def
+  apply (annot_snat_const size_t)
+  by sepref
+
+lemmas ARR2LS_hnr = 
+  parr_to_list_impl.refine[FCOMP arr_to_list_refine]
+
+end
+
+subsection \<open>Primitive importers\<close>
+
+text \<open>Here we now use our array \<rightarrow> list conversion to import slices into strings/big numbers.
+  We do some trickery to get high level HOL functions here, so we can potentially verify
+  correctness at some point without having to resort to low-level vcg proofs.\<close>
+
+definition slice_to_str :: \<open>char list \<Rightarrow> char list\<close>
+  where \<open>slice_to_str \<equiv> ARR2LS\<close>
+
+abbreviation \<open>stra_assn \<equiv> larray_assn' size_t char_assn\<close>
+lemmas stra_ARR2LS_hnr = ARR2LS_hnr[OF char_assn_pure]
+
+text \<open>Note that `c_slice = \<open>64 word \<times> 8 word ptr\<close>`, i.e. `c_slice` is a list of characters.
+  In particular, `c_slice` is a refinment target given by `stra_assn`.\<close>
+sepref_def slice_to_str_impl is \<open>RETURN o slice_to_str\<close>
+  :: \<open>stra_assn\<^sup>k \<rightarrow>\<^sub>a strl_assn\<close>
+  unfolding slice_to_str_def 
+  supply [sepref_fr_rules] = stra_ARR2LS_hnr
+  by sepref
+
+definition slice_to_big_int :: \<open>8 word list \<Rightarrow> int nres\<close> where
+  \<open>slice_to_big_int s \<equiv> if length s = 0 then RETURN 0 else str_to_int s\<close>
+
+(* TODO: fix string parsing for `char list` on high level - then we don't
+ * have to do `word_assn` vs `char_assn` gymnastics anymore *)
+abbreviation \<open>strac_assn \<equiv> larray_assn' size_t (word_assn' TYPE(8))\<close>
+
+sepref_register \<open>str_to_int\<close>
+sepref_def slice_to_big_int_impl is \<open>slice_to_big_int\<close>
+  :: \<open>strac_assn\<^sup>k \<rightarrow>\<^sub>a sbi_assn\<close>
+  unfolding slice_to_big_int_def 
+  apply (annot_snat_const size_t)
+  by sepref
+
+subsection \<open>Importing Nested Arrays\<close>
+
+text \<open>The c-facing interface types defined above, e.g. @{term \<open>c_term\<close>} or @{term \<open>c_inputs\<close>}
+  are essentially nested arrays. This is a bit more tricky to import, since now we can not
+  use Open List (with pure elements) anymore, but have to use Owning List.\<close>
+
+context
+  fixes A :: \<open>'a \<Rightarrow> 'b::llvm_rep \<Rightarrow> assn\<close>
+    and Afree :: \<open>'b \<Rightarrow> unit llM\<close>
+  assumes [sepref_frame_free_rules]: \<open>MK_FREE A Afree\<close>
+begin
+
+term woarray_assn
+sepref_definition iarr_to_olist_impl is \<open>arr_to_list\<close>
+  :: \<open>(woarray_assn A)\<^sup>d \<rightarrow>\<^sub>a ol_assn A\<close>
+  oops
+  
+
+end
 
 section \<open>Exported C header\<close>
 
@@ -180,29 +300,6 @@ export_llvm
 
 section \<open>Importing the C-Parsed Structures\<close>
 
-text \<open>Trusted (unverified) glue between the C parser and the verified checker:
-  walk the C-facing structs defined above and build
-  the checker's owned input structures through the \<^emph>\<open>verified\<close> leaf converters
-  and structure builders. Only the pointer chasing and array loops in this theory
-  are trusted; every value conversion and every allocation happens in verified
-  code (\<open>larr_to_os_copy\<close>, \<open>int_of_bytes_impl\<close>, \<open>poly_one_impl\<close>, \<open>os_prepend\<close>,
-  \<open>CL_impl\<close>/\<open>Extension_impl\<close>/\<open>Del_impl\<close>).
-
-  \<^bold>\<open>C-side contract\<close> (checked by the C parser, assumed here):
-
-  \<^item> Arrays are \<open>(len, ptr)\<close> pairs (\<open>larray\<close> layout), \<open>len < 2^63\<close> (\<open>snat\<close>), and
-    \<open>ptr = NULL\<close> iff \<open>len = 0\<close>.
-  \<^item> Coefficient slices are nonempty ASCII digit strings, most-significant digit
-    first, without sign (the \<open>neg\<close> flag is separate); an implicit coefficient of
-    \<open>1\<close> is materialized by the parser.
-  \<^item> \<open>summand.poly_ptr\<close> may be \<open>NULL\<close>, denoting an implicit factor of \<open>1\<close>.
-  \<^item> Rule tags follow the C \<open>rule_type\<close> enum: \<open>S_LINCOM = 0\<close>, \<open>S_DEL = 1\<close>,
-    \<open>S_EXT = 2\<close>. These are \<^emph>\<open>translated\<close> (never copied) into the
-    \<open>pac_step_assn\<close> tags \<open>CL = 0\<close>, \<open>Extension = 1\<close>, \<open>Del = 2\<close>.
-  \<^item> Ids fit in \<open>u64\<close> and are range-checked in C.
-  \<^item> All C structs are borrowed: this theory never frees C memory; C frees its
-    buffers after the checker entry point returns.\<close>
-
 subsection \<open>Concrete Type Abbreviations\<close>
 
 type_synonym mnml_conc = \<open>monom_conc \<times> sbin_conc \<times> 1 word\<close>
@@ -213,19 +310,10 @@ type_synonym step_conc = \<open>(poly_conc, strl_conc) pac_step_impl\<close>
 
 subsection \<open>Leaf Imports\<close>
 
-text \<open>A C \<open>slice\<close> \<^emph>\<open>is\<close> a byte \<open>larray\<close>; the verified keep-mode copy converts it
-  into an owned string (open char list).\<close>
-
-definition imp_string :: \<open>c_slice \<Rightarrow> strl_conc llM\<close> where [llvm_code]:
-  \<open>imp_string s \<equiv> larr_to_os_copy s\<close>
-
-text \<open>Coefficient: digit slice + neg byte \<open>\<rightarrow>\<close> signed big int (verified parse).\<close>
-
-definition imp_coeff :: \<open>c_slice \<Rightarrow> 8 word \<Rightarrow> sbi_conc llM\<close> where [llvm_code]:
-  \<open>imp_coeff s neg \<equiv> doM {
-     nb \<leftarrow> ll_icmp_ne neg 0;
-     int_of_bytes_impl s nb
-   }\<close>
+definition imp_term :: \<open>c_term \<Rightarrow> monom_conc\<close> where
+  \<open>imp_term (lt, slp) \<equiv> doN {
+  
+  }\<close>
 
 subsection \<open>Structure Walks\<close>
 

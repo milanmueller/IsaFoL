@@ -47,15 +47,6 @@ text \<open>First, we have to implement division by 10 for our limbs.
   TODO: Mihai Spinei is also working on division I think, we might at some point
   want to merge efforts...\<close>
 
-text \<open>\<^bold>\<open>Divide-two-limbs-by-one primitive.\<close> Given a high limb \<open>hi\<close> (a remainder, so
-  \<open>unat hi < unat d\<close>) and a low limb \<open>lo\<close>, this returns the quotient digit and remainder of
-  \<open>hi * 2\<^sup>6\<^sup>4 + lo\<close> divided by \<open>d\<close>. We express it directly on the \<^emph>\<open>nat\<close> values: the
-  precondition \<open>unat hi < unat d\<close> guarantees that both results fit in a single limb, so the
-  \<^const>\<open>nat_limb\<close> (\<^const>\<open>word_of_nat\<close>) truncation is exact.
-
-  This isolates the only genuinely 128-bit part of the algorithm: refining \<open>divmod2by1\<close>
-  into a concrete \<^const>\<open>word_cat\<close> / 128-bit \<open>div\<close>/\<open>mod\<close> implementation is a separate,
-  self-contained step (the \<open>word_cat\<close> refinement noted in the old code).\<close>
 definition divmod2by1 :: \<open>limb \<Rightarrow> limb \<Rightarrow> limb \<Rightarrow> (limb \<times> limb) nres\<close> where
   \<open>divmod2by1 hi lo d \<equiv> doN {
     ASSERT (0 < unat d \<and> unat hi < unat d);
@@ -95,22 +86,9 @@ proof -
     by (simp add: nat_limb_def uno_simps(1))
 qed
 
-text \<open>The final normalisation step removes trailing zero limbs to restore \<^const>\<open>big_int_invar\<close>
-  without changing the value: the long-division loop below produces a quotient array of the full
-  input length whose most significant limbs may be zero. We reuse the existing \<^const>\<open>big_int_trim\<close>
-  (from theory \<open>BigInt\<close>) and its \<open>big_int_trim_correct\<close>.\<close>
-
 (* I don't know how to instanciate divmod to nat... *)
 definition \<open>divmod_nat \<equiv> \<lambda>(a::nat) (b::nat). (a div b, a mod b)\<close>
 
-text \<open>Schoolbook long division of a big integer by a single limb. The limb list is
-  little-endian (index \<open>0\<close> is least significant), so we process limbs from the most
-  significant (\<open>length bi - 1\<close>) down to the least significant. The loop variable \<open>i\<close> counts
-  \<^emph>\<open>down\<close> from \<open>length bi\<close> and each iteration handles limb \<open>i - 1\<close>; hence \<^emph>\<open>every\<close> limb is
-  processed (the old \<open>i > 0\<close> guard on an up-to-date index skipped limb \<open>0\<close>).
-
-  Requires a non-zero divisor: for \<open>l = 0\<close> the abstract result \<open>a mod 0 = a\<close> need not fit in
-  a limb.\<close>
 definition bi_div_by_w64 :: \<open>big_int \<Rightarrow> limb \<Rightarrow> (big_int \<times> limb) nres\<close> where
   \<open>bi_div_by_w64 bi l \<equiv> doN {
     ASSERT (0 < unat l);
@@ -132,10 +110,6 @@ definition bi_div_by_w64 :: \<open>big_int \<Rightarrow> limb \<Rightarrow> (big
     RETURN (q, r)
   }\<close>
 
-text \<open>Correctness of the long-division loop step (quotient-digit / remainder bookkeeping),
-  extracted so the arithmetic is checked once. Let \<open>H\<close> be the value of the already-processed
-  high suffix \<open>drop i bi\<close> and \<open>d0\<close> the incoming limb; then the new remainder and the new most
-  significant quotient digit satisfy the div/mod relations for \<open>drop (i-1) bi\<close>.\<close>
 lemma div_step_mod:
   fixes H d0 l :: nat
   shows \<open>(d0 + limb_sz * H) mod l = ((H mod l) * limb_sz + d0) mod l\<close>
@@ -153,10 +127,6 @@ proof -
     nat_arith.rule0)
 qed
 
-text \<open>The quotient-digit bookkeeping of one loop iteration: writing the freshly computed digit
-  \<open>ab\<close> into position \<open>i - 1\<close> of the quotient array extends the div-relation from the suffix
-  \<open>drop i\<close> to \<open>drop (i - 1)\<close>. This is the counterpart of \<open>div_step_mod\<close> for the remainder,
-  and the one place where the array update is reasoned about.\<close>
 lemma div_digit_step:
   fixes q bi :: big_int and ab :: limb and i l :: nat
   assumes i_pos: \<open>0 < i\<close> and i_le: \<open>i \<le> length bi\<close> and len_q: \<open>length q = length bi\<close>
@@ -233,9 +203,6 @@ section \<open>LLVM Synthesis\<close>
 
 subsection \<open>The 128-bit divide-two-by-one primitive\<close>
 
-text \<open>Concrete word-level realisation of \<^const>\<open>divmod2by1\<close>: the dividend \<open>hi * 2\<^sup>6\<^sup>4 + lo\<close> is
-  formed as a genuine 128-bit value (\<^const>\<open>word_cat\<close>, expressed via shift-and-add so it maps to
-  LLVM ops), divided by the zero-extended divisor, and both results truncated back to a limb.\<close>
 definition divmod2by1_word :: \<open>limb \<Rightarrow> limb \<Rightarrow> limb \<Rightarrow> (limb \<times> limb)\<close> where
   \<open>divmod2by1_word hi lo d \<equiv>
      let cur = (extend hi << limb_wd) + extend lo; dd = extend d
@@ -243,8 +210,6 @@ definition divmod2by1_word :: \<open>limb \<Rightarrow> limb \<Rightarrow> limb 
 
 lemma extend_unat[simp]: \<open>unat (extend x) = unat x\<close>
 proof -
-  \<comment> \<open>\<open>unat_ucast\<close> reduces to \<open>unat x mod 2 ^ LENGTH(double\<^sub>w)\<close>; the modulus is a no-op only
-      because \<open>x\<close> is a 64-bit word, i.e. \<open>unat x < 2 ^ 64 \<le> 2 ^ 128\<close>.\<close>
   have b: \<open>unat x < 2 ^ LENGTH(double\<^sub>w)\<close>
     by (rule order_less_le_trans[OF unat_lt2p]) simp
   show ?thesis
@@ -737,9 +702,6 @@ definition int_of_str :: \<open>str \<Rightarrow> int\<close> where
     [] \<Rightarrow> undefined
   | (c # cs) \<Rightarrow> (if c = char_hyphen then -int (str_val cs) else int (str_val ss))
   \<close>
-text \<open>In the negative case we require a non-zero magnitude: without this, \<open>"-0"\<close> would be a
-  valid integer string with value \<open>0\<close>, breaking the correspondence between the leading hyphen
-  and strict negativity (\<open>ascii_prefix_sign\<close> below).\<close>
 definition is_ascii_int :: \<open>str \<Rightarrow> bool\<close> where
   \<open>is_ascii_int ss \<equiv> case ss of
     [] \<Rightarrow> False
@@ -908,16 +870,9 @@ proof -
   qed
 qed
 
-
-
 section \<open>Decimal Byte Strings to Integers\<close>
 
-text \<open>The input direction of the decimal conversions: parse a buffer of ASCII digit
-  bytes (most-significant digit first) plus a sign flag into an integer, refined
-  through \<open>sbi_assn\<close>. This is the counterpart of the printing pipeline above, but
-  needs none of the string machinery \<emdash> its input is a borrowed byte array
-  (\<open>larray_assn' TYPE(64) id_assn\<close>, the shape a C \<open>slice\<close> casts to), not an
-  open-list string.\<close>
+text \<open>With bigint \<rightarrow> String in place, we now want to go the other direction of string \<rightarrow> big_int\<close>
 
 definition byte_val :: \<open>8 word \<Rightarrow> nat\<close> where
   \<open>byte_val b \<equiv> unat b - 48\<close>
@@ -933,8 +888,9 @@ lemma bytes_dec_val_snoc: \<open>bytes_dec_val (xs @ [b]) = 10 * bytes_dec_val x
 
 subsection \<open>Abstract Parser\<close>
 
-definition int_of_bytes :: \<open>8 word list \<Rightarrow> bool \<Rightarrow> int nres\<close> where
-  \<open>int_of_bytes bs neg = do {
+
+definition int_of_bytes :: \<open>8 word list \<Rightarrow> nat \<Rightarrow> bool \<Rightarrow> int nres\<close> where
+  \<open>int_of_bytes bs i\<^sub>0 neg = doN {
      ASSERT (length bs < max_snat 64);
      (_, acc) \<leftarrow> WHILE\<^sub>T
        (\<lambda>(i, acc). i < length bs)
@@ -942,32 +898,39 @@ definition int_of_bytes :: \<open>8 word list \<Rightarrow> bool \<Rightarrow> i
           ASSERT (i < length bs);
           ASSERT (48 \<le> unat (bs ! i));
           RETURN (i + 1, acc * of_nat 10 + of_nat (byte_val (bs ! i)))
-        }) (0, 0 :: int);
+        }) (i\<^sub>0, 0);
      RETURN (if neg then - acc else acc)
    }\<close>
 
 lemma int_of_bytes_correct:
-  assumes D: \<open>\<forall>b \<in> set bs. 48 \<le> unat b\<close> and L: \<open>length bs < max_snat 64\<close>
-  shows \<open>int_of_bytes bs neg \<le> RETURN ((if neg then -1 else 1) * int (bytes_dec_val bs))\<close>
+  assumes D: \<open>\<forall>b \<in> set bs. 48 \<le> unat b\<close> and L: \<open>length bs < max_snat 64\<close> and I\<^sub>0: \<open>i\<^sub>0 < length bs\<close>
+  shows \<open>int_of_bytes bs i\<^sub>0 neg \<le> RETURN ((if neg then -1 else 1) * int (bytes_dec_val (drop i\<^sub>0 bs)))\<close>
 proof -
-  have step: \<open>bytes_dec_val (take (Suc i) bs) = 10 * bytes_dec_val (take i bs) + byte_val (bs ! i)\<close>
-    if \<open>i < length bs\<close> for i
+  have step: \<open>bytes_dec_val (take (Suc j) cs) = 10 * bytes_dec_val (take j cs) + byte_val (cs ! j)\<close>
+    if \<open>j < length cs\<close> for j and cs :: \<open>8 word list\<close>
     using that by (simp add: take_Suc_conv_app_nth bytes_dec_val_snoc)
+  have dstep: \<open>int (bytes_dec_val (take (Suc i - i⇩0) (drop i⇩0 bs)))
+                = 10 * int (bytes_dec_val (take (i - i⇩0) (drop i⇩0 bs))) + int (byte_val (bs ! i))\<close>
+    if ii: \<open>i⇩0 \<le> i\<close> and il: \<open>i < length bs\<close> for i
+  proof -
+    have jl: \<open>i - i⇩0 < length (drop i⇩0 bs)\<close> using ii il by simp
+    have \<open>bytes_dec_val (take (Suc (i - i⇩0)) (drop i⇩0 bs))
+           = 10 * bytes_dec_val (take (i - i⇩0) (drop i⇩0 bs)) + byte_val (bs ! i)\<close>
+      using step[OF jl] ii il by simp
+    then show ?thesis
+      using ii by (simp add: Suc_diff_le)
+  qed  
   show ?thesis
+
     unfolding int_of_bytes_def
-    apply (refine_vcg WHILET_rule[where
-      I = \<open>\<lambda>(i, acc). i \<le> length bs \<and> acc = int (bytes_dec_val (take i bs))\<close> and
-      R = \<open>measure (\<lambda>(i, _). length bs - i)\<close>])
-    apply (auto simp: L D[THEN bspec] step bytes_dec_val_Nil algebra_simps)
-    done
+      apply (refine_vcg WHILET_rule[where
+        I = \<open>\<lambda>(i, acc). i⇩0 \<le> i \<and> i \<le> length bs
+                         \<and> acc = int (bytes_dec_val (take (i - i⇩0) (drop i⇩0 bs)))\<close> and
+        R = \<open>measure (\<lambda>(i, _). length bs - i)\<close>])
+      using I\<^sub>0
+      apply (auto simp: L D[THEN bspec] dstep bytes_dec_val_Nil algebra_simps)
+      done
 qed
-
-subsection \<open>Digit Extraction Implementation\<close>
-
-text \<open>\<open>byte_val\<close> as LLVM code: zero-extend the byte to 64 bit, subtract the ASCII
-  offset. The precondition \<open>48 \<le> unat b\<close> makes the word subtraction agree with the
-  truncating nat subtraction; the result is trivially \<open>msb\<close>-free, so it refines a
-  \<open>snat\<close>-encoded nat.\<close>
 
 definition byte_digit_impl :: \<open>8 word \<Rightarrow> 64 word llM\<close> where [llvm_code]:
   \<open>byte_digit_impl b \<equiv> doM { w \<leftarrow> ll_zext b TYPE(64 word); ll_sub w 48 }\<close>
@@ -980,8 +943,6 @@ lemma byte_digit_impl_rule:
   supply [simp] = is_up'
   by vcg
 end
-
-sepref_register byte_val
 
 lemma byte_val_hnr[sepref_fr_rules]:
   \<open>(byte_digit_impl, RETURN o byte_val) \<in> [\<lambda>b. 48 \<le> unat b]\<^sub>a id_assn\<^sup>k \<rightarrow> snat_assn' TYPE(64)\<close>
@@ -1014,15 +975,22 @@ proof -
     done
 qed
 
-subsection \<open>Synthesis\<close>
+(* TODO: We name this `str_to_int` only because `int_of_str` is already defined - fix naming *)
+definition str_to_int :: \<open>8 word list \<Rightarrow> int nres\<close> where
+  \<open>str_to_int s \<equiv> doN {
+    ASSERT (s \<noteq> []);
+    if s!0 = word_hyphen
+      then int_of_bytes s 1 True
+      else int_of_bytes s 0 False
+  }\<close>
 
-sepref_register int_of_bytes
-
-sepref_def int_of_bytes_impl is \<open>uncurry int_of_bytes\<close>
-  :: \<open>(larray_assn' TYPE(64) id_assn)\<^sup>k *\<^sub>a bool1_assn\<^sup>k \<rightarrow>\<^sub>a sbi_assn\<close>
-  unfolding int_of_bytes_def
+sepref_def str_to_int_impl is \<open>str_to_int\<close>
+  :: \<open>(larray_assn' TYPE(64) id_assn)\<^sup>k \<rightarrow>\<^sub>a sbi_assn\<close>
+  unfolding str_to_int_def word_hyphen_val int_of_bytes_def
   apply (annot_snat_const \<open>TYPE(64)\<close>)
   by sepref
 
+(* TODO: Full correctness proof of `str_to_int_impl` w.r.t. to the relations defined at the top
+ * of the theory. Then we want to show that the two directions can be composed to get identity *)
 
 end
