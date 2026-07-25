@@ -237,17 +237,6 @@ static token_array tv_freeze(token_vec *v) {
   return a;
 }
 
-// -- Isabelle facing types ----------------------------------------------
-//
-// slice, term, monomial, polynomial, input, inputs, summand, summands,
-// lc_rule, ext_rule, rule, proof come from the generated ABI header pasteque.h
-// (via parser.h); rule_type and target come from parser.h. A few layout notes
-// carried over from the hand-written definitions that used to live here:
-//   * monomial has an implicit coefficient of 1 when the grammar drops it, and
-//     wraps { neg; vars } in an anonymous struct (pasteque.h);
-//   * lc_rule embeds a `summands` struct { num_summands; summands_ptr };
-//   * the rule union is a named member `u`, and its del arm is a bare uint64_t.
-
 // -- Parsing ------------------------------------------------------------
 
 _Noreturn static void die_unexpected(const token_array *ta, size_t pos,
@@ -627,8 +616,6 @@ target parse_target(arena *a, const token_array *ta) {
 
 // -- IO ----------------------------------------------------------------------
 
-typedef enum { F_INPUT = 0, F_PROOF, F_TARGET } file_type;
-
 // Read file into one big buffer
 static char *read_file(const char *path, size_t *out_len) {
   FILE *f = fopen(path, "rb");
@@ -734,61 +721,109 @@ int lex_file(const char *path, char **buf_out, token_array *ta_out) {
   return 0;
 }
 
-/* The standalone dump driver below (process_file + main) is compiled only when
- * parser.c is built as its own program. When parser.c is reused as a library
- * (e.g. by parser_test.c), define PARSER_NO_MAIN to drop it. */
+/* The standalone checker driver below (main) is compiled only when parser.c is
+ * built as its own program. When parser.c is reused as a library (e.g. by
+ * parser_test.c), define PARSER_NO_MAIN to drop it — parser_test.c brings its
+ * own main and its own copies of the runtime stubs. */
 #ifndef PARSER_NO_MAIN
-static int process_file(const char *path, file_type typ) {
-  char *buf = NULL;
-  token_array ta = {0};
-  if (lex_file(path, &buf, &ta) != 0)
-    return 1;
 
-  arena a = {0};
+/* -- Runtime stubs expected by the Isabelle-LLVM-exported `run_checker` -------
+ * The verified code allocates/frees its heap structures through these hooks;
+ * the code generator leaves them as external declarations (see pasteque.ll). */
+void *isabelle_llvm_calloc(uint64_t nmemb, uint64_t size) {
+  return calloc(nmemb, size);
+}
+void isabelle_llvm_free(void *ptr) {
+  free(ptr);
+}
 
-  // temporary: print back what we parsed, to verify the parser - TODO: remove
-  switch (typ) {
-  case F_INPUT: {
-    inputs ins = parse_inputs(&a, &ta);
-    for (size_t i = 0; i < ins.num_inputs; i++) {
-      printf("%" PRIu64 " ", ins.inputs[i].idx);
-      dump_polynomial(&ins.inputs[i].poly);
-      printf(";\n");
-    }
-    break;
-  }
-  case F_PROOF: {
-    proof p = parse_proof(&a, &ta);
-    for (size_t i = 0; i < p.num_rules; i++)
-      dump_rule(&p.rules_ptr[i]);
-    break;
-  }
-  case F_TARGET: {
-    target t = parse_target(&a, &ta);
-    dump_polynomial(&t.poly);
+/* Optionally echo the parsed structures back in input syntax (see -v below).
+ * dump_polynomial/dump_rule write to stdout, so the headers do too, keeping the
+ * verbose dump self-consistent (the machine-readable status still follows it). */
+static void dump_parsed(const inputs *ins, const proof *prf,
+                        const target *tgt) {
+  printf("== inputs ==\n");
+  for (size_t i = 0; i < ins->num_inputs; i++) {
+    printf("%" PRIu64 " ", ins->inputs[i].idx);
+    dump_polynomial(&ins->inputs[i].poly);
     printf(";\n");
-    break;
   }
-  }
-
-  arena_free(&a);
-  free((void *)ta.data);
-  free(buf);
-  return 0;
+  printf("== proof ==\n");
+  for (size_t i = 0; i < prf->num_rules; i++)
+    dump_rule(&prf->rules_ptr[i]);
+  printf("== target ==\n");
+  dump_polynomial(&tgt->poly);
+  printf(";\n");
 }
 
 int main(int argc, char **argv) {
-  if (argc != 4) {
-    fprintf(stderr, "usage: %s <file.input> <file.proof> <file.target>\n",
-            argv[0]);
-    return 1;
+  bool verbose = false;
+  int argi = 1;
+  if (argc - argi > 0 && strcmp(argv[argi], "-v") == 0) {
+    verbose = true;
+    argi++;
   }
-  if (process_file(argv[1], F_INPUT) != 0)
-    return 1;
-  if (process_file(argv[2], F_PROOF) != 0)
-    return 1;
-  if (process_file(argv[3], F_TARGET) != 0)
-    return 1;
-  return 0;
+  if (argc - argi != 3) {
+    fprintf(stderr, "usage: %s [-v] <file.input> <file.proof> <file.target>\n",
+            argv[0]);
+    return 2;
+  }
+
+  /* Lex + parse the three files into the flat Isabelle-facing ABI structs. The
+   * text buffers must stay alive while the checker runs: the parsed tree's
+   * slices point into them, and the importers read the bytes through. */
+  char *ibuf = NULL, *pbuf = NULL, *tbuf = NULL;
+  token_array ita = {0}, pta = {0}, tta = {0};
+  if (lex_file(argv[argi], &ibuf, &ita) != 0)
+    return 2;
+  if (lex_file(argv[argi + 1], &pbuf, &pta) != 0)
+    return 2;
+  if (lex_file(argv[argi + 2], &tbuf, &tta) != 0)
+    return 2;
+
+  arena a = {0};
+  inputs ins = parse_inputs(&a, &ita);
+  proof prf = parse_proof(&a, &pta);
+  target tgt = parse_target(&a, &tta);
+
+  if (verbose)
+    dump_parsed(&ins, &prf, &tgt);
+
+  /* Hand the parsed structures to the verified checker. `target` collapses to a
+   * bare polynomial on the Isabelle side, so we pass &tgt.poly. The returned
+   * byte is the checker's status tag (see status_code in the LLVM port):
+   *   0 = SUCCESS  proof steps all check, but the target was not derived
+   *   1 = FOUND    proof valid *and* it derives the target polynomial
+   *   2 = FAILED   some proof step did not check */
+  char status = RUN_CHECKER(&ins, &prf, &tgt.poly);
+
+  const char *msg;
+  switch (status) {
+  case 0:
+    msg = "SUCCESS (all steps check, but the target was not derived)";
+    break;
+  case 1:
+    msg = "FOUND (proof valid and derives the target)";
+    break;
+  case 2:
+    msg = "FAILED (a proof step did not check)";
+    break;
+  default:
+    msg = "unknown status";
+    break;
+  }
+  printf("%d\n", (int)status);
+  fprintf(stderr, "run_checker: %s\n", msg);
+
+  arena_free(&a);
+  free((void *)ita.data);
+  free(ibuf);
+  free((void *)pta.data);
+  free(pbuf);
+  free((void *)tta.data);
+  free(tbuf);
+
+  /* Exit 0 iff the proof is a valid derivation of the target (FOUND). */
+  return status == 1 ? 0 : 1;
 }
 #endif /* PARSER_NO_MAIN */

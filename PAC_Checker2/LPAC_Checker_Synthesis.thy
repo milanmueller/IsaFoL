@@ -1009,7 +1009,8 @@ definition input_tup_free
 lemma input_tup_assn_free[sepref_frame_free_rules]:
   \<open>MK_FREE (unat_assn' TYPE(64) \<times>\<^sub>a poly_assn) input_tup_free\<close>
   unfolding input_tup_free_def
-  using free_thms(2,3) poly_assn_free by blast
+  using free_thms(2,3) poly_assn_free
+  by fastforce
 
 definition \<open>inputs_free \<equiv> ol_delete input_tup_free\<close>
 lemma inputs_free_simps[llvm_code]:
@@ -1036,96 +1037,5 @@ sepref_def full_checker_l3_impl
   apply (annot_unat_const \<open>TYPE(64)\<close>)
   apply sepref_dbg_keep
   done
-
-(* Don't think any of this stuff is needed for llvm... *)
-(* sepref_definition PAC_empty_impl
- *   is \<open>uncurry0 (RETURN fmempty)\<close>
- *   :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a polys_assn\<close>
- *   unfolding op_iam_fmap_empty_def[symmetric] pat_fmap_empty
- *   by sepref
- * 
- * sepref_definition empty_vars_impl
- *   is \<open>uncurry0 (RETURN {})\<close>
- *   :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a vars_assn\<close>
- *   unfolding hs.fold_custom_empty
- *   by sepref
- * 
- * text \<open>This is a hack for performance. There is no need to recheck that that a char is valid when
- *   working on chars coming from strings... It is not that important in most cases, but in our case
- *   the preformance difference is really large.\<close>
- * 
- * 
- * definition unsafe_asciis_of_literal :: \<open>_\<close> where
- *   \<open>unsafe_asciis_of_literal xs = String.asciis_of_literal xs\<close>
- * 
- * definition unsafe_asciis_of_literal' :: \<open>_\<close> where
- *   [simp, symmetric, code]: \<open>unsafe_asciis_of_literal' = unsafe_asciis_of_literal\<close>
- * 
- * code_printing
- *   constant unsafe_asciis_of_literal' \<rightharpoonup>
- *     (SML) "!(List.map (fn c => let val k = Char.ord c in IntInf.fromInt k end) /o String.explode)"
- * 
- * text \<open>
- *   Now comes the big and ugly and unsafe hack.
- * 
- *   Basically, we try to avoid the conversion to IntInf when calculating the hash. The performance
- *   gain is roughly 40\%, which is a LOT and definitively something we need to do. We are aware that the
- *   SML semantic encourages compilers to optimise conversions, but this does not happen here,
- *   corroborating our early observation on the verified SAT solver IsaSAT.x
- * \<close>
- * definition raw_explode where
- *   [simp]: \<open>raw_explode = String.explode\<close>
- * code_printing
- *   constant raw_explode \<rightharpoonup>
- *     (SML) "String.explode"
- * 
- * lemmas [code] =
- *   hashcode_literal_def[unfolded String.explode_code
- *     unsafe_asciis_of_literal_def[symmetric]]
- * 
- * definition uint32_of_char where
- *   [symmetric, code_unfold]: \<open>uint32_of_char x = uint32_of_int (int_of_char x)\<close>
- * 
- * 
- * code_printing
- *   constant uint32_of_char \<rightharpoonup>
- *     (SML) "!(Word32.fromInt /o (Char.ord))"
- * 
- * lemma [code]: \<open>hashcode s = hashcode_literal' s\<close>
- *   unfolding hashcode_literal_def hashcode_list_def
- *   apply (auto simp: unsafe_asciis_of_literal_def hashcode_list_def
- *      String.asciis_of_literal_def hashcode_literal_def hashcode_literal'_def)
- *   done *)
-
-(* TODO properly export code in separate theory *)
-(* text \<open>We compile Pastèque in \<^file>\<open>LPAC_Checker_MLton.thy\<close>.\<close>
- * export_code PAC_checker_l_impl PAC_update_impl PAC_empty_impl the_error is_cfailed is_cfound
- *   int_of_integer Del nat_of_integer String.implode remap_polys_l_impl
- *   fully_normalize_poly_impl union_vars_poly_impl empty_vars_impl
- *   full_checker_l_impl check_step_impl CSUCCESS
- *   Extension hashcode_literal' version *)
-
-(* compile_generated_files _
- *   external_files
- *     \<open>code/no_sharing/parser.sml\<close>
- *     \<open>code/no_sharing/pasteque.sml\<close>
- *     \<open>code/no_sharing/pasteque.mlb\<close>
- *   where \<open>fn dir =>
- *   let
- * 
- *     val exec = Generated_Files.execute (Path.append (Path.append dir (Path.basic "code")) (Path.basic "no_sharing"));
- *     val _ = exec \<open>Copy files\<close> "ls" |> @{print}
- *     val _ = exec \<open>Copy files\<close> "ls .." |> @{print}
- *     val _ = exec \<open>Copy files\<close> "pwd" |> @{print}
- *     val _ = exec \<open>Copy files\<close> ("cp ../checker.ML .");
- *     val _ = exec \<open>Copy files\<close>
- *       ("cp ../checker.ML " ^ ((File.bash_path \<^path>\<open>$ISAFOL\<close>) ^ "/PAC_Checker2/code/no_sharing/checker.ML"));
- * (\*       val _ =
- *         exec \<open>Compilation\<close>
- *           (File.bash_path \<^path>\<open>$ISABELLE_MLTON\<close> ^ " " ^
- *             "-const 'MLton.safe false' -verbose 1 -default-type int64 -output pasteque " ^
- *             "-codegen native -inline 700 -cc-opt -O3 pasteque.mlb"); *\)
- *     in () end\<close>  *)
-
 
 end

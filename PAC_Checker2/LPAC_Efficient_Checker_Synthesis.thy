@@ -3713,24 +3713,6 @@ sepref_definition full_checker_l_s3_impl
     PAC_checker_l_s_alt_def
   by sepref
 
-(*
-local_setup \<open>
-  let
-    val version =
-      trim_line (#1 (Isabelle_System.bash_output ("cd $ISAFOL/ && git rev-parse --short HEAD || echo unknown")))
-  in
-    Local_Theory.define
-      ((\<^binding>\<open>version\<close>, NoSyn),
-        ((\<^binding>\<open>version_def\<close>, []), HOLogic.mk_literal version)) #> #2
-  end
-\<close>
-*)
-(* All MLton/SML-specific material (code_printing for Uint64/arrays/strings,
-   hashcode code equations, export_code in SML_imp and the MLton compilation
-   hook) has been removed in the LLVM port; cf. the git history for the
-   original text. LLVM code export (export_llvm with the first-order
-   specializations of the parameterized free/copy walks) is TODO. *)
-
 section \<open>Correctness theorem\<close>
 
 context poly_embed
@@ -3962,40 +3944,6 @@ qed *)
  *       4 H[symmetric]
  *     by auto
  * qed *)
-
-text \<open>
-
-It would be more efficient to move the parsing to Isabelle, as this
-would be more memory efficient (and also reduce the TCB). But now
-comes the fun part: It cannot work. A stream (of a file) is consumed
-by side effects. Assume that this would work. The code could look like:
-
-\<^term>\<open>
-  let next_token = read_file file
-  in f (next_token)
-\<close>
-
-This code is equal to (in the HOL sense of equality):
-\<^term>\<open>
-  let _ = read_file file;
-      next_token = read_file file
-  in f (next_token)
-\<close>
-
-However, as an hypothetical \<^term>\<open>read_file\<close> changes the underlying stream, we would get the next
-token. Remark that this is already a weird point of ML compilers. Anyway, I see currently two
-solutions to this problem:
-
-\<^enum> The meta-argument: use it only in the Refinement Framework in a setup where copies are
-disallowed. Basically, this works because we can express the non-duplication constraints on the type
-level. However, we cannot forbid people from expressing things directly at the HOL level.
-
-\<^enum> On the target language side, model the stream as the stream and the position. Reading takes two
-arguments. First, the position to read. Second, the stream (and the current position) to read. If
-the position to read does not match the current position, return an error. This would fit the
-correctness theorem of the code generation (roughly ``if it terminates without exception, the answer
-is the same''), but it is still unsatisfactory.
-\<close>
 
 end
 end

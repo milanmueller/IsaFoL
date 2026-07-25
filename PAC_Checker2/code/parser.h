@@ -11,8 +11,21 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "pasteque.h" /* slice, term, monomial, polynomial, input, inputs,
-                         summand, summands, lc_rule, ext_rule, rule, proof */
+/* The verified checker comes in two flavours, each exported to its own ABI
+ * header by LPAC_CodeExport.thy. Both headers declare the *same* data-structure
+ * types but a differently-named entry point, and each ships its own copy of the
+ * import functions — so exactly one may be compiled/linked at a time. Define
+ * PASTEQUE_SHARED (e.g. `-DPASTEQUE_SHARED`, or `make pasteque_shared`) to build
+ * against the shared-variables checker; otherwise the plain checker is used. */
+#ifdef PASTEQUE_SHARED
+#include "pasteque_shared.h" /* run_shared_checker + the ABI types */
+#define RUN_CHECKER run_shared_checker
+#else
+#include "pasteque.h" /* run_checker + slice, term, monomial, polynomial,
+                          input, inputs, summand, summands, lc_rule, ext_rule,
+                          rule, proof */
+#define RUN_CHECKER run_checker
+#endif
 
 /* -- rule tags (pasteque.h stores the tag as a bare int32_t) ----------------- */
 typedef enum {
