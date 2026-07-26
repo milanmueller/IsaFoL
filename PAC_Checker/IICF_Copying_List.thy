@@ -9,7 +9,53 @@ text \<open>This Theory defines a "copying list".
   for operations that take ownership of an object (i.e. @{term hd}),
   we implement a destructive variant (that will destroy the list)
   and a non-destructive variant that will copy the element and keep
-  the list intact. Container elements need to have an implementation of copy.\<close>
+  the list intact. Container elements need to have an implementation of copy.
+  It is mostly based on/inspired by @{theory Isabelle_LLVM.LLVM_DS_Open_List}.\<close>
+
+text \<open>TODO list \<emdash> coverage of the @{theory Isabelle_LLVM.IICF_List} interface
+  Done:
+    \<^item> [x] \<open>op_list_empty\<close>     (\<open>cl_empty_hnr\<close>)
+    \<^item> [x] \<open>op_list_prepend\<close>   (\<open>cl_prepend_hnr\<close>; takes ownership of the element)
+    \<^item> [x] \<open>op_list_length\<close>    (\<open>cl_length_hnr\<close>)
+    \<^item> [x] \<open>COPY\<close>              (\<open>cl_copy_hnr\<close>/\<open>cl_copy_is_copy\<close>)
+    \<^item> [x] \<open>op_list_hd\<close>        (\<open>cl_hd\<^sub>k\<close>); will copy the first element and leave list intact
+    \<^item> [x] \<open>op_list_pop_hd\<close>    (\<open>os_pop\<close>); (See interface extension below) will move the \<open>hd\<close>
+                                          out and also return the \<open>tl\<close> of the list.
+
+  Infrastructure (not interface ops):
+    \<^item> [x] \<open>MK_FREE\<close> deep free  (\<open>cl_assn_free\<close>, in \<open>copy_free_context\<close>)
+
+  Missing \<emdash> need destructive + copying variants (element leaves the list):
+    \<^item> [ ] \<open>op_list_get\<close>
+    \<^item> [ ] \<open>op_list_last\<close>
+    \<^item> [ ] \<open>op_list_pop_last\<close>
+
+  Missing \<emdash> structural (no element extracted, single variant suffices):
+    \<^item> [ ] \<open>op_list_is_empty\<close>
+    \<^item> [ ] \<open>op_list_replicate\<close> (needs element copy for n > 1)
+    \<^item> [ ] \<open>op_list_append\<close>    (snoc; O(n) without a tail pointer)
+    \<^item> [ ] \<open>op_list_concat\<close> / \<open>op_join_list\<close>
+    \<^item> [ ] \<open>op_list_take\<close>      (must free the dropped suffix)
+    \<^item> [ ] \<open>op_list_drop\<close>      (must free the dropped prefix)
+    \<^item> [ ] \<open>op_list_set\<close>       (must free the overwritten element)
+    \<^item> [ ] \<open>op_list_tl\<close>        (must free the head element)
+    \<^item> [ ] \<open>op_list_butlast\<close>   (must free the last element)
+    \<^item> [ ] \<open>op_list_swap\<close>
+    \<^item> [ ] \<open>op_list_rotate1\<close>
+    \<^item> [ ] \<open>op_list_rev\<close>
+    \<^item> [ ] \<open>op_split_list\<close>
+    \<^item> [ ] \<open>op_list_contains\<close>  (needs an element-equality parameter)
+    \<^item> [ ] \<open>op_list_index\<close>     (needs an element-equality parameter)\<close>
+
+section \<open>Extending List Interface\<close>
+
+text \<open>The list interface (see above) does not define a `pop_first` operation.
+  In addition to our copying `hd` implementation, we might want a destructive
+  variant for efficiency, so we define `list_pop_hd` here.\<close>
+term op_list_pop_last
+context notes [simp] = List.null_iff[symmetric] and [simp del] = List.null_iff begin
+  sepref_decl_op list_pop_hd: \<open>\<lambda>l. (hd l, tl l)\<close> :: \<open>[\<lambda>l. l \<noteq> []]\<^sub>f \<langle>A\<rangle>list_rel \<rightarrow> A \<times>\<^sub>r \<langle>A\<rangle>list_rel\<close> .
+end
 
 section \<open>Basic Setup\<close>
 text \<open>Based on @{theory \<open>Isabelle_LLVM.LLVM_DS_Open_List\<close>}\<close>
@@ -57,6 +103,8 @@ lemma cl_empty_hnr[sepref_fr_rules]:
   \<open>(uncurry0 cl_empty, uncurry0 (RETURN op_list_empty)) \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a (cl_assn' A)\<close>
   by (sepref_to_hoare; vcg)
 
+text \<open>Note that our prepend implementation implicitly destroys/takes ownership of the
+  given object, so caller must (optionally) opt in to copy the object instead.\<close>
 definition cl_prepend :: \<open>'a::llvm_rep \<Rightarrow> 'a cl_list \<Rightarrow> 'a cl_list llM\<close> where [llvm_code, llvm_inline]:
   \<open>cl_prepend x p = ll_ref (Node x p)\<close>
 
@@ -71,6 +119,8 @@ lemma cl_prepend_hnr[sepref_fr_rules]:
   \<in> A\<^sup>d *\<^sub>a (cl_assn' A)\<^sup>d \<rightarrow>\<^sub>a (cl_assn' A) \<close>
   by (sepref_to_hoare; vcg)
 
+text \<open>Implementing `op_list_length` is surprisingly tricky. The Correctnes proof here
+  was found by Anthropic's Fable 5 model.\<close>
 definition cl_length :: \<open>'a::llvm_rep cl_list \<Rightarrow> 'b::len2 word llM\<close> where [llvm_code]:
   \<open>cl_length p \<equiv> doM{
     (_, i) \<leftarrow> llc_while
@@ -189,12 +239,6 @@ lemma cl_length_spine_rule[vcg_rules]:
 
 end
 
-text \<open>Composing the spine rule with the element ownership: decompose \<open>cl_assn'\<close> into
-  the plain spine plus element-wise \<open>list_assn\<close> ownership (cf. \<open>ol_assn_os_conv\<close> in
-  \<open>IICF_Owning_List\<close>), then sandwich the framed spine rule. Plain \<open>vcg\<close> on such
-  decomposed triples reliably diverges, hence the manual composition via
-  \<open>htriple_pre_EXS\<close>/\<open>htriple_pure_preI\<close>.\<close>
-
 lemma cl_assn'_os_conv:
   \<open>cl_assn' A xs p
     = (EXS xsi. \<up>(length xsi = length xs) ** \<upharpoonleft>os_list_assn xsi p
@@ -263,7 +307,7 @@ text \<open>We define a generic list implementation and require the objects in o
 
 definition "is_copy A cp \<equiv> (cp, RETURN o COPY) \<in> A\<^sup>k \<rightarrow>\<^sub>a A"
 
-lemma is_copy_rule[sepref_fr_rules]:
+lemma is_copy_hnr[sepref_fr_rules]:
   "GEN_ALGO cp (is_copy A) \<Longrightarrow> (cp, RETURN o COPY) \<in> A\<^sup>k \<rightarrow>\<^sub>a A"
   unfolding is_copy_def GEN_ALGO_def by auto
 
@@ -279,6 +323,18 @@ locale copy_free_context =
   assumes a_assn_copy[sepref_gen_algo_rules]: \<open>GEN_ALGO acopy_impl (is_copy A)\<close>
 begin
 
+lemma acopy_rule[vcg_rules]: \<open>llvm_htriple (A x c) (acopy_impl c) (\<lambda>r. A x c ** A x r)\<close>
+proof -
+  note HNR = a_assn_copy[unfolded GEN_ALGO_def is_copy_def, to_hnr, unfolded autoref_tag_defs]
+  note HT = HNR[THEN hn_refineD]
+  show ?thesis
+    apply (rule htriple_ent_pre[OF _ htriple_ent_post[OF _ HT]])
+    unfolding hn_ctxt_def apply (rule entails_refl)
+    subgoal by (auto simp: entails_def sep_algebra_simps)
+    subgoal by simp
+    done
+qed
+
 definition cl_copy :: \<open>'b cl_list \<Rightarrow> 'b cl_list llM\<close> where [llvm_code]:
   \<open>cl_copy \<equiv> MMonad.REC (\<lambda>cl_copy p.
     if p = null then Mreturn null else doM {
@@ -288,15 +344,156 @@ definition cl_copy :: \<open>'b cl_list \<Rightarrow> 'b cl_list llM\<close> whe
       cl_prepend cpy tl
     })\<close>
 
+(* Apparently, vcg does not support unfolding for `MMonad.REC`, so we do unfolding manually. *)
+lemmas cl_copy_unfold = REC_unfold_extr[OF cl_copy_def, discharge_monos]
+
+lemma cl_copy_rule[vcg_rules]:
+  \<open>llvm_htriple
+    (cl_assn' A xs xi)
+    (cl_copy xi)
+    (\<lambda>r. cl_assn' A xs xi ** cl_assn' A xs r)\<close>
+proof (induction xs arbitrary: xi)
+  case Nil
+  then show ?case
+    apply (rewrite cl_copy_unfold)
+    supply [simp] = cl_assn_simps 
+    by vcg
+next
+  case (Cons a xs)
+  note [vcg_rules] = Cons.IH
+  then show ?case
+    apply (rewrite cl_copy_unfold)
+    supply [simp] = cl_assn_simps sep_conj_exists
+    by vcg
+qed
+
+lemma cl_copy_hnr[sepref_fr_rules]:
+  \<open>(cl_copy, RETURN o COPY) \<in> (cl_assn' A)\<^sup>k \<rightarrow>\<^sub>a (cl_assn' A)\<close>
+  by (sepref_to_hoare; vcg)
+
+lemma cl_copy_is_copy[sepref_gen_algo_rules]:
+  \<open>GEN_ALGO cl_copy (is_copy (cl_assn' A))\<close>
+  unfolding GEN_ALGO_def is_copy_def
+  by (rule cl_copy_hnr)
+
+text \<open>A deep free: frees the spine and every element. Together with @{thm cl_copy_is_copy}
+  this is what allows a copying list to be an *element* of another copying list
+  (cf. the nesting experiment below).\<close>
+definition cl_free :: \<open>'b cl_list \<Rightarrow> unit llM\<close> where [llvm_code]:
+  \<open>cl_free \<equiv> MMonad.REC (\<lambda>cl_free p.
+    if p = null then Mreturn () else doM {
+      n \<leftarrow> ll_load p;
+      ll_free p;
+      afree_impl (node.val n);
+      cl_free (node.next n)
+    })\<close>
+
+lemmas cl_free_unfold = REC_unfold_extr[OF cl_free_def, discharge_monos]
+
+lemma cl_assn_free[sepref_frame_free_rules]: \<open>MK_FREE (cl_assn' A) cl_free\<close>
+proof (rule MK_FREEI)
+  fix xs p
+  show \<open>llvm_htriple (cl_assn' A xs p) (cl_free p) (\<lambda>_. \<box>)\<close>
+  proof (induction xs arbitrary: p)
+    case Nil
+    then show ?case
+      apply (rewrite cl_free_unfold)
+      supply [simp] = cl_assn_simps
+      by vcg
+  next
+    case (Cons a xs)
+    note [vcg_rules] = Cons.IH MK_FREED[OF a_assn_free]
+    show ?case
+      apply (rewrite cl_free_unfold)
+      supply [simp] = cl_assn_simps sep_conj_exists
+      by vcg
+  qed
+qed
+
+definition cl_hd\<^sub>k :: \<open>'b cl_list \<Rightarrow> 'b llM\<close> where [llvm_code]:
+  \<open>cl_hd\<^sub>k p \<equiv> doM {
+    n \<leftarrow> ll_load p;
+    cpy \<leftarrow> acopy_impl (node.val n);
+    Mreturn cpy
+  }\<close>
+
+lemma cl_hd\<^sub>k_rule[vcg_rules]:
+  assumes \<open>xs \<noteq> []\<close>
+  shows \<open>llvm_htriple
+    (cl_assn' A xs xi)
+    (cl_hd\<^sub>k xi)
+    (\<lambda>r. cl_assn' A xs xi ** A (hd xs) r)\<close>
+  unfolding cl_hd\<^sub>k_def
+  apply (cases xs)
+  subgoal using assms by simp
+  supply [simp] = cl_assn_simps sep_conj_exists
+  by vcg
+
+lemma cl_hd\<^sub>k_hnr[sepref_fr_rules]:
+  \<open>(cl_hd\<^sub>k, RETURN o op_list_hd) \<in> [\<lambda>xs. xs \<noteq> []]\<^sub>a (cl_assn' A)\<^sup>k \<rightarrow> A\<close>
+  by (sepref_to_hoare; vcg)
+
+(* A destructive variant of `hd` is `pop`, which is already implemented for open lists. *)
+lemma cl_pop_rule[vcg_rules]:
+  assumes \<open>xs \<noteq> []\<close>
+  shows \<open>llvm_htriple
+    (cl_assn' A xs xi)
+    (os_pop xi)
+    (\<lambda>(r, xi'). A (hd xs) r ** cl_assn' A (tl xs) xi')\<close>
+  unfolding os_pop_def
+  apply (cases xs)
+  subgoal using assms by simp
+  supply [simp] = cl_assn_simps sep_conj_exists
+  by vcg
+
+lemma cl_pop_hnr_mop[sepref_fr_rules]:
+  \<open>(os_pop, mop_list_pop_hd) \<in> (cl_assn' A)\<^sup>d \<rightarrow>\<^sub>a A \<times>\<^sub>a cl_assn' A\<close>
+  supply [simp] = refine_pw_simps 
+  by (sepref_to_hoare; vcg)
+
+lemma cl_pop_hnr_op[sepref_fr_rules]:
+  \<open>(os_pop, RETURN o op_list_pop_hd) \<in> [\<lambda>xs. xs \<noteq> []]\<^sub>a (cl_assn' A)\<^sup>d \<rightarrow> A \<times>\<^sub>a cl_assn' A\<close>
+  supply [simp] = refine_pw_simps 
+  by (sepref_to_hoare; vcg)
 end
 
 experiment begin
 
-definition \<open>nesttest xss = doN{
-  ASSERT(xss \<noteq> []);
-  ASSERT(hd xss \<noteq> []);
-  RETURN (hd (hd xss))
-}\<close> 
+text \<open>Inner lists hold pure elements (64-bit snat numbers), so their copy is @{term Mreturn}
+  and their free is a no-op. The outer instantiation then uses the inner list's
+  \<open>P.cl_copy\<close>/\<open>P.cl_free\<close> as element copy/free.\<close>
+
+interpretation P: copy_free_context \<open>snat_assn' TYPE(64)\<close> \<open>\<lambda>_. Mreturn ()\<close> Mreturn
+  apply unfold_locales
+  subgoal by (rule mk_free_pure)
+  subgoal by (rule is_copy_pure_gen_algo) simp
+  done
+
+interpretation PP: copy_free_context \<open>cl_assn' (snat_assn' TYPE(64))\<close> P.cl_free P.cl_copy
+  apply unfold_locales
+  subgoal by (rule P.cl_assn_free)
+  subgoal by (rule P.cl_copy_is_copy)
+  done
+
+definition test_nested :: \<open>(nat list list \<times> nat list list) nres\<close> where
+  \<open>test_nested = doN {
+    let l1 = [1, 2];
+    let l2 = COPY l1;
+    let xss = [l1, l2];
+    let yss = COPY xss;
+    RETURN (xss, yss) 
+  }\<close>
+
+sepref_definition test_nested_impl is \<open>uncurry0 test_nested\<close>
+  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a (cl_assn' (cl_assn' (snat_assn' TYPE(64)))) \<times>\<^sub>a (cl_assn' (cl_assn' (snat_assn' TYPE(64))))\<close>
+  unfolding test_nested_def
+  apply (annot_snat_const "TYPE(64)")
+  by sepref
+
+sepref_definition test_nested2_impls is \<open>uncurry0 (RETURN ([[(1::nat),2],[3,4]]))\<close>
+  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a (cl_assn' (cl_assn' (snat_assn' TYPE(64))))\<close>
+  apply (annot_snat_const "TYPE(64)")
+  by sepref
 
 end
 
