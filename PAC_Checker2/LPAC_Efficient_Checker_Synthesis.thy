@@ -1057,7 +1057,7 @@ lemma fold_ordered_discriminators:
 
 section \<open>Synthesis of the Shared Polynomial Operations\<close>
 
-sepref_definition perfect_shared_var_order_s_impl
+sepref_def perfect_shared_var_order_s_impl
   is \<open>uncurry2 perfect_shared_var_order_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a (unat_assn' TYPE(64))\<^sup>k *\<^sub>a (unat_assn' TYPE(64))\<^sup>k \<rightarrow>\<^sub>a ordered_assn\<close>
   unfolding perfect_shared_var_order_s_def perfectly_shared_strings_equal_l_def
@@ -1121,7 +1121,7 @@ proof -
     unfolding perfect_shared_term_order_rel_s_def COPY_def 1 by auto
 qed
 
-sepref_definition perfect_shared_term_order_rel_s_impl
+sepref_def perfect_shared_term_order_rel_s_impl
   is \<open>uncurry2 perfect_shared_term_order_rel_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a monom_s_assn\<^sup>k *\<^sub>a monom_s_assn\<^sup>k \<rightarrow>\<^sub>a ordered_assn\<close>
   supply [[goals_limit=1]]
@@ -1174,7 +1174,7 @@ lemma add_poly_l_s_alt_def:
     done
   done
 
-sepref_definition add_poly_l_prep_impl
+sepref_def add_poly_l_prep_impl
   is \<open>uncurry add_poly_l_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a (poly_s_assn \<times>\<^sub>a poly_s_assn)\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
   supply [[goals_limit=1]]
@@ -1262,7 +1262,7 @@ proof -
     unfolding COPY_def nres_monad1 1 mult_monoms_s_def ..
 qed
 
-sepref_definition mult_monoms_s_impl
+sepref_def mult_monoms_s_impl
   is \<open>uncurry2 mult_monoms_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a monom_s_assn\<^sup>k *\<^sub>a monom_s_assn\<^sup>k \<rightarrow>\<^sub>a monom_s_assn\<close>
   supply [[goals_limit=1]]
@@ -1327,7 +1327,7 @@ proof -
     done
 qed
 
-sepref_definition mult_term_s_impl
+sepref_def mult_term_s_impl
   is \<open>uncurry3 mult_term_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a mnml_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
   supply [[goals_limit=1]]
@@ -1351,7 +1351,7 @@ lemma mult_poly_s_alt_def:
   unfolding mult_poly_s_def COPY_def nres_monad1 op_ol_empty_def op_list_empty_def
   by (subst nfoldli_to_pop_RECT) (rule refl)
 
-sepref_definition mult_poly_s_impl
+sepref_def mult_poly_s_impl
   is \<open>uncurry2 mult_poly_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a poly_s_assn\<close>
   supply [[goals_limit=1]]
@@ -1417,7 +1417,7 @@ lemma mergeR_vars_RECT:
   subgoal by (rule refl)
   done
 
-sepref_definition mergeR_vars_impl
+sepref_def mergeR_vars_impl
   is \<open>uncurry2 mergeR_vars\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>d *\<^sub>a poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
   supply [[goals_limit = 1]]
@@ -1431,14 +1431,14 @@ lemmas [sepref_fr_rules] =
 text \<open>The alternating split at shared polynomials (instance of the generic
   \<open>alt_split\<close> synthesis, cf. \<open>poly_split_impl\<close> in \<open>PAC_Checker_LLVM\<close>).\<close>
 
-sepref_definition poly_s_split_impl is \<open>RETURN o alt_split\<close>
+sepref_def poly_s_split_impl is \<open>RETURN o alt_split\<close>
   :: \<open>poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn \<times>\<^sub>a poly_s_assn\<close>
   unfolding alt_split_RECT_ol
   by sepref
 
 lemmas [sepref_fr_rules] = poly_s_split_impl.refine
 
-sepref_definition monom_s_split_impl is \<open>RETURN o alt_split\<close>
+sepref_def monom_s_split_impl is \<open>RETURN o alt_split\<close>
   :: \<open>monom_s_assn\<^sup>d \<rightarrow>\<^sub>a monom_s_assn \<times>\<^sub>a monom_s_assn\<close>
   unfolding alt_split_RECT
   by sepref
@@ -1477,7 +1477,7 @@ lemmas msortR_vars_def = sort_poly_spec_s_def
 
 sepref_register mergeR_vars msortR_vars
 
-sepref_definition msortR_vars_impl
+sepref_def msortR_vars_impl
   is \<open>uncurry msortR_vars\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
   supply [[goals_limit = 1]]
@@ -2499,7 +2499,7 @@ sepref_register merge_coeff_s msort_coeff_s sort_all_coeffs_s
 lemma var_order_is_less: \<open>var_order = ((<) :: char list \<Rightarrow> _)\<close>
   by (intro ext) (metis var_order_rel'' var_order_rel_var_order)
 
-sepref_definition merge_coeff_s_impl
+sepref_def merge_coeff_s_impl
   is \<open>uncurry3 merge_coeff_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a (monom_s_assn)\<^sup>k *\<^sub>a (monom_s_assn)\<^sup>d *\<^sub>a (monom_s_assn)\<^sup>d \<rightarrow>\<^sub>a monom_s_assn\<close>
   supply [[goals_limit=1]]
@@ -2529,7 +2529,7 @@ lemma msort_coeff_s_RECT:
   unfolding merge_coeff_s_def[symmetric]
   by (metis (no_types, lifting) ext nres_monad_laws(1))
 
-sepref_definition msort_coeff_s_impl
+sepref_def msort_coeff_s_impl
   is \<open>uncurry msort_coeff_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a (monom_s_assn)\<^sup>k \<rightarrow>\<^sub>a monom_s_assn\<close>
   supply [[goals_limit=1]]
@@ -2575,7 +2575,7 @@ lemma sort_all_coeffs_s_RECT:
   unfolding sort_all_coeffs_s_def op_ol_empty_def op_list_empty_def
   by (rule sort_all_coeffs_s_RECT_aux) auto
 
-sepref_definition sort_all_coeffs_s'_impl
+sepref_def sort_all_coeffs_s'_impl
   is \<open>uncurry sort_all_coeffs_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
   supply [[goals_limit=1]]
@@ -2613,7 +2613,7 @@ lemma merge_coeffs0_s_RECT:
     by (auto simp: refine_pw_simps)
   done
 
-sepref_definition merge_coeffs0_s_impl
+sepref_def merge_coeffs0_s_impl
   is \<open>RETURN o merge_coeffs0_s\<close>
   :: \<open>poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
   supply [[goals_limit=1]]
@@ -2625,7 +2625,7 @@ lemmas [sepref_fr_rules] = merge_coeffs0_s_impl.refine
 
 sepref_register full_normalize_poly_s
 
-sepref_definition full_normalize_poly'_impl
+sepref_def full_normalize_poly'_impl
   is \<open>uncurry full_normalize_poly_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
   unfolding full_normalize_poly_s_def
@@ -2673,6 +2673,93 @@ lemmas polys_s_the_lookup_op_hnr[sepref_fr_rules] =
 lemma polys_s_assn_free[sepref_frame_free_rules]:
   \<open>MK_FREE polys_s_assn (pam_free_impl poly_s_free)\<close>
   by (rule pam_fmap_assn_free[OF mk_free_mk_assn[OF poly_s_assn_free]])
+
+subsection \<open>First-order code instances of the bucket walks\<close>
+
+text \<open>The \<open>pam_bucket_\<dots>_impl\<close> walks are higher-order in \<open>vfree\<close>/\<open>vcopy\<close> and thus have
+  no code equation of their own; every value instance needs its own first-order
+  \<open>[llvm_code]\<close> definition plus a \<open>[llvm_pre_simp]\<close> fold, cf. \<^file>\<open>../PAC_Checker/Polys_Assn.thy\<close>
+  (there for \<open>poly_free\<close>/\<open>poly_copy_impl\<close>). Same instances here for the \<^emph>\<open>shared\<close>
+  store (\<open>poly_s_free\<close>/\<open>poly_s_copy_impl\<close>) \<emdash> without them the export of
+  \<open>run_shared_checker\<close> fails with \<open>No code equation: pam_bucket_update_impl\<close>.\<close>
+
+definition \<open>poly_s_bucket_update \<equiv> pam_bucket_update_impl poly_s_free\<close>
+
+lemma poly_s_bucket_update_simps[llvm_code]:
+  \<open>poly_s_bucket_update k v p = (if p = null then os_prepend (k, v) null
+     else do\<^sub>M {
+       n \<leftarrow> ll_load p;
+       eq \<leftarrow> ll_icmp_eq (fst (node.val n)) k;
+       if to_bool eq then do\<^sub>M {
+                poly_s_free (snd (node.val n));
+                ll_store (Node (k, v) (node.next n)) p;
+                return\<^sub>M p
+              }
+       else do\<^sub>M {
+        q \<leftarrow> poly_s_bucket_update k v (node.next n);
+        ll_store (Node (node.val n) q) p;
+        return\<^sub>M p
+         }
+     })\<close>
+  unfolding poly_s_bucket_update_def
+  by (rule pam_bucket_update_impl.simps)
+
+lemmas [llvm_pre_simp] = poly_s_bucket_update_def[symmetric]
+
+definition \<open>poly_s_bucket_delete \<equiv> pam_bucket_delete_impl poly_s_free\<close>
+
+lemma poly_s_bucket_delete_simps[llvm_code]:
+  \<open>poly_s_bucket_delete k p = (if p = null then Mreturn null
+    else doM {
+      n \<leftarrow> ll_load p;
+      q \<leftarrow> poly_s_bucket_delete k (node.next n);
+      eq \<leftarrow> ll_icmp_eq (fst (node.val n)) k;
+      if to_bool eq then do\<^sub>M {
+          poly_s_free (snd (node.val n));
+          ll_free p;
+          return\<^sub>M q
+        }
+      else do\<^sub>M {
+      ll_store (Node (node.val n) q) p;
+      return\<^sub>M p
+      }
+    })\<close>
+  unfolding poly_s_bucket_delete_def
+  using pam_bucket_delete_impl.simps by blast
+
+lemmas [llvm_pre_simp] = poly_s_bucket_delete_def[symmetric]
+
+definition \<open>poly_s_bucket_lookup \<equiv> pam_bucket_lookup_impl poly_s_copy_impl\<close>
+
+lemma poly_s_bucket_lookup_simps[llvm_code]:
+  \<open>poly_s_bucket_lookup k p = (if p = null then Mreturn (0, init)
+    else do\<^sub>M {
+      n \<leftarrow> ll_load p;
+      eq \<leftarrow> ll_icmp_eq (fst (node.val n)) k;
+      if to_bool eq then do\<^sub>M {
+        v' \<leftarrow> poly_s_copy_impl (snd (node.val n));
+        return\<^sub>M (1, v')
+      }
+      else poly_s_bucket_lookup k (node.next n)
+    })\<close>
+  unfolding poly_s_bucket_lookup_def
+  by (rule pam_bucket_lookup_impl.simps)
+
+lemmas [llvm_pre_simp] = poly_s_bucket_lookup_def[symmetric]
+
+definition \<open>poly_s_bucket_free \<equiv> pam_bucket_free_impl poly_s_free\<close>
+
+lemma poly_s_bucket_free_simps[llvm_code]:
+  \<open>poly_s_bucket_free p = (if p = null then Mreturn () else do\<^sub>M {
+      n \<leftarrow> ll_load p;
+      pam_entry_free_impl poly_s_free (node.val n);
+      ll_free p;
+      poly_s_bucket_free (node.next n)
+    })\<close>
+  unfolding poly_s_bucket_free_def pam_bucket_free_impl_def
+  by (rule ol_delete.simps)
+
+lemmas [llvm_pre_simp] = poly_s_bucket_free_def[symmetric]
 
 section \<open>Importing Polynomials into the Shared Store\<close>
 
@@ -2729,7 +2816,7 @@ proof -
     by auto
 qed
 
-sepref_definition import_monom_no_newS_impl
+sepref_def import_monom_no_newS_impl
   is \<open>uncurry import_monom_no_newS\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn \<times>\<^sub>a monom_s_assn\<close>
   supply [[goals_limit=1]]
@@ -2778,7 +2865,7 @@ proof -
     by auto
 qed
 
-sepref_definition import_poly_no_newS_impl
+sepref_def import_poly_no_newS_impl
   is \<open>uncurry (import_poly_no_newS :: (nat,string)shared_vars \<Rightarrow> llist_polynomial \<Rightarrow>( bool \<times> sllist_polynomial) nres)\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn \<times>\<^sub>a poly_s_assn\<close>
   supply [[goals_limit=1]]
@@ -2833,7 +2920,7 @@ proof -
     by (intro frefI nres_relI) (use H in \<open>auto simp: uncurry_def\<close>)
 qed
 
-sepref_definition import_monomS2_impl
+sepref_def import_monomS2_impl
   is \<open>uncurry import_monomS2\<close>
   :: \<open>shared_vars_assn\<^sup>d *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a monom_s_assn \<times>\<^sub>a shared_vars_assn\<close>
   supply [[goals_limit=1]]
@@ -2885,7 +2972,7 @@ proof -
     by (intro frefI nres_relI) (use H in \<open>auto simp: uncurry_def\<close>)
 qed
 
-sepref_definition import_polyS2_impl
+sepref_def import_polyS2_impl
   is \<open>uncurry import_polyS2\<close>
   :: \<open>shared_vars_assn\<^sup>d *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a poly_s_assn \<times>\<^sub>a shared_vars_assn\<close>
   supply [[goals_limit=1]]
@@ -2949,7 +3036,7 @@ proof -
     by auto
 qed
 
-sepref_definition import_variablesS_impl
+sepref_def import_variablesS_impl
   is \<open>uncurry import_variablesS\<close>
   :: \<open>monom_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>d \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a shared_vars_assn\<close>
   supply [[goals_limit=1]]
@@ -3029,7 +3116,7 @@ qed
 
 sepref_register vars_of_monom_in_s
 
-sepref_definition vars_of_monom_in_s_impl
+sepref_def vars_of_monom_in_s_impl
   is \<open>uncurry vars_of_monom_in_s\<close>
   :: \<open>monom_assn\<^sup>d *\<^sub>a shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   supply [[goals_limit=1]]
@@ -3065,7 +3152,7 @@ qed
 
 sepref_register vars_of_poly_in_s
 
-sepref_definition vars_of_poly_in_s_impl
+sepref_def vars_of_poly_in_s_impl
   is \<open>uncurry vars_of_poly_in_s\<close>
   :: \<open>poly_assn\<^sup>d *\<^sub>a shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   supply [[goals_limit=1]]
@@ -3083,7 +3170,7 @@ lemma vars_llist_in_s_alt:
   unfolding COPY_def nres_monad1 vars_of_poly_in_s_spec
   by (cases \<V>) (auto simp: vars_llist_in_s_def)
 
-sepref_definition vars_llist_in_s_impl
+sepref_def vars_llist_in_s_impl
   is \<open>uncurry (RETURN oo vars_llist_in_s)\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   supply [[goals_limit=1]]
@@ -3096,7 +3183,7 @@ section \<open>Normalization of Shared Polynomials\<close>
 
 sepref_register mult_poly_s normalize_poly_s mult_poly_full_s add_poly_l_s
 
-sepref_definition normalize_poly_sharedS_impl
+sepref_def normalize_poly_sharedS_impl
   is \<open>uncurry normalize_poly_sharedS\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_assn\<^sup>d \<rightarrow>\<^sub>a bool1_assn \<times>\<^sub>a poly_s_assn\<close>
   unfolding normalize_poly_sharedS_def
@@ -3126,7 +3213,7 @@ lemma merge_coeffs_s_RECT:
       (auto simp: mop_list_pop_front_def pw_eq_iff refine_pw_simps)
   done
 
-sepref_definition merge_coeffs_s_impl
+sepref_def merge_coeffs_s_impl
   is \<open>(RETURN o merge_coeffs_s)\<close>
   :: \<open>poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
   supply [[goals_limit=1]]
@@ -3136,7 +3223,7 @@ sepref_definition merge_coeffs_s_impl
 
 lemmas [sepref_fr_rules] = merge_coeffs_s_impl.refine
 
-sepref_definition normalize_poly_s_impl
+sepref_def normalize_poly_s_impl
   is \<open>uncurry normalize_poly_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
   unfolding normalize_poly_s_def
@@ -3144,7 +3231,7 @@ sepref_definition normalize_poly_s_impl
 
 lemmas [sepref_fr_rules] = normalize_poly_s_impl.refine
 
-sepref_definition mult_poly_full_s_impl
+sepref_def mult_poly_full_s_impl
   is \<open>uncurry2 mult_poly_full_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a poly_s_assn\<close>
   unfolding mult_poly_full_s_def
@@ -3249,7 +3336,7 @@ sepref_register
     \<Rightarrow> (nat, string) shared_vars \<Rightarrow> nat \<Rightarrow> (llist_polynomial \<times> nat) list
     \<Rightarrow> llist_polynomial \<Rightarrow> (string code_status \<times> sllist_polynomial) nres\<close>
 
-sepref_definition check_linear_combi_l_s_impl
+sepref_def check_linear_combi_l_s_impl
   is \<open>uncurry5 check_linear_combi_l_s\<close>
   :: \<open>poly_s_assn\<^sup>k *\<^sub>a polys_s_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k *\<^sub>a (unat_assn' TYPE(64))\<^sup>k *\<^sub>a
   lincomb_assn\<^sup>d *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a status_assn raw_string_assn \<times>\<^sub>a poly_s_assn
@@ -3293,7 +3380,7 @@ qed
 
 sepref_register uminus_poly_s
 
-sepref_definition uminus_poly_s_impl
+sepref_def uminus_poly_s_impl
   is \<open>uminus_poly_s\<close>
   :: \<open>poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
   supply [[goals_limit=1]]
@@ -3359,7 +3446,7 @@ sepref_register
     \<Rightarrow> (nat, string) shared_vars \<Rightarrow> nat \<Rightarrow> string \<Rightarrow> llist_polynomial
     \<Rightarrow> (string code_status \<times> sllist_polynomial \<times> (nat, string) shared_vars \<times> nat) nres\<close>
 
-sepref_definition check_extension_l_s_impl
+sepref_def check_extension_l_s_impl
   is \<open>uncurry5 check_extension_l2_s\<close>
     :: \<open>poly_s_assn\<^sup>k *\<^sub>a polys_s_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>d *\<^sub>a (unat_assn' TYPE(64))\<^sup>k *\<^sub>a
     strl_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a status_assn raw_string_assn \<times>\<^sub>a poly_s_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a unat_assn' TYPE(64)
@@ -3374,7 +3461,7 @@ lemmas [sepref_fr_rules] = check_extension_l_s_impl.refine
 
 subsection \<open>Checking Deletions\<close>
 
-sepref_definition check_del_l_s_impl
+sepref_def check_del_l_s_impl
   is \<open>uncurry2 check_del_l\<close>
   :: \<open>poly_s_assn\<^sup>k *\<^sub>a polys_s_assn\<^sup>k *\<^sub>a (unat_assn' TYPE(64))\<^sup>k \<rightarrow>\<^sub>a status_assn raw_string_assn\<close>
   unfolding check_del_l_def
@@ -3448,7 +3535,7 @@ sepref_register
     \<Rightarrow> (llist_polynomial, string, nat) i_pac_step
     \<Rightarrow> (string code_status \<times> (nat, string) shared_vars \<times> (nat, sllist_polynomial) f_map) nres\<close>
 
-sepref_definition check_step_s_impl
+sepref_def check_step_s_impl
   is \<open>uncurry4 PAC_checker_l_step_s'\<close>
   :: \<open>poly_s_assn\<^sup>k *\<^sub>a (status_assn raw_string_assn)\<^sup>d *\<^sub>a shared_vars_assn\<^sup>d *\<^sub>a polys_s_assn\<^sup>d
       *\<^sub>a (pac_step_assn poly_assn strl_assn)\<^sup>d \<rightarrow>\<^sub>a
@@ -3509,7 +3596,7 @@ lemma PAC_checker_l_step_s_alt_def':
     (let (b, \<V>, A) = bA in PAC_checker_l_step_s' spec b \<V> A st)\<close>
   unfolding PAC_checker_l_step_s'_def by auto
 
-sepref_definition PAC_checker_l_s_impl
+sepref_def PAC_checker_l_s_impl
   is \<open>uncurry4 PAC_checker_l_s'\<close>
   :: \<open>poly_s_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>d *\<^sub>a polys_s_assn\<^sup>d *\<^sub>a (status_assn raw_string_assn)\<^sup>d *\<^sub>a
        (ol_assn (pac_step_assn poly_assn strl_assn))\<^sup>d \<rightarrow>\<^sub>a
@@ -3600,7 +3687,7 @@ where
 
 sepref_register import_poly_varsS
 
-sepref_definition import_poly_varsS_impl
+sepref_def import_poly_varsS_impl
   is \<open>uncurry import_poly_varsS\<close>
   :: \<open>shared_vars_assn\<^sup>d *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a shared_vars_assn\<close>
   supply [[goals_limit=1]]
@@ -3656,7 +3743,7 @@ sepref_register remap_polys_s4
     \<Rightarrow> (nat, string) shared_vars
     \<Rightarrow> (string code_status \<times> (nat, string) shared_vars \<times> (nat, sllist_polynomial) f_map \<times> sllist_polynomial) nres\<close>
 
-sepref_definition remap_polys_s4_impl
+sepref_def remap_polys_s4_impl
   is \<open>uncurry3 remap_polys_s4\<close>
   :: \<open>poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k *\<^sub>a inputs_assn\<^sup>d *\<^sub>a shared_vars_assn\<^sup>d \<rightarrow>\<^sub>a
   status_assn raw_string_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a polys_s_assn \<times>\<^sub>a poly_s_assn\<close>
@@ -3704,7 +3791,7 @@ lemma full_checker_l_s3_full_checker_l_s2:
   \<open>full_checker_l_s3 spec xs st \<le> \<Down>Id (full_checker_l_s2 spec (fmap_of_list xs) st)\<close>
   sorry
 
-sepref_definition full_checker_l_s3_impl
+sepref_def full_checker_l_s3_impl
   is \<open>uncurry2 full_checker_l_s3\<close>
   :: \<open>poly_assn\<^sup>k *\<^sub>a inputs_assn\<^sup>d *\<^sub>a (ol_assn (pac_step_assn poly_assn strl_assn))\<^sup>d \<rightarrow>\<^sub>a
   status_assn raw_string_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a polys_s_assn\<close>

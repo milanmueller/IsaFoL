@@ -341,12 +341,14 @@ text \<open>"Non-Efficient" Checker\<close>
 
 definition run_checker :: \<open>c_inputs ptr \<Rightarrow> c_proof ptr \<Rightarrow> c_target ptr \<Rightarrow> 8 word llM\<close> where[llvm_code]:
   \<open>run_checker \<equiv> \<lambda> cinpsp cprfp ctgtp. doM {
+    \<comment> \<open>Trusted\<close>
     cinps \<leftarrow> ll_load cinpsp;
     cprf \<leftarrow> ll_load cprfp;
     ctgt \<leftarrow> ll_load ctgtp;
     isainps \<leftarrow> imp_inputs cinps; 
     isaprf \<leftarrow> imp_proof cprf;
     isatgt \<leftarrow> imp_target ctgt;
+    \<comment> \<open>Verified\<close>
     ((st, res), vs, p) \<leftarrow> full_checker_l3_impl isatgt isainps isaprf;
     Mreturn st 
   }\<close>
@@ -373,18 +375,20 @@ text \<open>Efficient Checker\<close>
 
 definition run_shared_checker :: \<open>c_inputs ptr \<Rightarrow> c_proof ptr \<Rightarrow> c_target ptr \<Rightarrow> 8 word llM\<close> where[llvm_code]:
   \<open>run_shared_checker \<equiv> \<lambda> cinpsp cprfp ctgtp. doM {
+    \<comment> \<open>Trusted\<close>
     cinps \<leftarrow> ll_load cinpsp;
     cprf \<leftarrow> ll_load cprfp;
     ctgt \<leftarrow> ll_load ctgtp;
     isainps \<leftarrow> imp_inputs cinps; 
     isaprf \<leftarrow> imp_proof cprf;
     isatgt \<leftarrow> imp_target ctgt;
+    \<comment> \<open>Verified\<close>
     ((st, res), vs, p) \<leftarrow> full_checker_l_s3_impl isatgt isainps isaprf;
     Mreturn st 
   }\<close>
 
 export_llvm
-  run_checker is \<open>char run_shared_checker(inputs*, proof*, polynomial*)\<close>
+  run_shared_checker is \<open>char run_shared_checker(inputs*, proof*, polynomial*)\<close>
   defines \<open>
     typedef struct {uint64_t len; char *ptr;} slice;
     typedef struct {uint64_t num_vars; slice *vars_ptr;} term;
