@@ -254,10 +254,9 @@ lemma op_map_lookup_fmlookup:
   \<open>(op_map_lookup, fmlookup') \<in> Id \<rightarrow> map_fmap_rel \<rightarrow> \<langle>Id\<rangle>option_rel\<close>
   by (auto simp: map_fmap_rel_def br_def fmap.Abs_fmap_inverse)
 
-(*
 abbreviation hm_fmap_assn where
   \<open>hm_fmap_assn K V \<equiv> hr_comp (hm_assn K V) map_fmap_rel\<close>
-*)
+
 (*
 lemmas fmap_delete_hnr [sepref_fr_rules] =
   hm.delete_hnr[FCOMP fmdrop_set_None]

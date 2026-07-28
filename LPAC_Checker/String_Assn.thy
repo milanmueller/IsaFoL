@@ -321,7 +321,12 @@ lemma msort_chars_sorted: \<open>sorted_wrt (\<le>) (msort_chars xs)\<close>
 
 section \<open>String Hashing (FNV-1a)\<close>
 
-text \<open>Values from \<^url>\<open>https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function\<close>.\<close>
+text \<open>The abstract hash function is taken over verbatim from the (array-string based)
+  prototype in \<^file>\<open>String_Hash_Map.thy\<close>; the concrete implementation there
+  (\<open>shs_hash_impl\<close>, an indexed loop over a character array) does not fit the open-list
+  representation \<open>strl_assn\<close>, so the walk is re-implemented as a recursive node visit
+  in the style of \<^const>\<open>os_eq\<close>. Values from
+  \<^url>\<open>https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function\<close>.\<close>
 
 definition uc8_64 :: \<open>8 word \<Rightarrow> 64 word\<close> where \<open>uc8_64 \<equiv> UCAST(8 \<rightarrow> 64)\<close>
 
@@ -333,6 +338,9 @@ definition fnv_step :: \<open>64 word \<Rightarrow> char \<Rightarrow> 64 word\<
 
 definition fnv_1a_of_str :: \<open>char list \<Rightarrow> 64 word\<close> where
   \<open>fnv_1a_of_str = foldl fnv_step fnv_offset_basis\<close>
+
+text \<open>Char/word bridge (copied from \<^file>\<open>String_Array_Assn.thy\<close>, which is not imported
+  here): the concrete 8-bit word of a char-related pair is recovered by \<open>of_char\<close>.\<close>
 
 lemma of_char_word_id: \<open>x = of_char (char_of (unat (x :: 8 word)))\<close>
   by (metis of_char_of of_nat_of_char unat_of_char_mod word_unat.Rep_inverse)
@@ -1120,6 +1128,8 @@ experiment begin
     :: \<open>strl_assn\<^sup>d \<rightarrow>\<^sub>a strl_assn \<times>\<^sub>a strl_assn\<close>
     unfolding str_dup_test_def
     by sepref
+
+  export_llvm str_dup_test_impl
 
 end
 

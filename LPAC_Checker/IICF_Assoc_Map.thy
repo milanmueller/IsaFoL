@@ -11,7 +11,7 @@ theory IICF_Assoc_Map
     Isabelle_LLVM.IICF
     Isabelle_LLVM.Array_of_Array_List
     "HOL-Library.AList"
-    IICF_Owning_List
+    IICF_Copying_List
 begin
 
 section \<open>A hash map from 64-bit keys to heap-owning values\<close>
@@ -34,7 +34,7 @@ text \<open>
   \<^item> Values are \<^emph>\<open>heap-owning\<close> (for the checker: \<open>poly_assn\<close>, an array-list of monomials).
     Hence the IICF containers are unusable (they compose element assertions via
     \<open>\<langle>the_pure A\<rangle>list_rel\<close>). A bucket is an \<^emph>\<open>owning open list\<close>
-    (\<^const>\<open>ol_assn\<close>, \<^file>\<open>IICF_Owning_List.thy\<close>) of (key, value) entry structs whose
+    (\<^const>\<open>cl_assn\<close>, \<^file>\<open>IICF_Copying_List.thy\<close>) of (key, value) entry structs whose
     value components are owned; the outer bucket array owns its buckets via
     \<open>Array_of_Array_List.nao_assn\<close> (which, despite its home theory, is generic in the
     bucket assertion). Compared to an array-list bucket this trades contiguous scans
@@ -43,7 +43,7 @@ text \<open>
     the head changes), and \<^emph>\<open>reuse\<close> of the proven \<open>ol_seg\<close>/\<open>ol_delete\<close> infrastructure
     instead of re-deriving arl-plus-ownership lemmas per operation.
   \<^item> All bucket traversals are \<^emph>\<open>fused\<close> recursive operations in the style of
-    \<^const>\<open>os_rem\<close>/\<^const>\<open>os_eq\<close>: one walk that compares the pure key components and
+    \<^const>\<open>os_rem\<close>/\<^const>\<open>cl_e\<close>: one walk that compares the pure key components and
     acts on the hit node in place. Their abstract counterparts are exactly
     \<^const>\<open>AList.update\<close> (in-place replace of the first occurrence, append at the tail
     on miss) and \<^const>\<open>AList.delete\<close> (filter), so the bucket-level abstraction layer
@@ -1023,7 +1023,8 @@ lemmas pam_update_hnr[sepref_fr_rules] =
 
 text \<open>Deletion. Unlike \<open>op_map_empty\<close> (empty precondition, hence FCOMP), the map
   argument is present in the precondition here, so \<open>hr_comp_def\<close> is already in \<open>EXS\<close>
-  form and unfolds on both sides \<^emph>\<open>directly\<close> under \<open>sepref_to_hoare\<close> The bucket list extracted from the
+  form and unfolds on both sides \<^emph>\<open>directly\<close> under \<open>sepref_to_hoare\<close> (cf.\
+  \<open>shs_insert_hnr\<close> in \<^file>\<open>String_Hash_Map.thy\<close>). The bucket list extracted from the
   precondition witnesses the postcondition's \<open>hr_comp\<close>, and \<open>pam_invar bss\<close> discharges
   the \<open>bss \<noteq> []\<close> side condition of @{thm pam_delete_impl_rule}.
 

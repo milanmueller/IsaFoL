@@ -17,9 +17,7 @@ section \<open>A hash set of heap-owning elements\<close>
 
 text \<open>
   This is the replacement for the placeholder \<open>hs_assn string_assn\<close> (used as \<open>vars_assn\<close>
-  in \<^file>\<open>PAC_Checker_Synthesis.thy\<close>), built as the set sibling of the association map
-  in \<^file>\<open>IICF_Assoc_Map.thy\<close> and superseding the array-list based prototype in
-  \<^file>\<open>String_Hash_Map.thy\<close>.
+  in \<^file>\<open>PAC_Checker_Synthesis.thy\<close>).
 
   Design (mirroring \<open>IICF_Assoc_Map\<close>):
 
