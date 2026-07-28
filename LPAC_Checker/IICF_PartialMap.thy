@@ -149,8 +149,31 @@ lemma iarl_upd_rule[vcg_rules]:
   unfolding iarl_assn_def arl_upd_def
   by vcg
 
-(* TODO: implement resizing (that's the hard part) *)
-    
+definition iarl_resize :: \<open>'l word \<Rightarrow> ('a::llvm_rep, 'l::len2) array_list \<Rightarrow> ('a, 'l) array_list llM\<close> where[llvm_code]:
+  \<open>iarl_resize c' al \<equiv> doM {
+    al \<leftarrow> arl_ensure_capacity c' al;  
+    let (_, c, a) = al;
+    Mreturn (c', c, a)
+  }\<close>
+
+lemma replicate_merge:
+  assumes \<open>l \<le> x\<close> and \<open>x \<le> c\<close>
+  shows \<open>replicate (x - l) i @ replicate (c - x) i = replicate (c - l) i\<close>
+proof -
+  from assms have \<open>(x - l) + (c - x) = c - l\<close> by arith
+  then show ?thesis by (metis replicate_add)
+qed
+
+lemma iarl_resize_rule[vcg_rules]:
+  \<open>llvm_htriple
+    (\<upharpoonleft>iarl_assn xs ali ** \<upharpoonleft>snat.assn x xi ** \<up>\<^sub>d(length xs \<le> x))
+    (iarl_resize xi ali)
+    (\<lambda>ali'. \<upharpoonleft>iarl_assn (xs @ replicate (x - length xs) init) ali')\<close>
+  supply [simp] = replicate_merge
+  unfolding iarl_resize_def arl_ensure_capacity_def arl_resize_def iarl_assn_def
+  by vcg'
+
+
 locale array_pmap = dflt_option_private +
   fixes afree :: \<open>'a \<Rightarrow> unit llM\<close>
   (* We assume init to be identified by \<open>None\<close>. That way we get initialization
@@ -163,7 +186,7 @@ text \<open>Very similar to @{term nao_assn}, but we use the option assertion fr
   Also, we use @{term arl_assn} to reuse it's resizing machinery.\<close>
 
 (* We opt into 64-bit keys here, this makes proofs less noisy but maybe should be generalized at some point? *)
-definition \<open>pmap_assn \<equiv> mk_assn (\<lambda>xs (p :: (_, 64) array_list). EXS xsi. \<upharpoonleft>arl_assn xsi p ** \<upharpoonleft>(list_assn (mk_assn option_assn)) xs xsi)\<close>
+definition \<open>pmap_assn \<equiv> mk_assn (\<lambda>xs (p :: (_, 64) array_list). EXS xsi. \<upharpoonleft>iarl_assn xsi p ** \<upharpoonleft>(list_assn (mk_assn option_assn)) xs xsi)\<close>
 abbreviation \<open>pmap_assn' \<equiv> \<upharpoonleft>pmap_assn\<close>
 type_synonym 'c pmap_conc = \<open>('c, 64) array_list\<close>
 
@@ -176,14 +199,31 @@ lemma pmap_empty_hnr[sepref_fr_rules]:
 definition pmap_update :: \<open>64 word \<Rightarrow> 'a \<Rightarrow> 'a pmap_conc \<Rightarrow> 'a pmap_conc llM\<close> where[llvm_code]:
   \<open>pmap_update ki vi ai \<equiv> doM {
     l \<leftarrow> arl_len ai; 
-    if (l < ki) then doM {
+    if (ki < l) then doM {
       prev \<leftarrow> arl_nth ai ki;
       free_option afree prev;
       arl_upd ai ki vi
     } else doM {
-    
+      ai \<leftarrow> iarl_resize (ki + 1) ai;
+      arl_upd ai ki vi 
     }
   }\<close>
+
+lemma pmap_update_rule[vcg_rules]:
+  \<open>k < max_snat 64 \<Longrightarrow> llvm_htriple
+    (\<upharpoonleft>snat.assn k ki ** A v vi ** pmap_assn' xs ai)
+    (pmap_update ki vi ai)
+    (\<lambda>ai'. pmap_assn' (xs[k:=Some v]) ai')\<close>
+  unfolding pmap_update_def 
+  supply [simp] = pmap_assn_def
+  apply (cases \<open>ki < l\<close>)
+  subgoal
+    apply vcg
+    sorry
+  subgoal
+    apply vcg
+    sorry
+  done
 
 end
 
