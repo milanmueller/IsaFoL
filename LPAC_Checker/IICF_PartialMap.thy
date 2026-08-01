@@ -10,31 +10,42 @@ begin
 text \<open>This theory implement a key-value map.
   It refines @{typ \<open>'a option list\<close>}, i.e. a partial map.
   It is inspired by @{theory Isabelle_LLVM.Proto_EOArray}
-  and uses a similar construction.\<close>
+  and uses a similar construction.
+  A lot of the proofs in here were found by Anthropic LLMs,
+  they could most likely be much more consise and readable with some more ground work.\<close>
 
 text \<open>TODO list \<emdash> coverage of the @{theory Isabelle_LLVM.IICF_Map} interface
-  Done:
-    (none yet)
+  \<^item> [x] \<open>op_map_empty\<close>
+  \<^item> [x] \<open>op_map_update\<close>
+  \<^item> [x] \<open>op_map_delete\<close>
+  \<^item> [x] \<open>op_map_contains_key\<close>
+  \<^item> [ ] \<open>op_map_is_empty\<close> (needs a size field to be efficient, which we don't currently have
+                           it's possible to have this in linear time, but that sounds like a
+                           bad idea to even support...)
 
-  Missing, core operations:
-    \<^item> [x] \<open>op_map_empty\<close>        (fresh @{term narray_assn}; slots are \<open>init = dflt = None\<close>)
-    \<^item> [x] \<open>op_map_update\<close>       (must free the overwritten value if the key was present)
-    \<^item> [x] \<open>op_map_delete\<close>       (must free the removed value; leaves a \<open>dflt\<close> hole)
-    \<^item> [x] \<open>op_map_contains_key\<close> (pure; the \<open>is_dflt\<close> null test, no ownership transfer)
-    \<^item> [ ] \<open>op_map_is_empty\<close>     (needs a size field or a full scan)
+  -- Requires Copying --
+  Lookup does not really make sense without copying, as it would destroy the map otherwise.
+  It would require a different type signature for lookup where also the map is returned to 
+  have a non-copying lookup. i.e. something like
+    my_lookup :: \<open>'k \<Rightarrow> ('k, 'v) map \<Rightarrow> ('v, ('k, 'v) map)\<close>
+  That however would also be awkward, as one would have to destroy the tuple to extract both
+  the new list and the value. 
+  It's however possible to implement a non-copying variant with a postcondition of somthing like
+  \<open>[map_assn xs ai ... ] (op_map_lookup ki ai) [map_assn xs[ki:=None] ... ]\<close>
+  but I don't know how to represent something like this on the HOL level for use with sepref...
 
-  Missing, extract a value (element leaves or is copied out of the map):
-    \<^item> [ ] \<open>op_map_lookup\<close>       (returns an option)
-    \<^item> [ ] \<open>op_map_the_lookup\<close>   (guarded, key must be present); like @{term op_list_hd}
-                                 this needs a copying variant (keep the map intact,
-                                 requires an element copy) and possibly a destructive one
+  Implemented with an assumed copy operation for the contained type:
+    \<^item> [x] \<open>op_map_lookup\<close>
+    \<^item> [x] \<open>op_map_the_lookup\<close>
 
   Infrastructure (not interface ops):
-    \<^item> [ ] \<open>MK_FREE\<close> deep free   (free each present slot's value, then the array)
-    \<^item> [ ] \<open>COPY\<close> deep copy      (needs an element copy)\<close>
+    \<^item> [x] \<open>MK_FREE\<close> deep free
+    \<^item> [ ] \<open>COPY\<close> deep copy (needs a copy function for the contained elements of course...)
+\<close>
 
 section \<open>High level map implementation by option list\<close>
-text \<open>First, we implement maps using lists of optionals. We then later compose with the low level implementation.\<close>
+text \<open>First, we implement maps using lists of optionals.
+  We then later compose with the low level implementation.\<close>
 
 type_synonym 'a opt_list = \<open>'a option list\<close>
 
@@ -135,8 +146,7 @@ lemma iarl_new_raw_rule[vcg_rules]:
   unfolding arl_new_raw_def arl_initial_size_def iarl_assn_def
   apply (vcg_monadify)
   apply vcg'
-  by (metis snat8_64)
-  
+  by (metis snat8_64) 
 
 lemma iarl_len_rule[vcg_rules]:
   \<open>llvm_htriple (\<upharpoonleft>iarl_assn xs ali) (arl_len ali)
@@ -350,7 +360,6 @@ next
     unfolding ENTAILS_def by (auto simp: entails_def sep_algebra_simps)
 qed
 
-
 lemma pmap_update_rule[vcg_rules]:
   \<open>llvm_htriple
     (\<upharpoonleft>snat.assn k ki ** A v vi ** pmap_assn' xs ai ** \<up>\<^sub>d(k + 1 < max_snat 64))
@@ -391,7 +400,7 @@ lemma pmap_delete_reassemble_present:
   assumes A: \<open>k < length xsi\<close>
   shows \<open>ENTAILS
     (\<upharpoonleft>iarl_assn (xsi[k := dflt]) ai **
-     \<upharpoonleft>(list_assn (mk_assn option_assn)) (xs[k := Option.None]) (xsi[k := dflt]))
+\<upharpoonleft>(list_assn (mk_assn option_assn)) (xs[k := Option.None]) (xsi[k := dflt]))
     (EXS z. \<upharpoonleft>iarl_assn z ai **
        \<upharpoonleft>(list_assn (mk_assn option_assn)) (if k < length xs then xs[k := Option.None] else xs) z)\<close>
 proof (cases \<open>length xs = length xsi\<close>)
@@ -813,6 +822,23 @@ definition box_open :: \<open>'c::llvm_rep ptr \<Rightarrow> 'c llM\<close> wher
     Mreturn c
   }\<close>
 
+definition BOX :: \<open>'v \<Rightarrow> 'v\<close> where \<open>BOX x \<equiv> x\<close>
+definition UNBOX :: \<open>'v \<Rightarrow> 'v\<close> where \<open>UNBOX x \<equiv> x\<close>
+
+lemma BOX_hnr[sepref_fr_rules]:
+  \<open>(box_new, RETURN o BOX)
+    \<in> A\<^sup>d \<rightarrow>\<^sub>a \<upharpoonleft>(box_assn A)\<close>
+  apply sepref_to_hoare
+  unfolding BOX_def box_new_def box_assn_def
+  by vcg
+
+lemma UNBOX_hnr[sepref_fr_rules]:
+  \<open>(box_open, RETURN o UNBOX)
+    \<in> (\<upharpoonleft>(box_assn A))\<^sup>d \<rightarrow>\<^sub>a A\<close>
+  apply sepref_to_hoare
+  unfolding UNBOX_def box_open_def box_assn_def
+  by vcg
+
 lemma box_open_rule[vcg_rules]:
   \<open>llvm_htriple (\<upharpoonleft>(box_assn A) x p) (box_open p) (\<lambda>c. A x c)\<close>
   unfolding box_open_def box_assn_def by vcg
@@ -921,7 +947,6 @@ definition cpmap_lookup :: \<open>64 word \<Rightarrow> 'a pmap_conc \<Rightarro
     l \<leftarrow> arl_len ai;
     b \<leftarrow> ll_icmp_ult ii l;
     llc_if b (doM {
-      \<comment> \<open>We just hope/assume that clang will optimize this\<close>
       a \<leftarrow> arl_nth ai ii;
       a2 \<leftarrow> copy_option acopy a;
       arl_upd ai ii a2;
@@ -1012,6 +1037,60 @@ lemmas cpmap_the_lookup_hnr2[sepref_fr_rules] =
 
 end
 
+subsection \<open>Copyable boxes\<close>
+text \<open>To, again, use our copying pmap with arbitrary impure objects, we need to
+  wrap the object in a box. Therefore we need some copy setup for boxes.\<close>
+
+definition box_copy :: \<open>('c \<Rightarrow> 'c llM) \<Rightarrow> 'c::llvm_rep ptr \<Rightarrow> 'c ptr llM\<close> where[llvm_code]:
+  \<open>box_copy acopy p \<equiv> doM {
+    c \<leftarrow> ll_load p;
+    c' \<leftarrow> acopy c;
+    ll_ref c' 
+  }\<close>
+
+lemma is_copy_triple:
+  assumes \<open>is_copy A acopy\<close>
+  shows \<open>llvm_htriple (A x c) (acopy c) (\<lambda>r. A x c ** A x r)\<close>
+proof -
+  note HNR = assms[unfolded is_copy_def, to_hnr, unfolded autoref_tag_defs]
+  note HT = HNR[THEN hn_refineD]
+  show ?thesis
+    apply (rule htriple_ent_pre[OF _ htriple_ent_post[OF _ HT]])
+    unfolding hn_ctxt_def apply (rule entails_refl)
+    subgoal by (auto simp: entails_def sep_algebra_simps)
+    subgoal by simp
+    done
+qed
+
+lemma box_copy_rule:
+  assumes \<open>is_copy A acopy\<close>
+    shows \<open>is_copy \<upharpoonleft>(box_assn A) (box_copy acopy)\<close>
+  unfolding box_copy_def is_copy_def box_assn_def
+  apply sepref_to_hoare
+  supply [vcg_rules] = is_copy_triple[OF assms(1)]
+  by vcg
+
+locale boxed_copying_pmap =
+  (* TODO: this should probably inherit from the non-coying boxed_pmap
+   * but I had issues when i tried that, which probably come down to
+   * understanding of locales... *)
+  fixes A :: \<open>'a \<Rightarrow> 'b::llvm_rep \<Rightarrow> assn\<close>
+    and afree :: \<open>'b \<Rightarrow> unit llM\<close>
+    and acopy :: \<open>'b \<Rightarrow> 'b llM\<close>
+  assumes Afree: \<open>MK_FREE A afree\<close>
+  assumes Acopy: \<open>is_copy A acopy\<close>
+begin
+
+sublocale copying_array_pmap \<open>null\<close> \<open>\<upharpoonleft>(box_assn A)\<close> \<open>box_is_null\<close> \<open>box_free afree\<close> \<open>box_copy acopy\<close>
+  apply unfold_locales
+  apply simp_all
+  subgoal by (rule box_is_null_rule)
+  subgoal by (rule box_free_rule[OF Afree])
+  subgoal by (rule box_copy_rule[OF Acopy])
+  done
+
+end
+
 section \<open>Experiments\<close>
 
 text \<open>Sanity tests: instantiate the copying map with boxed 64-bit numbers
@@ -1053,33 +1132,6 @@ interpretation P: copying_array_pmap
   subgoal unfolding is_copy_def by (rule box_copy_hnr)
   done
 
-text \<open>Boxing is an implementation detail invisible at the HOL level; to move values
-  into/out of the map, sepref needs named identity ops with box conversion rules.\<close>
-definition BOX :: \<open>'v \<Rightarrow> 'v\<close> where \<open>BOX x \<equiv> x\<close>
-definition UNBOX :: \<open>'v \<Rightarrow> 'v\<close> where \<open>UNBOX x \<equiv> x\<close>
-sepref_register BOX UNBOX
-
-lemma BOX_hnr[sepref_fr_rules]:
-  \<open>(box_new, RETURN o BOX)
-    \<in> (snat_assn' TYPE(64))\<^sup>d \<rightarrow>\<^sub>a \<upharpoonleft>(box_assn (snat_assn' TYPE(64)))\<close>
-  supply [simp] = invalid_pure_recover pure_app_eq refine_pw_simps
-  apply sepref_to_hoare
-  apply (fold pure_def)
-  unfolding BOX_def box_new_def box_assn_def
-  by vcg
-
-lemma UNBOX_hnr[sepref_fr_rules]:
-  \<open>(box_open, RETURN o UNBOX)
-    \<in> (\<upharpoonleft>(box_assn (snat_assn' TYPE(64))))\<^sup>d \<rightarrow>\<^sub>a snat_assn' TYPE(64)\<close>
-  supply [simp] = invalid_pure_recover pure_app_eq refine_pw_simps invalid_assn_def
-  apply sepref_to_hoare
-  apply (fold pure_def)
-  unfolding UNBOX_def box_open_def box_assn_def
-  by vcg
-
-(* BISECT2: tests disabled
-text \<open>Insert, query, delete \<emdash> the map lives and dies inside the program, so this
-  also tests the synthesized free (\<open>pmap_free\<close> with per-slot \<open>box_free\<close>).\<close>
 sepref_definition pmap_test1_impl is
   \<open>uncurry (\<lambda>k v. do {
       let m = op_map_empty;
@@ -1104,9 +1156,6 @@ sepref_definition pmap_test2_impl is
       (snat_assn' TYPE(64))\<^sup>k *\<^sub>a (snat_assn' TYPE(64))\<^sup>k \<rightarrow> snat_assn' TYPE(64)\<close>
   by sepref
 
-*)
-text \<open>The optional lookup, returning the option itself.\<close>
-(* TEMPORARILY DISABLED (bisecting a hang)
 sepref_definition pmap_test3_impl is
   \<open>uncurry (\<lambda>k v. do {
       let m = op_map_update k (BOX v) op_map_empty;
@@ -1116,7 +1165,77 @@ sepref_definition pmap_test3_impl is
       (snat_assn' TYPE(64))\<^sup>k *\<^sub>a (snat_assn' TYPE(64))\<^sup>k
       \<rightarrow> hr_comp P.option_assn (\<langle>nat_rel\<rangle>option_rel)\<close>
   by sepref
-*)
+
+end
+
+text \<open>Second experiment: an IMPURE element type. The map stores boxed dynamic arrays
+  (\<open>al_assn\<close>) of 64-bit numbers, i.e. a \<open>nat \<rightharpoonup> nat list\<close> map at the HOL level. This
+  exercises the @{locale boxed_copying_pmap} locale: the copying lookup duplicates the
+  boxed array (\<open>box_copy arl_copy\<close>) while the map stays intact.\<close>
+
+experiment
+begin
+
+text \<open>Array-list copy, replicated from
+  \<open>isabelle_llvm/thys/examples/sorting/Sorting_Strings.thy\<close>
+  (the sorting examples are not part of the \<open>Isabelle_LLVM\<close> session image).\<close>
+definition arl_copy :: \<open>('a::llvm_rep,'l::len2) array_list \<Rightarrow> ('a,'l) array_list llM\<close>
+  where [llvm_code]: \<open>arl_copy al \<equiv> doM {
+    let (l,c,a) = al;
+    a' \<leftarrow> narray_new TYPE('a) l;
+    arraycpy a' a l;
+    Mreturn (l,l,a')
+  }\<close>
+
+lemma arl_copy_rule[vcg_rules]: \<open>llvm_htriple
+  (\<upharpoonleft>arl_assn xs xsi) (arl_copy xsi) (\<lambda>r. \<upharpoonleft>arl_assn xs xsi ** \<upharpoonleft>arl_assn xs r)\<close>
+  unfolding arl_copy_def arl_assn_def arl_assn'_def
+  by vcg
+
+lemma al_copy_hnr: \<open>(arl_copy, RETURN o op_list_copy) \<in> (al_assn A)\<^sup>k \<rightarrow>\<^sub>a al_assn A\<close>
+  unfolding al_assn_def hr_comp_def
+  apply sepref_to_hoare
+  by vcg
+
+lemma al_copy_is_copy: \<open>is_copy (al_assn A) arl_copy\<close>
+  using al_copy_hnr unfolding is_copy_def COPY_def op_list_copy_def .
+
+abbreviation nl_assn :: \<open>nat list \<Rightarrow> (64 word, 64) array_list \<Rightarrow> assn\<close> where
+  \<open>nl_assn \<equiv> al_assn' TYPE(64) (snat_assn' TYPE(64))\<close>
+
+interpretation P: boxed_copying_pmap nl_assn arl_free arl_copy
+  apply unfold_locales
+  subgoal by (rule al_assn_free)
+  subgoal by (rule al_copy_is_copy)
+  done
+
+text \<open>Store a singleton array under a key, check membership, delete.\<close>
+sepref_definition pmap_altest1_impl is
+  \<open>uncurry (\<lambda>k v. do {
+      let xs = op_list_append (op_al_empty TYPE(64)) v;
+      let m = op_map_update k (BOX xs) op_map_empty;
+      let b\<^sub>1 = op_map_contains_key k m;
+      let m = op_map_delete k m;
+      let b\<^sub>2 = op_map_contains_key k m;
+      RETURN (b\<^sub>1 \<and> \<not> b\<^sub>2)
+    })\<close>
+  :: \<open>[\<lambda>(k, v). k + 1 < max_snat 64]\<^sub>a
+      (snat_assn' TYPE(64))\<^sup>k *\<^sub>a (snat_assn' TYPE(64))\<^sup>k \<rightarrow> bool1_assn\<close>
+  by sepref
+
+text \<open>The copying lookup: read the stored array back TWICE \<emdash> only possible because
+  \<open>op_map_the_lookup\<close> leaves the map intact.\<close>
+sepref_definition pmap_altest2_impl is
+  \<open>uncurry (\<lambda>k v. do {
+      let xs = op_list_append (op_al_empty TYPE(64)) v;
+      let m = op_map_update k (BOX xs) op_map_empty;
+      let x\<^sub>1 = op_map_the_lookup k m;
+      let x\<^sub>2 = op_map_the_lookup k m;
+      RETURN (op_list_length (UNBOX x\<^sub>1) = op_list_length (UNBOX x\<^sub>2))
+    })\<close>
+  :: \<open>[\<lambda>(k, v). k + 1 < max_snat 64]\<^sub>a
+      (snat_assn' TYPE(64))\<^sup>k *\<^sub>a (snat_assn' TYPE(64))\<^sup>k \<rightarrow> bool1_assn\<close>
+  by sepref
 
 end
 
