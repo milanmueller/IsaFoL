@@ -8,7 +8,7 @@ theory PAC_Checker_Init
 begin
 
 text \<open>This theory had some significant changes: It used to implement sorting for
-  monimials and coefficients. The sorting algorithm was now moved to \<open>LLVM_Sort\<close>.
+  monimials and coefficients. The sorting algorithm was now moved to \<open>PAC_Polynomials_Sort\<close>
   Also, refined versions of operations now live in PAC_Polynomials_Operations.\<close>
 
 section \<open>@{term \<open>merge_coeffs0\<close>}\<close>
@@ -87,18 +87,32 @@ sepref_def sort_all_coeffs_impl is \<open>sort_all_coeffs\<close>
   unfolding sort_all_coeffs_alt
   by sepref
 
-section \<open>@{term \<open>sort_poly\<close>}\<close>
-(* Should be like sort_coeffs + tuple unfolding... *)
-sepref_def sort_poly_impl is \<open>sort_poly_spec\<close>
-  :: \<open>polynomial_assn\<^sup>d \<rightarrow>\<^sub>a polynomial_assn\<close>
-  oops
+section \<open>@{term \<open>sort_poly_spec\<close>}\<close>
 
+lemma monomial_sort_spec:
+  \<open>sorted_wrt (rel2p (Id \<union> term_order_rel)) (map fst p) = sorted_wrt monomial_le p\<close> 
+  unfolding monomial_le_def rel2p_def 
+  apply (induction p; auto)
+  subgoal using term_order_rel_by_lt by fastforce
+  subgoal using term_order_rel_by_lt by fastforce
+  done
+
+lemma poly_msort_refine: \<open>poly.msort \<le> sort_poly_spec\<close>
+  unfolding sort_poly_spec_def
+  using poly.msort_spec[unfolded monomial_sort_spec[symmetric], where xs=p]
+  by (simp add: le_funI monomial_sort_spec poly.msort_spec)  
+
+lemma poly_msort_fref:
+  \<open>(PR_CONST poly.msort, sort_poly_spec) \<in> Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  by (intro frefI nres_relI) (simp add: le_funD poly_msort_refine)
+
+lemmas sort_poly_hnr[sepref_fr_rules] =
+  poly.msort_impl.refine[FCOMP poly_msort_fref]
+  
 sepref_def fully_normalize_poly_impl
   is \<open>full_normalize_poly\<close>
   :: \<open>polynomial_assn\<^sup>d \<rightarrow>\<^sub>a polynomial_assn\<close>
   unfolding full_normalize_poly_def
-  apply sepref_dbg_keep
-  apply sepref_dbg_trans_keep
-  sorry
+  by sepref
 
 end

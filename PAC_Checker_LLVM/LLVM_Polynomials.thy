@@ -1,5 +1,6 @@
 theory LLVM_Polynomials
   imports LLVM_String BigInt_LLVM.LLVM_CodeGen_Signed IICF_PartialMap
+    PAC_Polynomials_Term
 begin
 
 text \<open>This theory defines refinment targets for polynomials in LLVM.
@@ -162,6 +163,43 @@ lemma mnml_copy_is_copy[sepref_gen_algo_rules]:
   unfolding GEN_ALGO_def is_copy_def
   by (rule mnml_copy_hnr)
 
+text \<open>We also need an order on monomials that only considers the variables\<close>
+definition monomial_le :: \<open>(term_poly_list \<times> int) \<Rightarrow> (term_poly_list \<times> int) \<Rightarrow> bool\<close> where
+  \<open>monomial_le \<equiv> \<lambda>p q. fst p \<le> fst q\<close>
+
+text \<open>refining with sepref can only give us a destructive implementation due to tuple
+  unpacking, therefore we go down to llM level\<close>
+
+definition monomial_le_impl' :: \<open>monomial_conc \<Rightarrow> monomial_conc \<Rightarrow> 1 word llM\<close> where[llvm_code]:
+  \<open>monomial_le_impl' \<equiv> \<lambda>(pm,pn) (qm,qn).doM {
+    r \<leftarrow> monom.cl_le pm qm;
+    Mreturn r 
+  }\<close>
+
+lemma monomial_assn_unfold:
+  \<open>ENTAILS (monomial_assn p pii) (case p of (pm,pn) \<Rightarrow> case pii of (pmi,pni) \<Rightarrow> monom_assn pm pmi ** sbi_assn pn pni)\<close>
+  by (auto simp: sep_algebra_simps ENTAILS_def entails_def) 
+
+lemma stupid: \<open>monomial_assn = (monom_assn \<times>\<^sub>a sbi_assn)\<close> by simp
+
+lemma monomial_le_rule[vcg_rules]:
+  \<open>llvm_htriple
+    (monomial_assn p pii ** monomial_assn q qii)
+    (monomial_le_impl' pii qii)
+    (\<lambda>r. monomial_assn p pii ** monomial_assn q qii ** bool1_assn (monomial_le p q) r)\<close>
+  unfolding monomial_le_impl'_def monomial_le_def 
+  supply [simp] = list_le_less_eq
+  apply (cases p; cases q; cases pii; cases qii; simp)
+  by vcg
+
+(* doesn't use the vcg rule due to bool1_assn mismatch somehow... *)
+lemma monomial_le_hnr[sepref_fr_rules]:
+  \<open>(uncurry monomial_le_impl', uncurry (RETURN oo monomial_le))
+  \<in> monomial_assn\<^sup>k *\<^sub>a monomial_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding monomial_le_impl'_def monomial_le_def
+  supply [simp] = list_le_less_eq pure_def
+  by (sepref_to_hoare; vcg)
+
 section \<open>Polynomials\<close>
   
 abbreviation \<open>polynomial_assn \<equiv> cl_assn' monomial_assn\<close>
@@ -170,6 +208,13 @@ interpretation poly: copy_free_context \<open>monomial_assn\<close> \<open>mnml_
   apply unfold_locales
   subgoal by (rule mnml_free_rule)
   subgoal by (rule mnml_copy_is_copy)
+  done
+
+interpretation poly: cmp_env_impl \<open>monomial_le\<close> \<open>monomial_assn\<close> \<open>mnml_free\<close> \<open>monomial_le_impl'\<close>
+  apply unfold_locales
+  subgoal unfolding monomial_le_def by auto
+  subgoal unfolding monomial_le_def by auto
+  subgoal by (rule monomial_le_hnr)
   done
 
 experiment
