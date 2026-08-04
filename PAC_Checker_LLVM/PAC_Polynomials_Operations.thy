@@ -2,8 +2,8 @@ theory PAC_Polynomials_Operations
   imports 
     PAC_Polynomials_Term 
     PAC_Checker_Specification
-    LLVM_Polynomials 
-    (*Refine_Imperative_HOL.IICF*)
+    LLVM_Polynomials
+    LLVM_Sort
 begin
 
 subsection \<open>Addition\<close>
@@ -164,9 +164,16 @@ lemma add_poly_l_add_poly:
   by (auto simp: add_poly_l1_alt_def add_poly_l2_alt_def split: prod.splits)
 
 (* test refinment - TODO: move to synthesis *)
+lemma term_order_rel_alt_def:
+  \<open>term_order_rel = lexord (p2rel char.lexordp)\<close>
+  by (auto simp: p2rel_def char.lexordp_conv_lexord var_order_rel_def intro!: arg_cong[of _ _ lexord])
+
 lemma term_order_rel_by_lt: \<open>(x,y) \<in> term_order_rel \<equiv> x < y\<close>
-  sorry
+  by (rule eq_reflection)
+    (auto simp: lexordp_conv_lexord less_eq_list_def less_list_def lexordp_def
+      var_order_rel_def rel2p_def term_order_rel_alt_def p2rel_def less_char_inst)
 lemma ls_emp: \<open>p\<noteq>[] \<equiv> \<not>(op_list_is_empty p)\<close> by simp
+lemma ls_emp': \<open>p = [] \<equiv> op_list_is_empty p\<close> by simp
 sepref_definition add_poly_l_impl is \<open>uncurry add_poly_l\<close>
   :: \<open>polynomial_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a polynomial_assn\<close>
   unfolding add_poly_l_def add_poly_l1_def add_poly_l2_def
@@ -489,7 +496,6 @@ proof -
     unfolding sort_poly_spec_def poly_list_rel_def sorted_repeat_poly_list_rel_wrt_def
     by refine_rcg (auto intro: H)
 qed
-
 
 subsection \<open>Multiplication\<close>
 
@@ -1105,9 +1111,6 @@ definition merge_coeffs1 :: \<open>llist_polynomial \<Rightarrow> llist_polynomi
     add_poly_l2 r [] []
   }\<close>
 
-lemma WHILET_exit: \<open>\<not> c s \<Longrightarrow> WHILE\<^sub>T c f s = RETURN s\<close>
-  by (subst WHILET_unfold) simp
-
 lemma merge_coeffs1_loop:
   \<open>WHILE\<^sub>T (\<lambda>(_, p). p \<noteq> []) mc_body (r, p) = RETURN (rev (merge_coeffs0 p) @ r, [])\<close>
   apply (induction p arbitrary: r rule: merge_coeffs0.induct)
@@ -1117,15 +1120,9 @@ lemma merge_coeffs1_loop:
   done
 
 lemma merge_coeffs1_correct:
-  \<open>merge_coeffs1 p = (RETURN o merge_coeffs0) p\<close>
+  \<open>merge_coeffs1 = (RETURN o merge_coeffs0)\<close>
   unfolding merge_coeffs1_def comp_def
   by (simp add: merge_coeffs1_loop add_poly_l2_alt_def)
-
-(* TODO: Move to refinment *)
-sepref_definition merge_coeffs1_impl is \<open>merge_coeffs1\<close> 
-  :: \<open>polynomial_assn\<^sup>d \<rightarrow>\<^sub>a polynomial_assn\<close>
-  unfolding merge_coeffs1_def mc_body_def ls_emp add_poly_l2_def apl2_body_def
-  by sepref 
 
 lemma sorted_repeat_poly_list_rel_with0_wrt_ConsD:
   \<open>((ys, n) # p, a) \<in> sorted_repeat_poly_list_rel_with0_wrt S term_poly_list_rel \<Longrightarrow>

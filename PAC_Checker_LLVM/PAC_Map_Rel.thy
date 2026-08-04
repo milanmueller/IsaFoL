@@ -6,7 +6,6 @@
 theory PAC_Map_Rel
   imports
     Isabelle_LLVM.IICF
-    (*Refine_Imperative_HOL.IICF*)
     Aux_Lemmas
     Finite_Map_Multiset
 begin
@@ -254,8 +253,10 @@ lemma op_map_lookup_fmlookup:
   \<open>(op_map_lookup, fmlookup') \<in> Id \<rightarrow> map_fmap_rel \<rightarrow> \<langle>Id\<rangle>option_rel\<close>
   by (auto simp: map_fmap_rel_def br_def fmap.Abs_fmap_inverse)
 
+(* TODO: Redo Hashmap and import here
 abbreviation hm_fmap_assn where
   \<open>hm_fmap_assn K V \<equiv> hr_comp (hm_assn K V) map_fmap_rel\<close>
+*)
 
 (*
 lemmas fmap_delete_hnr [sepref_fr_rules] =

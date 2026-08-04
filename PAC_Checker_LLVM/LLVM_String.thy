@@ -1,5 +1,6 @@
 theory LLVM_String
   imports Char_Assn IICF_Copying_List Isabelle_LLVM.IICF
+    PAC_Polynomials_Sort
 begin
 
 text \<open>Here, we provide two implementations of strings:
@@ -21,6 +22,21 @@ interpretation strl: linord_copying_list char_assn ll_icmp_eq ll_icmp_ult
   subgoal by (rule char_eq_hnr)
   subgoal by (rule char_lt_hnr)
   done
+
+interpretation strl: cmp_env_impl
+  \<open>(\<le>)\<close> \<open>char_assn\<close>  \<open>\<lambda>_. Mreturn ()\<close> \<open>char_le_impl\<close>
+  apply unfold_locales
+  subgoal by auto
+  subgoal by auto
+  subgoal by (rule char_le_impl.refine)
+  done
+
+sepref_register \<open>(=) :: char list \<Rightarrow> char list \<Rightarrow> bool\<close>
+sepref_register \<open>(<) :: char list \<Rightarrow> char list \<Rightarrow> bool\<close>
+sepref_register \<open>(\<le>) :: char list \<Rightarrow> char list \<Rightarrow> bool\<close>
+
+lemmas strl_less_hnr[sepref_fr_rules] = strl.cl_less_hnr[unfolded list_lt_less]
+lemmas strl_le_hnr[sepref_fr_rules] = strl.cl_le_hnr[unfolded list_le_less_eq]
 
 experiment
 begin

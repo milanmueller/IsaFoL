@@ -22,6 +22,9 @@ text \<open>TODO list \<emdash> coverage of the @{theory Isabelle_LLVM.IICF_List
     \<^item> [x] \<open>op_list_pop_hd\<close>    (\<open>os_pop\<close>); (See interface extension below) will move the \<open>hd\<close>
                                           out and also return the \<open>tl\<close> of the list.
     \<^item> [x] \<open>op_list_is_empty\<close>  (\<open>os_is_empty\<close>)
+    \<^item> [x] \<open>op_list_concat\<close>    (\<open>cl_concat_hnr\<close>; destructively links both lists)
+    \<^item> [x] \<open>op_list_append\<close>    (\<open>cl_append_hnr\<close>; snoc, O(n), takes ownership of the element)
+    \<^item> [x] \<open>op_list_rev\<close>       (\<open>cl_rev_hnr\<close>; destructive in-place reversal, O(n))
 
   Infrastructure (not interface ops):
     \<^item> [x] \<open>MK_FREE\<close> deep free  (\<open>cl_assn_free\<close>, in \<open>copy_free_context\<close>)
@@ -33,8 +36,7 @@ text \<open>TODO list \<emdash> coverage of the @{theory Isabelle_LLVM.IICF_List
 
   Missing, structural (no element extracted, single variant suffices):
     \<^item> [ ] \<open>op_list_replicate\<close> (needs element copy for n > 1)
-    \<^item> [ ] \<open>op_list_append\<close>    (snoc; O(n) without a tail pointer)
-    \<^item> [ ] \<open>op_list_concat\<close> / \<open>op_join_list\<close>
+    \<^item> [ ] \<open>op_join_list\<close>
     \<^item> [ ] \<open>op_list_take\<close>      (must free the dropped suffix)
     \<^item> [ ] \<open>op_list_drop\<close>      (must free the dropped prefix)
     \<^item> [ ] \<open>op_list_set\<close>       (must free the overwritten element)
@@ -42,7 +44,6 @@ text \<open>TODO list \<emdash> coverage of the @{theory Isabelle_LLVM.IICF_List
     \<^item> [ ] \<open>op_list_butlast\<close>   (must free the last element)
     \<^item> [ ] \<open>op_list_swap\<close>
     \<^item> [ ] \<open>op_list_rotate1\<close>
-    \<^item> [ ] \<open>op_list_rev\<close>
     \<^item> [ ] \<open>op_split_list\<close>
     \<^item> [ ] \<open>op_list_contains\<close>  (needs an element-equality parameter)
     \<^item> [ ] \<open>op_list_index\<close>     (needs an element-equality parameter)
@@ -328,6 +329,102 @@ end
 
 section \<open>Destructive/Copying Operations\<close>
 
+subsection \<open>@{term op_list_pop_hd}\<close>
+text \<open>Custom destructive @{term hd} operation defined at the top of the theory,
+  c.f. @{term op_list_pop_hd}.\<close>
+
+(* A destructive variant of `hd` is `pop`, which is already implemented for open lists. *)
+lemma cl_pop_rule[vcg_rules]:
+  assumes \<open>xs \<noteq> []\<close>
+  shows \<open>llvm_htriple
+    (cl_assn' A xs xi)
+    (os_pop xi)
+    (\<lambda>(r, xi'). A (hd xs) r ** cl_assn' A (tl xs) xi')\<close>
+  unfolding os_pop_def
+  apply (cases xs)
+  subgoal using assms by simp
+  supply [simp] = cl_assn_simps sep_conj_exists
+  by vcg
+
+lemma cl_pop_hnr_mop[sepref_fr_rules]:
+  \<open>(os_pop, mop_list_pop_hd) \<in> (cl_assn' A)\<^sup>d \<rightarrow>\<^sub>a A \<times>\<^sub>a cl_assn' A\<close>
+  supply [simp] = refine_pw_simps 
+  by (sepref_to_hoare; vcg)
+
+lemma cl_pop_hnr_op[sepref_fr_rules]:
+  \<open>(os_pop, RETURN o op_list_pop_hd) \<in> [\<lambda>xs. xs \<noteq> []]\<^sub>a (cl_assn' A)\<^sup>d \<rightarrow> A \<times>\<^sub>a cl_assn' A\<close>
+  supply [simp] = refine_pw_simps 
+  by (sepref_to_hoare; vcg)
+
+
+
+
+locale free_copying_list =
+  fixes A :: \<open>'a \<Rightarrow> 'b::llvm_rep \<Rightarrow> assn\<close>
+    and afree_impl :: \<open>'b \<Rightarrow> unit llM\<close>
+  assumes a_assn_free[sepref_frame_free_rules]: \<open>MK_FREE A afree_impl\<close>
+begin
+
+subsection \<open>@{term op_list_free}\<close>
+
+definition cl_free :: \<open>'b cl_list \<Rightarrow> unit llM\<close> where [llvm_code]:
+  \<open>cl_free \<equiv> MMonad.REC (\<lambda>cl_free p.
+    if p = null then Mreturn () else doM {
+      n \<leftarrow> ll_load p;
+      ll_free p;
+      afree_impl (node.val n);
+      cl_free (node.next n)
+    })\<close>
+
+lemmas cl_free_unfold = REC_unfold_extr[OF cl_free_def, discharge_monos]
+
+lemma cl_free_rule[vcg_rules]:
+  \<open>llvm_htriple (cl_assn' A xs p) (cl_free p) (\<lambda>_. \<box>)\<close>
+proof (induction xs arbitrary: p)
+  case Nil
+  then show ?case
+    apply (rewrite cl_free_unfold)
+    supply [simp] = cl_assn_simps
+    by vcg
+next
+  case (Cons a xs)
+  note [vcg_rules] = Cons.IH MK_FREED[OF a_assn_free]
+  show ?case
+    apply (rewrite cl_free_unfold)
+    supply [simp] = cl_assn_simps sep_conj_exists
+    by vcg
+qed
+
+lemma cl_assn_free[sepref_frame_free_rules]: \<open>MK_FREE (cl_assn' A) cl_free\<close>
+  apply (rule MK_FREEI)
+  by vcg
+
+subsection \<open>@{term op_list_hd}, destructively\<close>
+definition \<open>cl_hd\<^sub>d \<equiv> \<lambda>p. doM {(hd,tl) \<leftarrow> os_pop p; cl_free tl; Mreturn hd}\<close>
+
+lemma cl_hd\<^sub>d_rule[vcg_rules]:
+  assumes \<open>xs \<noteq> []\<close>
+  shows \<open>llvm_htriple
+    (cl_assn' A xs xi)
+    (cl_hd\<^sub>d xi)
+    (\<lambda>r. A (hd xs) r)\<close>
+  unfolding cl_hd\<^sub>d_def
+  apply (cases xs)
+  subgoal using assms by simp
+  by vcg
+
+lemma cl_hd\<^sub>d_hnr_mop[sepref_fr_rules]:
+  \<open>(cl_hd\<^sub>d, mop_list_hd) \<in> (cl_assn' A)\<^sup>d \<rightarrow>\<^sub>a A\<close>
+  supply [simp] = refine_pw_simps
+  by (sepref_to_hoare; vcg)
+
+lemma cl_hd\<^sub>d_hnr_op[sepref_fr_rules]:
+  \<open>(cl_hd\<^sub>d, RETURN o op_list_hd) \<in> [\<lambda>xs. xs\<noteq>[]]\<^sub>a (cl_assn' A)\<^sup>d \<rightarrow> A\<close>
+  supply [simp] = refine_pw_simps
+  by (sepref_to_hoare; vcg)
+
+end
+
 text \<open>We define a generic list implementation and require the objects in our
   list to implement a copy and a free function. This copying setup is copied from
   `isabelle_llvm/thys/examples/sorting/Sorting_Setup.thy`\<close>
@@ -343,11 +440,8 @@ lemma is_copy_pure_gen_algo: "CONSTRAINT is_pure A \<Longrightarrow> GEN_ALGO (M
   by (rule hnr_pure_COPY)
 
 (* TODO: rename to copy_free_copying_list or something *)
-locale copy_free_context =
-  fixes A :: \<open>'a \<Rightarrow> 'b::llvm_rep \<Rightarrow> assn\<close>
-    and afree_impl :: \<open>'b \<Rightarrow> unit llM\<close>
-    and acopy_impl :: \<open>'b \<Rightarrow> 'b llM\<close>
-  assumes a_assn_free[sepref_frame_free_rules]: \<open>MK_FREE A afree_impl\<close>
+locale copy_free_context = free_copying_list +
+  fixes acopy_impl :: \<open>'b::llvm_rep \<Rightarrow> 'b llM\<close>
   assumes a_assn_copy[sepref_gen_algo_rules]: \<open>GEN_ALGO acopy_impl (is_copy A)\<close>
 begin
 
@@ -406,41 +500,6 @@ lemma cl_copy_is_copy[sepref_gen_algo_rules]:
   unfolding GEN_ALGO_def is_copy_def
   by (rule cl_copy_hnr)
 
-subsection \<open>@{term op_list_free}\<close>
-
-text \<open>A deep free: frees the spine and every element. Together with @{thm cl_copy_is_copy}
-  this is what allows a copying list to be an *element* of another copying list
-  (cf. the nesting experiment below).\<close>
-definition cl_free :: \<open>'b cl_list \<Rightarrow> unit llM\<close> where [llvm_code]:
-  \<open>cl_free \<equiv> MMonad.REC (\<lambda>cl_free p.
-    if p = null then Mreturn () else doM {
-      n \<leftarrow> ll_load p;
-      ll_free p;
-      afree_impl (node.val n);
-      cl_free (node.next n)
-    })\<close>
-
-lemmas cl_free_unfold = REC_unfold_extr[OF cl_free_def, discharge_monos]
-
-lemma cl_assn_free[sepref_frame_free_rules]: \<open>MK_FREE (cl_assn' A) cl_free\<close>
-proof (rule MK_FREEI)
-  fix xs p
-  show \<open>llvm_htriple (cl_assn' A xs p) (cl_free p) (\<lambda>_. \<box>)\<close>
-  proof (induction xs arbitrary: p)
-    case Nil
-    then show ?case
-      apply (rewrite cl_free_unfold)
-      supply [simp] = cl_assn_simps
-      by vcg
-  next
-    case (Cons a xs)
-    note [vcg_rules] = Cons.IH MK_FREED[OF a_assn_free]
-    show ?case
-      apply (rewrite cl_free_unfold)
-      supply [simp] = cl_assn_simps sep_conj_exists
-      by vcg
-  qed
-qed
 
 subsection \<open>@{term op_list_hd}\<close>
 
@@ -467,34 +526,126 @@ lemma cl_hd\<^sub>k_hnr[sepref_fr_rules]:
   \<open>(cl_hd\<^sub>k, RETURN o op_list_hd) \<in> [\<lambda>xs. xs \<noteq> []]\<^sub>a (cl_assn' A)\<^sup>k \<rightarrow> A\<close>
   by (sepref_to_hoare; vcg)
 
-subsection \<open>@{term op_list_pop_hd}\<close>
-text \<open>Custom destructive @{term hd} operation defined at the top of the theory,
-  c.f. @{term op_list_pop_hd}.\<close>
+end
 
-(* A destructive variant of `hd` is `pop`, which is already implemented for open lists. *)
-lemma cl_pop_rule[vcg_rules]:
-  assumes \<open>xs \<noteq> []\<close>
-  shows \<open>llvm_htriple
-    (cl_assn' A xs xi)
-    (os_pop xi)
-    (\<lambda>(r, xi'). A (hd xs) r ** cl_assn' A (tl xs) xi')\<close>
-  unfolding os_pop_def
-  apply (cases xs)
-  subgoal using assms by simp
-  supply [simp] = cl_assn_simps sep_conj_exists
+
+subsection \<open>@{term op_list_concat}\<close>
+
+definition cl_concat_impl :: \<open>'a::llvm_rep cl_list \<times> 'a cl_list \<Rightarrow> 'a cl_list llM\<close>
+  where [llvm_code]:
+  \<open>cl_concat_impl \<equiv> MMonad.REC (\<lambda>cl_concat_impl (xp, yp).
+    if xp = null then Mreturn yp
+    else doM {
+      n \<leftarrow> ll_load xp;
+      tl \<leftarrow> cl_concat_impl (node.next n, yp);
+      ll_store (Node (node.val n) tl) xp;
+      Mreturn xp
+    })\<close>
+
+lemmas cl_concat_impl_unfold = REC_unfold_extr[OF cl_concat_impl_def, discharge_monos]
+
+definition cl_concat :: \<open>'a::llvm_rep cl_list \<Rightarrow> 'a cl_list \<Rightarrow> 'a cl_list llM\<close>
+  where [llvm_code, llvm_inline]:
+  \<open>cl_concat xp yp \<equiv> cl_concat_impl (xp, yp)\<close>
+
+lemma cl_concat_rule[vcg_rules]:
+  \<open>llvm_htriple
+    (cl_assn' A xs xi ** cl_assn' A ys yi)
+    (cl_concat xi yi)
+    (\<lambda>r. cl_assn' A (xs @ ys) r)\<close>
+  unfolding cl_concat_def
+proof (induction xs arbitrary: xi)
+  case Nil
+  show ?case
+    apply (rewrite cl_concat_impl_unfold)
+    supply [simp] = cl_assn_simps
+    by vcg
+next
+  case (Cons x xs)
+  note [vcg_rules] = Cons.IH
+  show ?case
+    apply (rewrite cl_concat_impl_unfold)
+    supply [simp] = cl_assn_simps sep_conj_exists
+    by vcg
+qed
+
+lemma cl_concat_hnr[sepref_fr_rules]:
+  \<open>(uncurry cl_concat, uncurry (RETURN oo op_list_concat))
+    \<in> (cl_assn' A)\<^sup>d *\<^sub>a (cl_assn' A)\<^sup>d \<rightarrow>\<^sub>a (cl_assn' A)\<close>
+  by (sepref_to_hoare; vcg)
+
+subsection \<open>@{term op_list_append}\<close>
+definition cl_append :: \<open>'a::llvm_rep cl_list \<Rightarrow> 'a \<Rightarrow> 'a cl_list llM\<close> where[llvm_code]:
+  \<open>cl_append ai a \<equiv> doM {
+    ap \<leftarrow> ll_ref (Node a null);
+    cl_concat_impl (ai, ap)
+  }\<close>
+
+lemma cl_append_rule[vcg_rules]: \<open>llvm_htriple
+  (cl_assn' A xs xi ** A a ai)
+  (cl_append xi ai)
+  (\<lambda>r. cl_assn' A (xs @ [a]) r)\<close>
+  unfolding cl_append_def
+  supply [vcg_rules] = cl_concat_rule[unfolded cl_concat_def, where ys=\<open>[a]\<close>]
+  supply [simp, named_ss fri_prepare_simps] = cl_assn_simps
   by vcg
 
-lemma cl_pop_hnr_mop[sepref_fr_rules]:
-  \<open>(os_pop, mop_list_pop_hd) \<in> (cl_assn' A)\<^sup>d \<rightarrow>\<^sub>a A \<times>\<^sub>a cl_assn' A\<close>
-  supply [simp] = refine_pw_simps 
+lemma cl_append_hnr[sepref_fr_rules]:
+  \<open>(uncurry cl_append, uncurry (RETURN oo op_list_append))
+    \<in> (cl_assn' A)\<^sup>d *\<^sub>a A\<^sup>d \<rightarrow>\<^sub>a (cl_assn' A)\<close>
   by (sepref_to_hoare; vcg)
 
-lemma cl_pop_hnr_op[sepref_fr_rules]:
-  \<open>(os_pop, RETURN o op_list_pop_hd) \<in> [\<lambda>xs. xs \<noteq> []]\<^sub>a (cl_assn' A)\<^sup>d \<rightarrow> A \<times>\<^sub>a cl_assn' A\<close>
-  supply [simp] = refine_pw_simps 
+subsection \<open>@{term op_list_rev}\<close>
+
+text \<open>Destructive in-place reversal: walk the list once, re-linking each node
+  onto an accumulator list.\<close>
+definition cl_rev_impl :: \<open>'a::llvm_rep cl_list \<times> 'a cl_list \<Rightarrow> 'a cl_list llM\<close>
+  where [llvm_code]:
+  \<open>cl_rev_impl \<equiv> MMonad.REC (\<lambda>cl_rev_impl (xp, acc).
+    if xp = null then Mreturn acc
+    else doM {
+      n \<leftarrow> ll_load xp;
+      ll_store (Node (node.val n) acc) xp;
+      cl_rev_impl (node.next n, xp)
+    })\<close>
+
+lemmas cl_rev_impl_unfold = REC_unfold_extr[OF cl_rev_impl_def, discharge_monos]
+
+definition cl_rev :: \<open>'a::llvm_rep cl_list \<Rightarrow> 'a cl_list llM\<close> where [llvm_code, llvm_inline]:
+  \<open>cl_rev xp \<equiv> cl_rev_impl (xp, null)\<close>
+
+lemma cl_rev_impl_rule:
+  \<open>llvm_htriple
+    (cl_assn' A xs xi ** cl_assn' A ys yi)
+    (cl_rev_impl (xi, yi))
+    (\<lambda>r. cl_assn' A (rev xs @ ys) r)\<close>
+proof (induction xs arbitrary: xi ys yi)
+  case Nil
+  show ?case
+    apply (rewrite cl_rev_impl_unfold)
+    supply [simp] = cl_assn_simps
+    by vcg
+next
+  case (Cons x xs)
+  note [vcg_rules] = Cons.IH[where ys=\<open>x # ys\<close>]
+  show ?case
+    apply (rewrite cl_rev_impl_unfold)
+    supply [simp, named_ss fri_prepare_simps] = cl_assn_simps
+    supply [simp] = sep_conj_exists
+    by vcg
+qed
+
+lemma cl_rev_rule[vcg_rules]:
+  \<open>llvm_htriple (cl_assn' A xs xi) (cl_rev xi) (\<lambda>r. cl_assn' A (rev xs) r)\<close>
+  unfolding cl_rev_def
+  supply [vcg_rules] = cl_rev_impl_rule[where ys=\<open>[]\<close> and yi=null]
+  supply [simp, named_ss fri_prepare_simps] = cl_assn_simps
+  by vcg
+
+lemma cl_rev_hnr[sepref_fr_rules]:
+  \<open>(cl_rev, RETURN o op_list_rev) \<in> (cl_assn' A)\<^sup>d \<rightarrow>\<^sub>a (cl_assn' A)\<close>
   by (sepref_to_hoare; vcg)
-end
-    
+
 locale eq_copying_list =
   fixes A :: \<open>'a \<Rightarrow> 'b::llvm_rep \<Rightarrow> assn\<close>
     and aeq_impl :: \<open>'b \<Rightarrow> 'b \<Rightarrow> 1 word llM\<close> 
@@ -536,8 +687,6 @@ lemmas cl_eq_impl_unfold = REC_unfold_extr[OF cl_eq_impl_def, discharge_monos]
 
 definition \<open>cl_eq ai bi \<equiv> cl_eq_impl (ai, bi)\<close>
 
-text \<open>@{term llc_if} is only normalized by \<open>vcg\<close> inside @{locale llvm_prim_ctrl_setup},
-  which is not interpreted by default (c.f. \<open>LLVM_DS_Circ_List\<close>).\<close>
 context begin
 interpretation llvm_prim_ctrl_setup .
 
@@ -793,6 +942,15 @@ sepref_definition test_lt_impl is \<open>uncurry (RETURN oo list_lt)\<close>
 
 sepref_definition test_le_impl is \<open>uncurry (RETURN oo list_le)\<close>
   :: \<open>(cl_assn' (snat_assn' TYPE(64)))\<^sup>k *\<^sub>a (cl_assn' (snat_assn' TYPE(64)))\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  by sepref
+
+sepref_definition test_concat_impl is \<open>uncurry (RETURN oo (@))\<close>
+  :: \<open>(cl_assn' (snat_assn' TYPE(64)))\<^sup>d *\<^sub>a (cl_assn' (snat_assn' TYPE(64)))\<^sup>d
+    \<rightarrow>\<^sub>a (cl_assn' (snat_assn' TYPE(64)))\<close>
+  by sepref
+
+sepref_definition test_rev_impl is \<open>RETURN o rev\<close>
+  :: \<open>(cl_assn' (snat_assn' TYPE(64)))\<^sup>d \<rightarrow>\<^sub>a (cl_assn' (snat_assn' TYPE(64)))\<close>
   by sepref
 
 definition test_nested :: \<open>(nat list list \<times> nat list list) nres\<close> where

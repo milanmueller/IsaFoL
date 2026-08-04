@@ -28,8 +28,20 @@ sepref_register \<open>(\<le>) :: char list list \<Rightarrow> char list list \<
 lemmas monom_less_hnr[sepref_fr_rules] = monom.cl_less_hnr[unfolded list_lt_less]
 lemmas monom_le_hnr[sepref_fr_rules] = monom.cl_le_hnr[unfolded list_le_less_eq]
 
+interpretation monom: cmp_env_impl 
+  \<open>(\<le>)\<close> \<open>strl_assn'\<close> \<open>strl.cl_free\<close> \<open>strl.cl_le\<close> 
+  apply unfold_locales
+  subgoal by auto
+  subgoal by auto
+  subgoal by (rule strl_le_hnr)
+  done
+
 experiment
 begin
+
+sepref_definition monom_empty_test is \<open>uncurry0 (RETURN [])\<close>
+  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a monom_assn\<close>
+  by sepref
 
 sepref_definition monom_lt_test is \<open>uncurry (RETURN oo (<))\<close>
   :: \<open>monom_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
@@ -159,5 +171,14 @@ interpretation poly: copy_free_context \<open>monomial_assn\<close> \<open>mnml_
   subgoal by (rule mnml_free_rule)
   subgoal by (rule mnml_copy_is_copy)
   done
+
+experiment
+begin
+
+sepref_definition polynomial_empty_impl is \<open>uncurry0 (RETURN [])\<close>
+  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a polynomial_assn\<close>
+  by sepref
+
+end
 
 end

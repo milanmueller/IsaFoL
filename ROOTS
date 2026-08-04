@@ -2,6 +2,7 @@ FOL_Berghofer
 FOL_Monk
 PAC_Checker
 PAC_Checker2
+PAC_Checker_LLVM
 Sequent_Calculus
 Simple_Prover
 Weidenbach_Book

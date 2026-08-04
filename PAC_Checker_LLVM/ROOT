@@ -1,0 +1,19 @@
+chapter PAC_Checker_LLVM
+
+session PAC_Checker_LLVM = "Isabelle_LLVM" +
+  description \<open>LPAC proof checker with refinement to verified LLVM code\<close>
+  options
+    [timeout = 2700]
+  sessions
+    "HOL-Library"
+    "HOL-Algebra"
+    "Polynomials"
+    Nested_Multisets_Ordinals
+    BigInt_LLVM
+  theories
+    More_Loops
+    IICF_Copying_List
+    LLVM_Sort
+    PAC_Checker_Init
+    PAC_Specification
+    PAC_Checker_Specification
