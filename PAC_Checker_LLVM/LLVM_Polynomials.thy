@@ -10,13 +10,13 @@ text \<open>This theory defines refinment targets for polynomials in LLVM.
 term strl_assn
 abbreviation \<open>monom_assn \<equiv> cl_assn' strl_assn'\<close>
 
-interpretation monom: copy_free_context \<open>strl_assn'\<close> \<open>strl.cl_free\<close> \<open>strl.cl_copy\<close>
+interpretation monom: copyable_assn \<open>strl_assn'\<close> \<open>strl.cl_free\<close> \<open>strl.cl_copy\<close>
   apply unfold_locales
   subgoal by (rule strl.cl_assn_free)
-  subgoal by (rule strl.cl_copy_is_copy)
+  subgoal by (rule strl.cl_copy_hnr)
   done
 
-interpretation monom: linord_copying_list \<open>strl_assn'\<close> \<open>strl.cl_eq\<close> \<open>strl.cl_less\<close>
+interpretation monom: linorder_assn \<open>strl_assn'\<close> \<open>strl.cl_eq\<close> \<open>strl.cl_less\<close>
   apply unfold_locales
   subgoal by (rule strl.cl_eq_hnr)
   subgoal by (rule strl.cl_less_hnr[unfolded list_lt_less])
@@ -204,10 +204,10 @@ section \<open>Polynomials\<close>
   
 abbreviation \<open>polynomial_assn \<equiv> cl_assn' monomial_assn\<close>
 
-interpretation poly: copy_free_context \<open>monomial_assn\<close> \<open>mnml_free\<close> \<open>mnml_copy\<close>
+interpretation poly: copyable_assn \<open>monomial_assn\<close> \<open>mnml_free\<close> \<open>mnml_copy\<close>
   apply unfold_locales
   subgoal by (rule mnml_free_rule)
-  subgoal by (rule mnml_copy_is_copy)
+  subgoal by (rule mnml_copy_hnr)
   done
 
 interpretation poly: cmp_env_impl \<open>monomial_le\<close> \<open>monomial_assn\<close> \<open>mnml_free\<close> \<open>monomial_le_impl'\<close>

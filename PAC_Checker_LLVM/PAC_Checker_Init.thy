@@ -8,11 +8,12 @@ theory PAC_Checker_Init
 begin
 
 text \<open>This theory had some significant changes: It used to implement sorting for
-  monimials and coefficients. The sorting algorithm was now moved to \<open>PAC_Polynomials_Sort\<close>
-  Also, refined versions of operations now live in PAC_Polynomials_Operations.\<close>
+  monimials and coefficients, based on WB_Sort which is now removed from the project entirely. 
+  For sorting, we use the generic while-based merge sort implemented in 
+  \<open>PAC_Polynomials_Sort\<close>.\<close>
 
 section \<open>@{term \<open>merge_coeffs0\<close>}\<close>
-text \<open>Here, the refinment uses the WHILE-based implementation
+text \<open>Here, the refinement uses the WHILE-based implementation
   from \<open>PAC_Polynomials_Operations\<close>.\<close>
 sepref_def merge_coeffs0_impl
   is \<open>RETURN o merge_coeffs0\<close>

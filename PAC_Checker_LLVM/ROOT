@@ -11,6 +11,7 @@ session PAC_Checker_LLVM = "Isabelle_LLVM" +
     Nested_Multisets_Ordinals
     BigInt_LLVM
   theories
+    Assn_Env
     More_Loops
     IICF_Copying_List
     LLVM_Sort

@@ -12,7 +12,7 @@ text \<open>This theory implement a key-value map.
   It is inspired by @{theory Isabelle_LLVM.Proto_EOArray}
   and uses a similar construction.
   A lot of the proofs in here were found by Anthropic LLMs,
-  they could most likely be much more consise and readable with some more ground work.\<close>
+  they could most likely be much more concise and readable with some more ground work.\<close>
 
 text \<open>TODO list \<emdash> coverage of the @{theory Isabelle_LLVM.IICF_Map} interface
   \<^item> [x] \<open>op_map_empty\<close>
@@ -195,12 +195,11 @@ lemma iarl_resize_rule[vcg_rules]:
   by vcg'
 
 
-locale array_pmap = dflt_option_private +
-  fixes afree :: \<open>'a \<Rightarrow> unit llM\<close>
-  (* We assume init to be identified by \<open>None\<close>. That way we get initialization
-   * for free instead of having to initialize every element in the array *)
+locale array_pmap =
+  dflt_option_private dflt A is_dflt + freeable_assn A afree
+  for dflt and A :: \<open>'b \<Rightarrow> 'a::llvm_rep \<Rightarrow> assn\<close> and is_dflt
+  and afree :: \<open>'a \<Rightarrow> unit llM\<close> +
   assumes dflt_is_init: \<open>dflt = init\<close>
-  assumes Afree: \<open>MK_FREE A afree\<close>
 begin
 
 text \<open>Very similar to @{term nao_assn}, but we use the option assertion from the locale.
@@ -277,7 +276,7 @@ lemma pmap_free_slot_rule[vcg_rules]:
 proof (cases \<open>i < length xs\<close>)
   case True
   show ?thesis
-    supply [vcg_rules] = mk_free_option[OF Afree, THEN MK_FREED]
+    supply [vcg_rules] = mk_free_option[OF afree_free, THEN MK_FREED]
     unfolding vcg_tag_defs list_assn_option_focus[OF True]
     by vcg
 next
@@ -400,7 +399,7 @@ lemma pmap_delete_reassemble_present:
   assumes A: \<open>k < length xsi\<close>
   shows \<open>ENTAILS
     (\<upharpoonleft>iarl_assn (xsi[k := dflt]) ai **
-\<upharpoonleft>(list_assn (mk_assn option_assn)) (xs[k := Option.None]) (xsi[k := dflt]))
+     \<upharpoonleft>(list_assn (mk_assn option_assn)) (xs[k := Option.None]) (xsi[k := dflt]))
     (EXS z. \<upharpoonleft>iarl_assn z ai **
        \<upharpoonleft>(list_assn (mk_assn option_assn)) (if k < length xs then xs[k := Option.None] else xs) z)\<close>
 proof (cases \<open>length xs = length xsi\<close>)
@@ -879,18 +878,19 @@ lemma box_is_null_rule[vcg_rules]:
 
 subsection \<open>The boxed map instance\<close>
 
-locale boxed_pmap =
-  fixes A :: \<open>'a \<Rightarrow> 'c::llvm_rep \<Rightarrow> assn\<close>
-    and fr :: \<open>'c \<Rightarrow> unit llM\<close>
-  assumes Afree: \<open>MK_FREE A fr\<close>
+locale boxed_pmap = freeable_assn A afree
+  for A :: \<open>'a \<Rightarrow> 'c::llvm_rep \<Rightarrow> assn\<close> and afree
 begin
 
-sublocale array_pmap \<open>null\<close> \<open>\<upharpoonleft>(box_assn A)\<close> box_is_null \<open>box_free fr\<close>
+text \<open>The qualifier separates the box-level \<open>freeable_assn\<close> instance (and its list
+  operations) from the inherited element-level one.\<close>
+
+sublocale bx: array_pmap \<open>null\<close> \<open>\<upharpoonleft>(box_assn A)\<close> box_is_null \<open>box_free afree\<close>
   apply unfold_locales
   subgoal by simp
   subgoal by (rule box_is_null_rule)
+  subgoal by (rule box_free_rule[OF afree_free])
   subgoal by simp
-  subgoal by (rule box_free_rule[OF Afree])
   done
 
 end
@@ -901,14 +901,11 @@ text \<open>Our previous map did not assume that container elements can be copie
   If we assume that elements can be copied, we can also provide an alternative variant
   were the map is kept intact and the caller isn't required to reassemble it.\<close>
 
-locale copying_array_pmap = array_pmap +
-  fixes acopy :: \<open>'a \<Rightarrow> 'a llM\<close>
-  assumes acopy_is_copy: \<open>is_copy A acopy\<close>
+locale copying_array_pmap =
+  array_pmap dflt A is_dflt afree + copyable_assn A afree acopy
+  for dflt and A :: \<open>'b \<Rightarrow> 'a::llvm_rep \<Rightarrow> assn\<close> and is_dflt and afree
+  and acopy :: \<open>'a \<Rightarrow> 'a llM\<close>
 begin
-
-sublocale copy_free_context A afree acopy 
-  apply unfold_locales
-  by (simp_all add: Afree GEN_ALGO_def acopy_is_copy)
 
 definition[llvm_inline]: \<open>copy_option cp c \<equiv> doM { d \<leftarrow> is_dflt c; llc_if d (Mreturn c) (cp c) } \<close>
 
@@ -1070,24 +1067,17 @@ lemma box_copy_rule:
   supply [vcg_rules] = is_copy_triple[OF assms(1)]
   by vcg
 
-locale boxed_copying_pmap =
-  (* TODO: this should probably inherit from the non-coying boxed_pmap
-   * but I had issues when i tried that, which probably come down to
-   * understanding of locales... *)
-  fixes A :: \<open>'a \<Rightarrow> 'b::llvm_rep \<Rightarrow> assn\<close>
-    and afree :: \<open>'b \<Rightarrow> unit llM\<close>
-    and acopy :: \<open>'b \<Rightarrow> 'b llM\<close>
-  assumes Afree: \<open>MK_FREE A afree\<close>
-  assumes Acopy: \<open>is_copy A acopy\<close>
+locale boxed_copying_pmap = boxed_pmap A afree + copyable_assn A afree acopy
+  for A :: \<open>'a \<Rightarrow> 'b::llvm_rep \<Rightarrow> assn\<close> and afree and acopy
 begin
 
-sublocale copying_array_pmap \<open>null\<close> \<open>\<upharpoonleft>(box_assn A)\<close> \<open>box_is_null\<close> \<open>box_free afree\<close> \<open>box_copy acopy\<close>
+text \<open>The \<open>array_pmap\<close> part at the boxed instance is already available through
+  \<open>boxed_pmap\<close>; only the boxed copy operation is new.\<close>
+
+sublocale bx: copying_array_pmap \<open>null\<close> \<open>\<upharpoonleft>(box_assn A)\<close> \<open>box_is_null\<close> \<open>box_free afree\<close> \<open>box_copy acopy\<close>
   apply unfold_locales
-  apply simp_all
-  subgoal by (rule box_is_null_rule)
-  subgoal by (rule box_free_rule[OF Afree])
-  subgoal by (rule box_copy_rule[OF Acopy])
-  done
+  by ((rule box_is_null_rule box_free_rule[OF afree_free]
+        box_copy_rule[OF acopy_is_copy, unfolded is_copy_def] | simp)+)?
 
 end
 
@@ -1127,9 +1117,9 @@ interpretation P: copying_array_pmap
   apply unfold_locales
   subgoal by simp
   subgoal by (rule box_is_null_rule)
-  subgoal by simp
   subgoal by (rule box_free_rule[OF mk_free_pure])
-  subgoal unfolding is_copy_def by (rule box_copy_hnr)
+  subgoal by simp
+  subgoal by (rule box_copy_hnr)
   done
 
 sepref_definition pmap_test1_impl is
@@ -1206,7 +1196,7 @@ abbreviation nl_assn :: \<open>nat list \<Rightarrow> (64 word, 64) array_list \
 interpretation P: boxed_copying_pmap nl_assn arl_free arl_copy
   apply unfold_locales
   subgoal by (rule al_assn_free)
-  subgoal by (rule al_copy_is_copy)
+  subgoal by (rule al_copy_is_copy[unfolded is_copy_def])
   done
 
 text \<open>Store a singleton array under a key, check membership, delete.\<close>
@@ -1223,7 +1213,7 @@ sepref_definition pmap_altest1_impl is
       (snat_assn' TYPE(64))\<^sup>k *\<^sub>a (snat_assn' TYPE(64))\<^sup>k \<rightarrow> bool1_assn\<close>
   by sepref
 
-text \<open>The copying lookup: read the stored array back TWICE \<emdash> only possible because
+text \<open>The copying lookup: read the stored array back TWICE which is only possible because
   \<open>op_map_the_lookup\<close> leaves the map intact.\<close>
 sepref_definition pmap_altest2_impl is
   \<open>uncurry (\<lambda>k v. do {

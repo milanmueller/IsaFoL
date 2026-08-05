@@ -203,7 +203,7 @@ lemma msort_spec: \<open>msort xs \<le> SPEC (\<lambda>r. mset xs = mset r \<and
 
 end
 
-locale cmp_env_impl = cmp_env + free_copying_list +
+locale cmp_env_impl = cmp_env + freeable_assn +
   fixes cmp_impl :: \<open>'c::llvm_rep \<Rightarrow> 'c \<Rightarrow> 1 word llM\<close>
   assumes cmp_hnr[sepref_fr_rules]:
     \<open>(uncurry cmp_impl,uncurry (RETURN oo cmp)) \<in> A\<^sup>k *\<^sub>a A\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
@@ -222,7 +222,7 @@ sepref_def merge_impl is \<open>uncurry (PR_CONST merge_while)\<close>
   unfolding merge_while_def merge_while_inner_def ls_emp PR_CONST_def
   by sepref
 
-interpretation nested: free_copying_list \<open>cl_assn' A\<close> cl_free
+interpretation nested: freeable_assn \<open>cl_assn' A\<close> cl_free
   by unfold_locales (rule cl_assn_free)
 
 sepref_register merge_while

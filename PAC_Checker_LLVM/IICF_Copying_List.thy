@@ -1,24 +1,23 @@
 theory IICF_Copying_List
-  imports Isabelle_LLVM.IICF
+  imports Assn_Env
     Isabelle_LLVM.Proto_EOArray
     Isabelle_LLVM.LLVM_DS_Open_List
 begin
 
 text \<open>This Theory defines a "copying list".
-  By copying list we mean that the list can hold impure objects.
-  For operations that take ownership of an object (i.e. @{term hd}),
-  we implement a destructive variant (that will destroy the list)
-  and a non-destructive variant that will copy the element and keep
-  the list intact. Container elements need to have an implementation of copy.
+  By copying we mean that it's possible to get, e.g. the head of the list
+  without destroying the list (which would be the case for lists holding
+  impure objects without copying or some kind of borrow machinery).
   It is mostly based on/inspired by @{theory Isabelle_LLVM.LLVM_DS_Open_List}.\<close>
 
-text \<open>TODO list \<emdash> coverage of the @{theory Isabelle_LLVM.IICF_List} interface
+text \<open>coverage of the @{theory Isabelle_LLVM.IICF_List} interface
   Done:
     \<^item> [x] \<open>op_list_empty\<close>     (\<open>cl_empty_hnr\<close>)
     \<^item> [x] \<open>op_list_prepend\<close>   (\<open>cl_prepend_hnr\<close>; takes ownership of the element)
     \<^item> [x] \<open>op_list_length\<close>    (\<open>cl_length_hnr\<close>)
     \<^item> [x] \<open>COPY\<close>              (\<open>cl_copy_hnr\<close>/\<open>cl_copy_is_copy\<close>)
     \<^item> [x] \<open>op_list_hd\<close>        (\<open>cl_hd\<^sub>k\<close>); will copy the first element and leave list intact
+                                          This operation is the main reason this theory exists.
     \<^item> [x] \<open>op_list_pop_hd\<close>    (\<open>os_pop\<close>); (See interface extension below) will move the \<open>hd\<close>
                                           out and also return the \<open>tl\<close> of the list.
     \<^item> [x] \<open>op_list_is_empty\<close>  (\<open>os_is_empty\<close>)
@@ -27,7 +26,7 @@ text \<open>TODO list \<emdash> coverage of the @{theory Isabelle_LLVM.IICF_List
     \<^item> [x] \<open>op_list_rev\<close>       (\<open>cl_rev_hnr\<close>; destructive in-place reversal, O(n))
 
   Infrastructure (not interface ops):
-    \<^item> [x] \<open>MK_FREE\<close> deep free  (\<open>cl_assn_free\<close>, in \<open>copy_free_context\<close>)
+    \<^item> [x] \<open>MK_FREE\<close> deep free  (\<open>cl_assn_free\<close>, in the \<open>freeable_assn\<close> context)
 
   Missing, need destructive + copying variants (element leaves the list):
     \<^item> [ ] \<open>op_list_get\<close>
@@ -47,6 +46,9 @@ text \<open>TODO list \<emdash> coverage of the @{theory Isabelle_LLVM.IICF_List
     \<^item> [ ] \<open>op_split_list\<close>
     \<^item> [ ] \<open>op_list_contains\<close>  (needs an element-equality parameter)
     \<^item> [ ] \<open>op_list_index\<close>     (needs an element-equality parameter)
+  
+  Maybe a kind of split operation (where both halves are returned 
+  might be interesting for merge sort...
 \<close>
 
 
@@ -327,6 +329,45 @@ lemma cl_length_hnr[sepref_fr_rules]:
 
 end
 
+section \<open>@{term op_list_contains}\<close>
+
+context eq_assn
+begin
+
+definition cl_contains :: \<open>'b \<Rightarrow> 'b cl_list \<Rightarrow> 1 word llM\<close> where [llvm_code]:
+  \<open>cl_contains xi \<equiv> MMonad.REC (\<lambda>D p.
+    if p = null then Mreturn 0
+    else doM {
+      n \<leftarrow> ll_load p;
+      eq \<leftarrow> aeq (node.val n) xi;
+      llc_if eq (Mreturn 1) (D (node.next n))
+    })\<close>
+
+lemmas cl_contains_unfold = REC_unfold_extr[OF cl_contains_def, discharge_monos]
+
+lemma cl_contains_rule[vcg_rules]:
+  \<open>llvm_htriple
+    (cl_assn' A xs xsi ** A a ai)
+    (cl_contains ai xsi)
+    (\<lambda>r. cl_assn' A xs xsi ** A a ai ** \<upharpoonleft>bool.assn (a \<in> set xs) r)\<close>
+proof (induction xs arbitrary: xsi)
+  case Nil
+  show ?case
+    supply [simp] = cl_assn_simps bool.assn_def
+    apply (subst cl_contains_unfold)
+    by vcg
+next
+  case (Cons e es)
+  interpret llvm_prim_ctrl_setup .
+  note [vcg_rules] = Cons.IH
+  show ?case
+    supply [simp] = cl_assn_simps bool.assn_def bool1_rel_def bool.rel_def in_br_conv pure_def
+    apply (subst cl_contains_unfold)
+    by vcg
+qed
+
+end
+
 section \<open>Destructive/Copying Operations\<close>
 
 subsection \<open>@{term op_list_pop_hd}\<close>
@@ -356,13 +397,10 @@ lemma cl_pop_hnr_op[sepref_fr_rules]:
   supply [simp] = refine_pw_simps 
   by (sepref_to_hoare; vcg)
 
+text \<open>Operations that need to free elements live in the \<open>freeable_assn\<close> context
+  (see theory \<open>Assn_Env\<close>).\<close>
 
-
-
-locale free_copying_list =
-  fixes A :: \<open>'a \<Rightarrow> 'b::llvm_rep \<Rightarrow> assn\<close>
-    and afree_impl :: \<open>'b \<Rightarrow> unit llM\<close>
-  assumes a_assn_free[sepref_frame_free_rules]: \<open>MK_FREE A afree_impl\<close>
+context freeable_assn
 begin
 
 subsection \<open>@{term op_list_free}\<close>
@@ -372,7 +410,7 @@ definition cl_free :: \<open>'b cl_list \<Rightarrow> unit llM\<close> where [ll
     if p = null then Mreturn () else doM {
       n \<leftarrow> ll_load p;
       ll_free p;
-      afree_impl (node.val n);
+      afree (node.val n);
       cl_free (node.next n)
     })\<close>
 
@@ -388,7 +426,7 @@ proof (induction xs arbitrary: p)
     by vcg
 next
   case (Cons a xs)
-  note [vcg_rules] = Cons.IH MK_FREED[OF a_assn_free]
+  note [vcg_rules] = Cons.IH
   show ?case
     apply (rewrite cl_free_unfold)
     supply [simp] = cl_assn_simps sep_conj_exists
@@ -425,37 +463,12 @@ lemma cl_hd\<^sub>d_hnr_op[sepref_fr_rules]:
 
 end
 
-text \<open>We define a generic list implementation and require the objects in our
-  list to implement a copy and a free function. This copying setup is copied from
-  `isabelle_llvm/thys/examples/sorting/Sorting_Setup.thy`\<close>
+text \<open>Operations that additionally need to copy elements live in the
+  \<open>copyable_assn\<close> context. (The copying setup \<open>is_copy\<close> itself lives in
+  theory \<open>Assn_Env\<close>.)\<close>
 
-definition "is_copy A cp \<equiv> (cp, RETURN o COPY) \<in> A\<^sup>k \<rightarrow>\<^sub>a A"
-
-lemma is_copy_hnr[sepref_fr_rules]:
-  "GEN_ALGO cp (is_copy A) \<Longrightarrow> (cp, RETURN o COPY) \<in> A\<^sup>k \<rightarrow>\<^sub>a A"
-  unfolding is_copy_def GEN_ALGO_def by auto
-
-lemma is_copy_pure_gen_algo: "CONSTRAINT is_pure A \<Longrightarrow> GEN_ALGO (Mreturn) (is_copy A)"  
-  unfolding is_copy_def GEN_ALGO_def
-  by (rule hnr_pure_COPY)
-
-(* TODO: rename to copy_free_copying_list or something *)
-locale copy_free_context = free_copying_list +
-  fixes acopy_impl :: \<open>'b::llvm_rep \<Rightarrow> 'b llM\<close>
-  assumes a_assn_copy[sepref_gen_algo_rules]: \<open>GEN_ALGO acopy_impl (is_copy A)\<close>
+context copyable_assn
 begin
-
-lemma acopy_rule[vcg_rules]: \<open>llvm_htriple (A x c) (acopy_impl c) (\<lambda>r. A x c ** A x r)\<close>
-proof -
-  note HNR = a_assn_copy[unfolded GEN_ALGO_def is_copy_def, to_hnr, unfolded autoref_tag_defs]
-  note HT = HNR[THEN hn_refineD]
-  show ?thesis
-    apply (rule htriple_ent_pre[OF _ htriple_ent_post[OF _ HT]])
-    unfolding hn_ctxt_def apply (rule entails_refl)
-    subgoal by (auto simp: entails_def sep_algebra_simps)
-    subgoal by simp
-    done
-qed
 
 subsection \<open>@{term op_list_copy}\<close>
 
@@ -463,7 +476,7 @@ definition cl_copy :: \<open>'b cl_list \<Rightarrow> 'b cl_list llM\<close> whe
   \<open>cl_copy \<equiv> MMonad.REC (\<lambda>cl_copy p.
     if p = null then Mreturn null else doM {
       n \<leftarrow> ll_load p;
-      cpy \<leftarrow> acopy_impl (node.val n);
+      cpy \<leftarrow> acopy (node.val n);
       tl \<leftarrow> cl_copy (node.next n);
       cl_prepend cpy tl
     })\<close>
@@ -506,7 +519,7 @@ subsection \<open>@{term op_list_hd}\<close>
 definition cl_hd\<^sub>k :: \<open>'b cl_list \<Rightarrow> 'b llM\<close> where [llvm_code]:
   \<open>cl_hd\<^sub>k p \<equiv> doM {
     n \<leftarrow> ll_load p;
-    cpy \<leftarrow> acopy_impl (node.val n);
+    cpy \<leftarrow> acopy (node.val n);
     Mreturn cpy
   }\<close>
 
@@ -646,25 +659,11 @@ lemma cl_rev_hnr[sepref_fr_rules]:
   \<open>(cl_rev, RETURN o op_list_rev) \<in> (cl_assn' A)\<^sup>d \<rightarrow>\<^sub>a (cl_assn' A)\<close>
   by (sepref_to_hoare; vcg)
 
-locale eq_copying_list =
-  fixes A :: \<open>'a \<Rightarrow> 'b::llvm_rep \<Rightarrow> assn\<close>
-    and aeq_impl :: \<open>'b \<Rightarrow> 'b \<Rightarrow> 1 word llM\<close> 
-  assumes Aeq: \<open>(uncurry aeq_impl, uncurry (RETURN oo (=))) \<in> A\<^sup>k *\<^sub>a A\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close> 
-begin
+text \<open>Comparison operations only load elements, so they need neither free nor
+  copy; they live in the \<open>linorder_assn\<close> context.\<close>
 
-lemma aeq_impl_rule[vcg_rules]:
-  \<open>llvm_htriple (A a ai ** A a' ai') (aeq_impl ai ai') (\<lambda>r. A a ai ** A a' ai' ** bool1_assn (a = a') r)\<close>
-proof -
-  note HNR = Aeq[to_hnr, unfolded autoref_tag_defs]
-  note HT = HNR[THEN hn_refineD]
-  show ?thesis
-    apply (rule htriple_ent_pre[OF _ htriple_ent_post[OF _ HT]])
-    unfolding hn_ctxt_def apply (rule entails_refl)
-    subgoal by (auto simp: entails_def sep_algebra_simps pred_lift_extract_simps
-      sep_conj_exists pw_le_iff refine_pw_simps)
-    subgoal by simp
-    done
-qed
+context linorder_assn
+begin
 
 definition cl_eq_impl :: \<open>'b cl_list \<times> 'b cl_list \<Rightarrow> 1 word llM\<close> where[llvm_code, llvm_inline]:
   \<open>cl_eq_impl \<equiv> MMonad.REC (\<lambda>cl_eq_impl (ai, bi). doM {
@@ -677,7 +676,7 @@ definition cl_eq_impl :: \<open>'b cl_list \<times> 'b cl_list \<Rightarrow> 1 w
       llc_if empb (Mreturn 0) (doM{
         aip \<leftarrow> ll_load ai;
         bip \<leftarrow> ll_load bi;
-        eq \<leftarrow> aeq_impl (node.val aip) (node.val bip);
+        eq \<leftarrow> aeq (node.val aip) (node.val bip);
         llc_if eq (cl_eq_impl (node.next aip, node.next bip)) (Mreturn 0)
       })
     })
@@ -781,26 +780,8 @@ lemma list_less_Cons: \<open>((x # xs) < (y # ys)) = (x < y \<or> (x = y \<and> 
   for x :: \<open>'a::linorder\<close>
   by (auto simp: less_list_def lexordp_def)
 
-locale linord_copying_list = eq_copying_list A aeq_impl
-  for A :: \<open>'a::linorder \<Rightarrow> 'b::llvm_rep \<Rightarrow> assn\<close>
-  and aeq_impl :: \<open>'b \<Rightarrow> 'b \<Rightarrow> 1 word llM\<close> +
-  fixes alt_impl :: \<open>'b \<Rightarrow> 'b \<Rightarrow> 1 word llM\<close>
-  assumes Alt: \<open>(uncurry alt_impl, uncurry (RETURN oo (<))) \<in> A\<^sup>k *\<^sub>a A\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+context linorder_assn
 begin
-
-lemma alt_impl_rule[vcg_rules]:
-  \<open>llvm_htriple (A a ai ** A a' ai') (alt_impl ai ai') (\<lambda>r. A a ai ** A a' ai' ** bool1_assn (a < a') r)\<close>
-proof -
-  note HNR = Alt[to_hnr, unfolded autoref_tag_defs]
-  note HT = HNR[THEN hn_refineD]
-  show ?thesis
-    apply (rule htriple_ent_pre[OF _ htriple_ent_post[OF _ HT]])
-    unfolding hn_ctxt_def apply (rule entails_refl)
-    subgoal by (auto simp: entails_def sep_algebra_simps pred_lift_extract_simps
-      sep_conj_exists pw_le_iff refine_pw_simps)
-    subgoal by simp
-    done
-qed
 
 subsection \<open>Strict Order\<close>
 
@@ -818,9 +799,9 @@ definition cl_less_impl :: \<open>'b cl_list \<times> 'b cl_list \<Rightarrow> 1
       llc_if empa (Mreturn 1) (doM {
         aip \<leftarrow> ll_load ai;
         bip \<leftarrow> ll_load bi;
-        lt \<leftarrow> alt_impl (node.val aip) (node.val bip);
+        lt \<leftarrow> alt (node.val aip) (node.val bip);
         llc_if lt (Mreturn 1) (doM {
-          eq \<leftarrow> aeq_impl (node.val aip) (node.val bip);
+          eq \<leftarrow> aeq (node.val aip) (node.val bip);
           llc_if eq (cl_less_impl (node.next aip, node.next bip)) (Mreturn 0)
         })
       })
@@ -916,21 +897,21 @@ text \<open>Inner lists hold pure elements (64-bit snat numbers), so their copy 
   and their free is a no-op. The outer instantiation then uses the inner list's
   \<open>P.cl_copy\<close>/\<open>P.cl_free\<close> as element copy/free.\<close>
 
-interpretation P: copy_free_context \<open>snat_assn' TYPE(64)\<close> \<open>\<lambda>_. Mreturn ()\<close> Mreturn
+interpretation P: copyable_assn \<open>snat_assn' TYPE(64)\<close> \<open>\<lambda>_. Mreturn ()\<close> Mreturn
   apply unfold_locales
   subgoal by (rule mk_free_pure)
-  subgoal by (rule is_copy_pure_gen_algo) simp
+  subgoal by (rule hnr_pure_COPY) simp
   done
 
-interpretation PP: copy_free_context \<open>cl_assn' (snat_assn' TYPE(64))\<close> P.cl_free P.cl_copy
+interpretation PP: copyable_assn \<open>cl_assn' (snat_assn' TYPE(64))\<close> P.cl_free P.cl_copy
   apply unfold_locales
   subgoal by (rule P.cl_assn_free)
-  subgoal by (rule P.cl_copy_is_copy)
+  subgoal by (rule P.cl_copy_hnr)
   done
 
 text \<open>The order locale instantiated with 64-bit numbers as elements.\<close>
 
-interpretation N: linord_copying_list \<open>snat_assn' TYPE(64)\<close> ll_icmp_eq ll_icmp_slt
+interpretation N: linorder_assn \<open>snat_assn' TYPE(64)\<close> ll_icmp_eq ll_icmp_slt
   apply unfold_locales
   subgoal by (rule hn_snat_ops(7))
   subgoal by (rule hn_snat_ops(10))

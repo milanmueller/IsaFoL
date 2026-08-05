@@ -11,13 +11,13 @@ section \<open>String by List\<close>
 abbreviation \<open>strl_assn \<equiv> cl_assn char_assn\<close>
 abbreviation \<open>strl_assn' \<equiv> cl_assn' char_assn\<close>
 
-interpretation strl: copy_free_context char_assn \<open>\<lambda>_. Mreturn ()\<close> Mreturn
+interpretation strl: copyable_assn char_assn \<open>\<lambda>_. Mreturn ()\<close> Mreturn
   apply unfold_locales
   subgoal by (rule char_assn_mk_free)
-  subgoal by (rule is_copy_pure_gen_algo) (simp add: char_assn_pure)
+  subgoal by (rule hnr_pure_COPY) (simp add: char_assn_pure)
   done
 
-interpretation strl: linord_copying_list char_assn ll_icmp_eq ll_icmp_ult
+interpretation strl: linorder_assn char_assn ll_icmp_eq ll_icmp_ult
   apply unfold_locales
   subgoal by (rule char_eq_hnr)
   subgoal by (rule char_lt_hnr)
@@ -83,31 +83,6 @@ end
 section \<open>String by Array\<close>
 definition \<open>stra_assn \<equiv> larray_assn char_assn\<close>
 (* Deferred for now *)
-
-(* This is copied from copying list... *)
-(* TODO: Should probably live in it's own theory?
- * Monoms might want this stuff aswell... *)
-locale copy_free_larray =
-  fixes A :: \<open>'a \<Rightarrow> 'b::llvm_rep \<Rightarrow> assn\<close>
-    and afree_impl :: \<open>'b \<Rightarrow> unit llM\<close>
-    and acopy_impl :: \<open>'b \<Rightarrow> 'b llM\<close>
-  assumes a_assn_free[sepref_frame_free_rules]: \<open>MK_FREE A afree_impl\<close>
-  assumes a_assn_copy[sepref_gen_algo_rules]: \<open>GEN_ALGO acopy_impl (is_copy A)\<close>
-begin
-
-lemma acopy_rule[vcg_rules]: \<open>llvm_htriple (A x c) (acopy_impl c) (\<lambda>r. A x c ** A x r)\<close>
-proof -
-  note HNR = a_assn_copy[unfolded GEN_ALGO_def is_copy_def, to_hnr, unfolded autoref_tag_defs]
-  note HT = HNR[THEN hn_refineD]
-  show ?thesis
-    apply (rule htriple_ent_pre[OF _ htriple_ent_post[OF _ HT]])
-    unfolding hn_ctxt_def apply (rule entails_refl)
-    subgoal by (auto simp: entails_def sep_algebra_simps)
-    subgoal by simp
-    done
-
-qed
-end
 
 experiment
 begin
