@@ -27,6 +27,7 @@ text \<open>coverage of the @{theory Isabelle_LLVM.IICF_List} interface
 
   Infrastructure (not interface ops):
     \<^item> [x] \<open>MK_FREE\<close> deep free  (\<open>cl_assn_free\<close>, in the \<open>freeable_assn\<close> context)
+    \<^item> [ ] \<open>cl_fold\<close> - read only walk parameterized over an inner function that keeps list elements intact
 
   Missing, need destructive + copying variants (element leaves the list):
     \<^item> [ ] \<open>op_list_get\<close>
@@ -51,6 +52,15 @@ text \<open>coverage of the @{theory Isabelle_LLVM.IICF_List} interface
   might be interesting for merge sort...
 \<close>
 
+(* TODO:
+  We might want to explore the feasibility of a read-only generic fold implementation
+  in such a fold, we could deliberately only copy the inner elements where needed,
+  which might even compose. With the function we currently have, List walks can
+  only be done by also destroying the list. Providing a fold operation parameterized
+  over the inner function might avoid that.
+
+  c.f. The String hashing stuff for where this might actually help quite a bit...
+*)
 
 section \<open>Extending List Interface\<close>
 
@@ -328,6 +338,46 @@ lemma cl_length_hnr[sepref_fr_rules]:
   by (sepref_to_hoare; vcg)
 
 end
+
+section \<open>Custom Fold implementation\<close>
+text \<open>Using our other functions like @{term op_list_hd} or @{term op_list_pop_hd}
+  either destroys the list, or copies elements.
+  There are, however, cases, where we want a read only walk. For these cases, we
+  implement a fold operation, parameterized over an f, that keeps the inner elements intact\<close>
+
+definition cl_fold :: \<open>('a::llvm_rep \<Rightarrow> 'b::llvm_rep \<Rightarrow> 'a llM) \<Rightarrow> 'b cl_list \<times> 'a \<Rightarrow> 'a llM\<close>
+  where
+  \<open>cl_fold f \<equiv> MMonad.REC (\<lambda>ff (xi, a).
+    if xi = null then Mreturn a
+    else doM {
+      n \<leftarrow> ll_load xi;
+      a \<leftarrow> f a (node.val n);
+      ff (node.next n, a)
+    })\<close>
+
+lemmas cl_fold_unfold = REC_unfold_extr[OF cl_fold_def, discharge_monos]
+
+lemma cl_fold_rule:
+  assumes F: \<open>\<And>a ai x xi. llvm_htriple
+      (R a ai ** A x xi) (f ai xi) (\<lambda>r. R (fa a x) r ** A x xi)\<close>
+  shows \<open>llvm_htriple
+    (R a ai ** cl_assn' A xs p)
+    (cl_fold f (p, ai))
+    (\<lambda>r. R (foldl fa a xs) r ** cl_assn' A xs p)\<close>
+proof (induction xs arbitrary: a ai p)
+  case Nil
+  show ?case
+    supply [simp] = cl_assn_simps
+    apply (subst cl_fold_unfold)
+    by vcg
+next
+  case (Cons x xs)
+  note [vcg_rules] = Cons.IH F
+  show ?case
+    supply [simp] = cl_assn_simps
+    apply (subst cl_fold_unfold)
+    by vcg
+qed
 
 section \<open>@{term op_list_contains}\<close>
 

@@ -43,6 +43,23 @@ proof -
     done
 qed
 
+lemma hfref_htriple_k3:
+  assumes R: \<open>(uncurry2 f, uncurry2 (RETURN ooo g)) \<in> A\<^sup>k *\<^sub>a B\<^sup>k *\<^sub>a C\<^sup>k \<rightarrow>\<^sub>a D\<close>
+  shows \<open>llvm_htriple (A a ai ** B b bi ** C c ci) (f ai bi ci)
+           (\<lambda>r. A a ai ** B b bi ** C c ci ** D (g a b c) r)\<close>
+proof -
+  note HNR = R[to_hnr, unfolded autoref_tag_defs]
+  note HT = HNR[THEN hn_refineD]
+  show ?thesis
+    apply (rule htriple_ent_pre[OF _ htriple_ent_post[OF _ HT]])
+    unfolding hn_ctxt_def
+    apply (rule entails_refl)
+    subgoal by (auto simp: entails_def sep_algebra_simps pred_lift_extract_simps
+      sep_conj_exists pw_le_iff refine_pw_simps)
+    subgoal by simp
+    done
+qed
+
 section \<open>Copying\<close>
 
 (* Copying setup is taken from the sorting examples in Isabelle-LLVM *)

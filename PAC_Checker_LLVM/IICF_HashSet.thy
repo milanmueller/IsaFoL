@@ -174,6 +174,16 @@ lemma hs_empty_rule[vcg_rules]:
   supply [vcg_rules] = nao_new_init_rl[OF hs_bucket_init]
   by vcg
 
+lemma hs_empty_hnr[sepref_fr_rules]:
+  \<open>(hs_empty, (RETURN o lshs_op_set_empty))
+  \<in> [\<lambda>n. 0 < n]\<^sub>a (snat_assn' TYPE(64))\<^sup>k \<rightarrow> \<upharpoonleft>hs_assn\<close>
+  unfolding snat_rel_def snat.assn_is_rel[symmetric]
+  by (sepref_to_hoare; vcg)
+
+(* We can not register agains high level `op_set_empty_refine` *)
+(* Without resizing implemented, I think it might be better to use the explicit lshs_op_set_empty then *)
+(* lemmas hs_empty_hnr = hs_empty_hnr[FCOMP lshs_op_set_empty_refine] *)
+
 subsection \<open>Insert\<close>
 
 definition \<open>hs_bucket_of \<equiv> \<lambda>ii (li, ai). doM {
@@ -193,6 +203,70 @@ lemma hs_bucket_of_rule[vcg_rules]:
   supply [vcg_rules] = ll_urem_hash_snat_rule
   by vcg
 
+
+definition \<open>hs_insert \<equiv> \<lambda>ai (li, xsi). doM {
+    hi \<leftarrow> hs_bucket_of ai (li, xsi); 
+    bi \<leftarrow> nao_nth xsi hi;
+    bi \<leftarrow> cl_prepend ai bi;
+    xsi \<leftarrow> nao_upd xsi hi bi;
+    Mreturn (li, xsi)
+  }\<close>
+
+lemma hs_insrt_rule[vcg_rules]:
+  \<open>llvm_htriple
+    (A a ai ** \<upharpoonleft>hs_assn xs (li, xsi) ** \<up>(xs\<noteq>[]))
+    (hs_insert ai (li, xsi))
+    (\<lambda>r. \<upharpoonleft>hs_assn (lshs_op_set_insert a xs) r)
+  \<close>
+  unfolding hs_insert_def
+  supply [simp] = hs_assn_conv lshs_op_set_insert_def pure_app_eq
+  supply [vcg_rules] = hs_bucket_of_rule[unfolded hs_assn_conv]
+    cl_prepend_rule[unfolded cl_assn'_def]
+  by vcg
+
+lemma hs_insert_hnr:
+  \<open>(uncurry hs_insert, uncurry (RETURN oo lshs_op_set_insert))
+  \<in> [\<lambda>(a, xs). xs \<noteq> []]\<^sub>a A\<^sup>d *\<^sub>a \<upharpoonleft>hs_assn\<^sup>d \<rightarrow> \<upharpoonleft>hs_assn\<close>
+  by (sepref_to_hoare; vcg)
+
+lemmas [fcomp_prenorm_simps] = lshs_rel_def in_br_conv lshs_invar_def
+
+lemmas hs_insert_hnr2[sepref_fr_rules] =
+  hs_insert_hnr[FCOMP lshs_op_set_insert_refine]
+
+section \<open>@{term op_set_member}\<close>
+
+definition \<open>hs_member \<equiv> \<lambda>ai (li, xsi). doM{
+    hi \<leftarrow> hs_bucket_of ai (li, xsi);
+    bi \<leftarrow> nao_nth xsi hi;
+    r \<leftarrow> cl_contains ai bi;
+    nao_rejoin xsi hi;
+    Mreturn r
+  }\<close>
+
+lemma hs_member_rule[vcg_rules]:
+  \<open>llvm_htriple
+  (A a ai ** \<upharpoonleft>hs_assn xs (li, xsi) ** \<up>(xs\<noteq>[]))
+  (hs_member ai (li, xsi))
+  (\<lambda>r. A a ai ** \<upharpoonleft>hs_assn xs (li, xsi) ** bool1_assn (lshs_op_set_member a xs) r)
+  \<close>
+  unfolding hs_member_def lshs_op_set_member_def bool1_rel_def
+    pure_def
+  supply [simp] = hs_assn_conv bool.assn_def bool.rel_def in_br_conv
+  supply [vcg_rules] = hs_bucket_of_rule[unfolded hs_assn_conv]
+    cl_contains_rule[unfolded cl_assn'_def]
+  by vcg
+
+lemma hs_member_hnr:
+  \<open>(uncurry hs_member, uncurry (RETURN oo lshs_op_set_member))
+  \<in> [\<lambda>(a, xs). xs \<noteq> []]\<^sub>a A\<^sup>k *\<^sub>a \<upharpoonleft>hs_assn\<^sup>k \<rightarrow> bool1_assn\<close>
+  supply [simp] = bool1_rel_def pure_def
+  by (sepref_to_hoare; vcg)
+
+lemmas hs_member_hnr2[sepref_fr_rules] =
+  hs_member_hnr[FCOMP lshs_op_set_member_refine]
+
+abbreviation \<open>hs_assn' \<equiv> hr_comp \<upharpoonleft>hs_assn lshs_rel\<close>
 
 end
 

@@ -152,6 +152,47 @@ sepref_register \<open>(<) :: char \<Rightarrow> char \<Rightarrow> bool\<close>
 sepref_register \<open>(\<le>) :: char \<Rightarrow> char \<Rightarrow> bool\<close>
 sepref_register op_neq_char: "op_neq :: char \<Rightarrow> _"
 
+section \<open>Hashing of Chars\<close>
+(* As desribed in https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function *)
+abbreviation \<open>fnv_offset \<equiv> (0xcbf29ce484222325 :: 64 word)\<close>
+abbreviation \<open>fnv_prime \<equiv> (0x00000100000001b3 :: 64 word)\<close>
+
+text \<open>Upcast from a character to the 64-bit hash domain.\<close>
+
+definition w64_of_char :: \<open>char \<Rightarrow> 64 word\<close> where
+  \<open>w64_of_char c \<equiv> of_nat (of_char c)\<close>
+
+sepref_register w64_of_char
+
+lemma w64_of_char_ucast: \<open>w64_of_char (char_of_word c) = UCAST(8 \<rightarrow> 64) c\<close>
+proof -
+  have \<open>UCAST(8 \<rightarrow> 64) c = of_nat (unat c)\<close>
+    by simp
+  then show ?thesis
+    unfolding w64_of_char_def char_of_word_def
+    by (simp add: of_char_of unat_of_char_mod)
+qed
+
+context begin
+interpretation llvm_prim_arith_setup .
+
+lemma w64_of_char_hnr[sepref_fr_rules]:
+  \<open>(\<lambda>c. ll_zext c TYPE(64 word), RETURN o w64_of_char)
+    \<in> char_assn\<^sup>k \<rightarrow>\<^sub>a word_assn' TYPE(64)\<close>
+  supply [simp] = is_up' char_assn_def char_rel_def in_br_conv pure_def
+    w64_of_char_ucast
+  apply sepref_to_hoare
+  by vcg
+
+end
+
+definition \<open>fnv1a_of_char c \<equiv> (fnv_offset XOR w64_of_char c) * fnv_prime\<close>
+
+sepref_def fnv1a_of_char_impl is \<open>RETURN o fnv1a_of_char\<close>
+  :: \<open>char_assn\<^sup>k \<rightarrow>\<^sub>a (word_assn' TYPE(64))\<close>
+  unfolding fnv1a_of_char_def
+  by sepref_dbg_keep  
+
 (* This is essentially just testing *)
 sepref_definition char_eq_impl is \<open>uncurry (RETURN oo (=))\<close> 
   :: \<open>char_assn\<^sup>k *\<^sub>a char_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
