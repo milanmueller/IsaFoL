@@ -4,7 +4,7 @@
   Maintainer:   Mathias Fleury, JKU
 *)
 theory PAC_Checker_Synthesis
-  imports PAC_Checker WB_Sort IICF_HashSet
+  imports PAC_Checker IICF_HashSet PAC_Step_Assn
     PAC_Checker_Init More_Loops LLVM_String
 begin
 
@@ -76,8 +76,6 @@ lemma vars_of_monom_in_foldl:
   \<open>foldl (fold_inner \<V>) b xs = (b \<and> vars_of_monom_in xs \<V>)\<close>
   by (induction xs arbitrary: b) (auto simp: fold_inner_def)
 
-sepref_register vars_of_monom_in
-
 lemma vars_of_monom_in_impl_hnr[sepref_fr_rules]:
   \<open>(uncurry vars_of_monom_in_impl, uncurry (RETURN oo vars_of_monom_in))
   \<in> monom_assn\<^sup>k *\<^sub>a vars_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
@@ -129,8 +127,6 @@ lemma vars_of_poly_in_foldl:
   subgoal for p xs b by (cases p) (auto simp: vars_of_poly_in_inner_def)
   done
 
-sepref_register vars_of_poly_in
-
 lemma vars_of_poly_in_impl_hnr[sepref_fr_rules]:
   \<open>(uncurry vars_of_poly_in_impl, uncurry (RETURN oo vars_of_poly_in))
   \<in> polynomial_assn\<^sup>k *\<^sub>a vars_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
@@ -144,46 +140,73 @@ lemma vars_of_poly_in_impl_hnr[sepref_fr_rules]:
 definition union_vars_monom :: \<open>string list \<Rightarrow> string set \<Rightarrow> string set\<close> where
 \<open>union_vars_monom xs \<V> = fold insert xs \<V>\<close>
 
-(* As there is no refinment target for fold, we use while *)
+definition \<open>insert' \<equiv> \<lambda>\<V> x. insert (COPY x) \<V>\<close>
 
-lemma union_vars_monom_while_aux:
-  \<open>doN {
-    (\<V>,_) \<leftarrow> WHILET
-      (\<lambda>(\<V>,xs). xs\<noteq>[])
-      (\<lambda>(\<V>,xs). doN {
-        (x,xs) \<leftarrow> mop_list_pop_hd xs;
-        RETURN (insert x \<V>,xs)
-      }) (\<V>,xs);
-    RETURN \<V>
-  } = RETURN (fold insert xs \<V>)\<close>
-proof (induction xs arbitrary: \<V>)
-  case Nil
-  show ?case
-    by (subst WHILET_unfold) simp
-next
-  case (Cons x xs)
-  show ?case
-    apply (subst WHILET_unfold)
-    by (simp add: Cons.IH[simplified])
-qed
+sepref_def insert'_impl is \<open>uncurry (RETURN oo insert')\<close>
+  :: \<open>vars_assn\<^sup>d *\<^sub>a strl_assn'\<^sup>k \<rightarrow>\<^sub>a vars_assn\<close>
+  unfolding insert'_def
+  by sepref
+  
+lemma union_vars_monom_alt: \<open>union_vars_monom xs \<V> = foldl insert' \<V> xs\<close>
+  unfolding union_vars_monom_def insert'_def COPY_def
+  by (auto simp: foldl_conv_fold)
 
-lemma union_vars_monom_while:
-  \<open>RETURN oo union_vars_monom \<equiv> \<lambda>xs \<V>. doN {
-    (\<V>,_) \<leftarrow> WHILET
-      (\<lambda>(\<V>,xs). xs\<noteq>[])
-      (\<lambda>(\<V>,xs). doN {
-        (x,xs) \<leftarrow> mop_list_pop_hd xs;
-        RETURN (insert x \<V>,xs)
-      }) (\<V>,COPY xs);
-    RETURN \<V>
-  }\<close>
-  unfolding union_vars_monom_def
-  apply (intro eq_reflection ext)
-  apply (subst union_vars_monom_while_aux)
-  by simp
+definition \<open>union_vars_monom_impl xs \<V> \<equiv> cl_fold insert'_impl (xs, \<V>)\<close>
+
+lemma insert'_step_rule: \<open>llvm_htriple
+    (vars_assn \<V> \<V>i ** strl_assn' x xi)
+    (insert'_impl \<V>i xi)
+    (\<lambda>r. vars_assn (insert' \<V> x) r ** strl_assn' x xi)\<close>
+  supply [vcg_rules] = hfref_htriple_d1_k2[OF insert'_impl.refine]
+  by vcg
+
+lemma union_vars_monom_impl_hnr[sepref_fr_rules]:
+  \<open>(uncurry union_vars_monom_impl, uncurry (RETURN oo union_vars_monom))
+  \<in> monom_assn\<^sup>k *\<^sub>a vars_assn\<^sup>d \<rightarrow>\<^sub>a vars_assn\<close>
+  unfolding union_vars_monom_alt union_vars_monom_impl_def
+  apply sepref_to_hoare
+  supply [vcg_rules] = cl_fold_rule[where
+    R = \<open>vars_assn\<close> and A = \<open>strl_assn'\<close>
+    and f = \<open>insert'_impl\<close>
+    and fa = \<open>insert'\<close>,
+    OF insert'_step_rule]
+  by vcg
 
 definition union_vars_poly :: \<open>llist_polynomial \<Rightarrow> string set \<Rightarrow> string set\<close> where
 \<open>union_vars_poly xs \<V> = fold (\<lambda>(xs, _) \<V>. union_vars_monom xs \<V>) xs \<V>\<close>
+
+definition \<open>union_vars_poly_inner \<equiv> \<lambda>\<V> (xs,_). union_vars_monom xs \<V>\<close>
+
+sepref_register union_vars_monom
+sepref_def union_vars_poly_inner_impl is \<open>uncurry (RETURN oo union_vars_poly_inner)\<close>
+  :: \<open>vars_assn\<^sup>d *\<^sub>a monomial_assn\<^sup>k \<rightarrow>\<^sub>a vars_assn\<close>
+  unfolding union_vars_poly_inner_def
+  by sepref
+
+lemma union_vars_poly_comp: \<open>union_vars_poly xs \<V> = foldl union_vars_poly_inner \<V> xs\<close>
+  unfolding union_vars_poly_def union_vars_poly_inner_def
+  by (simp add: foldl_conv_fold split_def)
+
+definition \<open>union_vars_poly_impl xsi \<V>i \<equiv> cl_fold (union_vars_poly_inner_impl) (xsi, \<V>i)\<close>
+
+lemma union_vars_poly_inner_step_rule: \<open>llvm_htriple
+    (vars_assn \<V> \<V>i ** monomial_assn m mi)
+    (union_vars_poly_inner_impl \<V>i mi)
+    (\<lambda>r. vars_assn (union_vars_poly_inner \<V> m) r ** monomial_assn m mi)\<close>
+  supply [vcg_rules] = hfref_htriple_d1_k2[OF union_vars_poly_inner_impl.refine]
+  by vcg
+
+lemma union_vars_poly_impl_hnr[sepref_fr_rules]:
+  \<open>(uncurry union_vars_poly_impl, uncurry (RETURN oo union_vars_poly))
+  \<in> polynomial_assn\<^sup>k *\<^sub>a vars_assn\<^sup>d \<rightarrow>\<^sub>a vars_assn\<close>
+  unfolding union_vars_poly_comp union_vars_poly_impl_def
+  apply sepref_to_hoare
+  supply [vcg_rules] = cl_fold_rule[where
+    R = \<open>vars_assn\<close> and A = \<open>monomial_assn\<close>
+    and f = \<open>union_vars_poly_inner_impl\<close>
+    and fa = \<open>union_vars_poly_inner\<close>,
+    OF union_vars_poly_inner_step_rule]
+  by vcg
 
 lemma union_vars_monom_alt_def:
   \<open>union_vars_monom xs \<V> = \<V> \<union> set xs\<close>
@@ -207,120 +230,167 @@ lemma union_vars_poly_alt_def:
      (auto simp: vars_llist_def union_vars_monom_alt_def)
    done
 
-sepref_definition union_vars_monom_impl
-  is \<open>uncurry (RETURN oo union_vars_monom)\<close>
-  :: \<open>monom_assn\<^sup>k *\<^sub>a vars_assn\<^sup>d \<rightarrow>\<^sub>a vars_assn\<close>
-  unfolding union_vars_monom_while ls_emp 
-  by sepref
+type_synonym status_conc = \<open>8 word \<times> strl_conc\<close>
 
-sepref_definition union_vars_poly_impl
-  is \<open>uncurry (RETURN oo union_vars_poly)\<close>
-  :: \<open>polynomial_assn\<^sup>k *\<^sub>a vars_assn\<^sup>d \<rightarrow>\<^sub>a vars_assn\<close>
-  unfolding union_vars_poly_def
-  apply sepref_dbg_keep
-  oops
+definition status_assn :: \<open>string code_status \<Rightarrow> status_conc \<Rightarrow> assn\<close> where
+  \<open>status_assn c \<equiv> \<lambda>(tag,msgi). case c of
+    CSUCCESS    \<Rightarrow> \<up>(tag = 0) ** \<box>
+  | CFOUND      \<Rightarrow> \<up>(tag = 1) ** \<box>
+  | CFAILED msg \<Rightarrow> \<up>(tag = 2) ** strl_assn' msg msgi
+  \<close>
 
-hide_const (open) Autoref_Fix_Rel.CONSTRAINT
+lemma status_assn_csuccess_conv[simp]:
+  \<open>status_assn CSUCCESS (tag, msgi) \<equiv> \<up>(tag = 0) ** \<box>\<close>
+  unfolding status_assn_def by simp
 
-(* TODO: Need refinement target for ENUM *)
+lemma status_assn_cfound_conv[simp]:
+  \<open>status_assn CFOUND (tag, msgi) \<equiv> \<up>(tag = 1) ** \<box>\<close>
+  unfolding status_assn_def by simp
 
-fun status_assn where
-  \<open>status_assn _ CSUCCESS CSUCCESS = \<box>\<close> |
-  \<open>status_assn _ CFOUND CFOUND = \<box>\<close> |
-  \<open>status_assn R (CFAILED a) (CFAILED b) = R a b\<close> |
-  \<open>status_assn _ _ _ = sep_false\<close>
+lemma status_assn_cfailed_conv[simp]:
+  \<open>status_assn (CFAILED msg) (tag, msgi) \<equiv> \<up>(tag = 2) ** strl_assn' msg msgi\<close>
+  unfolding status_assn_def by simp
 
+definition mk_csuccess_impl :: \<open>status_conc llM\<close> where [llvm_code,llvm_inline]:
+  \<open>mk_csuccess_impl \<equiv> Mreturn (0, init)\<close>
+
+definition mk_cfound_impl :: \<open>status_conc llM\<close> where [llvm_code,llvm_inline]:
+  \<open>mk_cfound_impl \<equiv> Mreturn (1, init)\<close>
+
+definition mk_cfailed_impl :: \<open>strl_conc \<Rightarrow> status_conc llM\<close> where [llvm_code,llvm_inline]:
+  \<open>mk_cfailed_impl msg \<equiv> Mreturn (2, msg)\<close>
+  
 lemma SUCCESS_hnr[sepref_fr_rules]:
-  \<open>(uncurry0 (Mreturn CSUCCESS), uncurry0 (RETURN CSUCCESS)) \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a status_assn R\<close>
+  \<open>(uncurry0 (mk_csuccess_impl), uncurry0 (RETURN CSUCCESS))
+  \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a status_assn\<close>
+  unfolding mk_csuccess_impl_def
   apply (sepref_to_hoare)
   apply vcg
-  oops
+  by (auto simp: sep_algebra_simps ENTAILS_def entails_def)
 
 lemma FOUND_hnr[sepref_fr_rules]:
-  \<open>(uncurry0 (return CFOUND), uncurry0 (RETURN CFOUND)) \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a status_assn R\<close>
-  by (sepref_to_hoare)
-    sep_auto
+  \<open>(uncurry0 (mk_cfound_impl), uncurry0 (RETURN CFOUND))
+  \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a status_assn\<close>
+  unfolding mk_cfound_impl_def
+  apply (sepref_to_hoare)
+  apply vcg
+  by (auto simp: sep_algebra_simps ENTAILS_def entails_def)
+
+lemma FAILED_hnr[sepref_fr_rules]:
+  \<open>(mk_cfailed_impl, RETURN o CFAILED)
+  \<in> strl_assn'\<^sup>d \<rightarrow>\<^sub>a status_assn\<close>
+  unfolding mk_cfailed_impl_def
+  apply (sepref_to_hoare)
+  apply vcg
+  by (auto simp: sep_algebra_simps ENTAILS_def entails_def)
+
+(* definition is_csuccess_impl :: \<open>status_conc \<Rightarrow> 1 word llM\<close> where[llvm_code,llvm_inline]:
+ *   \<open>is_csuccess_impl \<equiv> \<lambda>(tag,msg). ll_icmp_eq tag 0\<close> *)
+definition is_cfound_impl :: \<open>status_conc \<Rightarrow> 1 word llM\<close> where[llvm_code,llvm_inline]:
+  \<open>is_cfound_impl \<equiv> \<lambda>(tag,msg). ll_icmp_eq tag 1\<close>
+definition is_cfailed_impl :: \<open>status_conc \<Rightarrow> 1 word llM\<close> where[llvm_code,llvm_inline]:
+  \<open>is_cfailed_impl \<equiv> \<lambda>(tag,msg). ll_icmp_eq tag 2\<close>
+
+context begin
+interpretation llvm_prim_arith_setup .
 
 lemma is_success_hnr[sepref_fr_rules]:
-  \<open>CONSTRAINT is_pure R \<Longrightarrow>
-  ((return o is_cfound), (RETURN o is_cfound)) \<in> (status_assn R)\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
-  apply (sepref_to_hoare)
-  apply (rename_tac xi x; case_tac xi; case_tac x)
-  apply sep_auto+
+  \<open>(is_cfound_impl, (RETURN o is_cfound))
+  \<in> status_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding is_cfound_impl_def is_cfound_def 
+  apply (sepref_to_hoare; vcg)
+  apply (auto simp: sep_algebra_simps ENTAILS_def entails_def
+    bool1_rel_def bool.rel_def in_br_conv)
+  subgoal for status by (cases status; simp)
   done
 
 lemma is_cfailed_hnr[sepref_fr_rules]:
-  \<open>CONSTRAINT is_pure R \<Longrightarrow>
-  ((return o is_cfailed), (RETURN o is_cfailed)) \<in> (status_assn R)\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
-  apply (sepref_to_hoare)
-  apply (rename_tac xi x; case_tac xi; case_tac x)
-  apply  sep_auto+
+  \<open>(is_cfailed_impl, (RETURN o is_cfailed))
+  \<in> status_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding is_cfailed_impl_def
+  apply (sepref_to_hoare; vcg)
+  apply (simp add: sep_algebra_simps ENTAILS_def entails_def
+    bool1_rel_def bool.rel_def in_br_conv)
+  subgoal for status
+    by (cases status)
+      (auto simp: pred_lift_extract_simps)
   done
 
-lemma merge_cstatus_hnr[sepref_fr_rules]:
-  \<open>CONSTRAINT is_pure R \<Longrightarrow>
-  (uncurry (return oo merge_cstatus), uncurry (RETURN oo merge_cstatus)) \<in>
-    (status_assn R)\<^sup>k *\<^sub>a  (status_assn R)\<^sup>k \<rightarrow>\<^sub>a status_assn R\<close>
-  apply (sepref_to_hoare)
-  by (case_tac b; case_tac bi; case_tac a; case_tac ai; sep_auto simp: is_pure_conv pure_app_eq)
 
-sepref_definition add_poly_impl
-  is \<open>add_poly_l\<close>
-  :: \<open>(poly_assn \<times>\<^sub>a poly_assn)\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
-  supply [[goals_limit=1]]
-  unfolding add_poly_l_def
-    HOL_list.fold_custom_empty
-    term_order_rel'_def[symmetric]
-    term_order_rel'_alt_def
+term merge_cstatus
+definition merge_cstatus_impl :: \<open>status_conc \<Rightarrow> status_conc \<Rightarrow> status_conc llM\<close>
+  where[llvm_code]: \<open>merge_cstatus_impl \<equiv> \<lambda>(t1,msg1) (t2,msg2). doM {
+    failed1 \<leftarrow> is_cfailed_impl (t1,msg1);
+    llc_if failed1
+      (Mreturn (t1,msg1))
+      (doM {
+        failed2 \<leftarrow> is_cfailed_impl (t2,msg2);
+        llc_if failed2
+          (Mreturn (t2,msg2))
+          (doM {
+            found1 \<leftarrow> is_cfound_impl (t1,msg1);
+              llc_if found1
+                (Mreturn (t1,msg1))
+                (doM {
+                  found2 \<leftarrow> is_cfound_impl (t2,msg2);
+                  llc_if found2
+                    (Mreturn (t2,msg2))
+                    (Mreturn (0,init))
+                })
+          }) 
+      })
+  }\<close>
+
+lemma merge_cstatus_hnr[sepref_fr_rules]:
+  \<open>(uncurry merge_cstatus_impl, uncurry (RETURN oo merge_cstatus)) \<in>
+    status_assn\<^sup>d *\<^sub>a  status_assn\<^sup>d \<rightarrow>\<^sub>a status_assn\<close>
+  unfolding merge_cstatus_impl_def
+  apply sepref_to_hoare
+
+end
+
+
+lemma term_order_rel_alt_def:
+  \<open>term_order_rel = lexord (p2rel char.lexordp)\<close>
+  by (auto simp: p2rel_def char.lexordp_conv_lexord var_order_rel_def intro!: arg_cong[of _ _ lexord])
+
+lemma term_order_rel_by_lt: \<open>(x,y) \<in> term_order_rel \<equiv> x < y\<close>
+  by (rule eq_reflection)
+    (auto simp: lexordp_conv_lexord less_eq_list_def less_list_def lexordp_def
+      var_order_rel_def rel2p_def term_order_rel_alt_def p2rel_def less_char_inst)
+
+sepref_definition add_poly_l_impl is \<open>uncurry add_poly_l\<close>
+  :: \<open>polynomial_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a polynomial_assn\<close>
+  unfolding add_poly_l_def add_poly_l1_def add_poly_l2_def
+    apl_cond_def apl_body_def apl2_body_def ls_emp term_order_rel_by_lt
   by sepref
 
 
-declare add_poly_impl.refine[sepref_fr_rules]
+text \<open>For @{term mult_monoms} as defined, we would have to copy the lists
+  to walk then, even though the function can be seen as "readonly".
+  We therefore implement a manual refinement for mult_monoms\<close>
 
-
-sepref_register mult_monomials
-lemma mult_monoms_alt_def:
-  \<open>(RETURN oo mult_monoms) x y = REC\<^sub>T
-    (\<lambda>f (p, q).
-      case (p, q) of
-        ([], _) \<Rightarrow> RETURN q
-       | (_, []) \<Rightarrow> RETURN p
-       | (x # p, y # q) \<Rightarrow>
-        (if x = y then do {
-          pq \<leftarrow> f (p, q);
-           RETURN (x # pq)}
-        else if (x, y) \<in> var_order_rel
-        then do {
-          pq \<leftarrow> f (p, y # q);
-          RETURN (x # pq)}
-        else do {
-          pq \<leftarrow>  f (x # p, q);
-          RETURN (y # pq)}))
-     (x, y)\<close>
-  apply (subst eq_commute)
-  apply (induction x y rule: mult_monoms.induct)
-  subgoal for p
-    by (subst RECT_unfold, refine_mono) (auto split: list.splits)
-  subgoal for p
-    by (subst RECT_unfold, refine_mono) (auto split: list.splits)
-  subgoal for x p y q
-    by (subst RECT_unfold, refine_mono) (auto split: list.splits simp: let_to_bind_conv)
-  done
-
+typ term_poly_list
+typ monom_conc
+term monom_assn
+definition mult_monoms_impl :: \<open>monom_conc \<Rightarrow> monom_conc\<close>
 
 sepref_definition mult_monoms_impl
   is \<open>uncurry (RETURN oo mult_monoms)\<close>
-  :: \<open>(monom_assn)\<^sup>k *\<^sub>a (monom_assn)\<^sup>k \<rightarrow>\<^sub>a (monom_assn)\<close>
-  supply [[goals_limit=1]]
-  unfolding mult_poly_raw_def
-    HOL_list.fold_custom_empty
-    var_order'_def[symmetric]
-    term_order_rel'_alt_def
-    mult_monoms_alt_def
-    var_order_rel_var_order
-  by sepref
+  :: \<open>monom_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a monom_assn\<close>
+  unfolding mult_monoms_alt_def
+  apply sepref_dbg_keep
+  apply sepref_dbg_trans_keep
+  apply sepref_dbg_trans_step_keep
+  apply sepref_dbg_side_unfold
+  oops
 
-declare mult_monoms_impl.refine[sepref_fr_rules]
+  (* unfolding mult_poly_raw_def
+   *   HOL_list.fold_custom_empty
+   *   var_order'_def[symmetric]
+   *   term_order_rel'_alt_def
+   *   mult_monoms_alt_def
+   *   var_order_rel_var_order *)
 
 sepref_definition mult_monomials_impl
   is \<open>uncurry (RETURN oo mult_monomials)\<close>
@@ -350,8 +420,6 @@ lemma map_append_alt_def2:
 definition map_append_poly_mult where
   \<open>map_append_poly_mult x = map_append (mult_monomials x)\<close>
 
-declare mult_monomials_impl.refine[sepref_fr_rules]
-
 sepref_definition map_append_poly_mult_impl
   is \<open>uncurry2 (RETURN ooo map_append_poly_mult)\<close>
   :: \<open>monomial_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
@@ -359,10 +427,17 @@ sepref_definition map_append_poly_mult_impl
     map_append_alt_def2
   by sepref
 
-declare map_append_poly_mult_impl.refine[sepref_fr_rules]
 
-text \<open>TODO @{thm map_by_foldl} is the worst possible implementation of map!\<close>
-sepref_definition mult_poly_raw_impl
+text \<open>TODO @{thm map_by_foldl} is the worst possible implementation of map!
+
+  TODO: reimplement as a nested \<open>cl_fold\<close>: both walks (over \<open>p\<close> and \<open>q\<close>) are read-only,
+  every output monomial is freshly allocated by \<open>mult_monoms\<close>, and the accumulator is
+  prepend-only replaces the non-tail \<open>map_append\<close> REC and the per-leaf accumulator copy
+  (quadratic!). Caveat: \<open>cl_prepend\<close> reverses each map segment vs \<open>map \<dots> @ b\<close>; prove the
+  fold-with-prepend variant equal to \<open>mult_poly_raw\<close> up to \<open>mset\<close> (harmless, since
+  \<open>mult_poly_full\<close> normalizes immediately afterwards).\<close>
+
+sepref_def mult_poly_raw_impl
   is \<open>uncurry (RETURN oo mult_poly_raw)\<close>
   :: \<open>poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
   supply [[goals_limit=1]]

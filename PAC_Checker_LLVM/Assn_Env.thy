@@ -43,6 +43,24 @@ proof -
     done
 qed
 
+lemma hfref_htriple_d1_k2:
+  assumes R: \<open>(uncurry f, uncurry (RETURN oo g)) \<in> A\<^sup>d *\<^sub>a B\<^sup>k \<rightarrow>\<^sub>a C\<close>
+  shows \<open>llvm_htriple (A a ai ** B b bi) (f ai bi) (\<lambda>r. B b bi ** C (g a b) r)\<close>
+proof -
+  note HNR = R[to_hnr, unfolded autoref_tag_defs]
+  note HT = HNR[THEN hn_refineD]
+  show ?thesis
+    apply (rule htriple_ent_pre[OF _ htriple_ent_post[OF _ HT]])
+    unfolding hn_ctxt_def
+    apply (rule entails_refl)
+    subgoal
+      apply (auto simp: entails_def sep_algebra_simps pred_lift_extract_simps
+      sep_conj_exists pw_le_iff refine_pw_simps)
+      by (simp add: invalid_assn_def pred_lift_extract_simps(2))
+    subgoal by simp
+    done
+qed
+
 lemma hfref_htriple_k3:
   assumes R: \<open>(uncurry2 f, uncurry2 (RETURN ooo g)) \<in> A\<^sup>k *\<^sub>a B\<^sup>k *\<^sub>a C\<^sup>k \<rightarrow>\<^sub>a D\<close>
   shows \<open>llvm_htriple (A a ai ** B b bi ** C c ci) (f ai bi ci)

@@ -163,22 +163,9 @@ lemma add_poly_l_add_poly:
   using add_poly_pref_add_poly_l'[of p q]
   by (auto simp: add_poly_l1_alt_def add_poly_l2_alt_def split: prod.splits)
 
-(* test refinment - TODO: move to synthesis *)
-lemma term_order_rel_alt_def:
-  \<open>term_order_rel = lexord (p2rel char.lexordp)\<close>
-  by (auto simp: p2rel_def char.lexordp_conv_lexord var_order_rel_def intro!: arg_cong[of _ _ lexord])
-
-lemma term_order_rel_by_lt: \<open>(x,y) \<in> term_order_rel \<equiv> x < y\<close>
-  by (rule eq_reflection)
-    (auto simp: lexordp_conv_lexord less_eq_list_def less_list_def lexordp_def
-      var_order_rel_def rel2p_def term_order_rel_alt_def p2rel_def less_char_inst)
+(* TODO - move to Copying List *)
 lemma ls_emp: \<open>p\<noteq>[] \<equiv> \<not>(op_list_is_empty p)\<close> by simp
 lemma ls_emp': \<open>p = [] \<equiv> op_list_is_empty p\<close> by simp
-sepref_definition add_poly_l_impl is \<open>uncurry add_poly_l\<close>
-  :: \<open>polynomial_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a polynomial_assn\<close>
-  unfolding add_poly_l_def add_poly_l1_def add_poly_l2_def
-    apl_cond_def apl_body_def apl2_body_def ls_emp term_order_rel_by_lt
-  by sepref
 
 definition nonzero_coeffs where
   \<open>nonzero_coeffs a \<longleftrightarrow> 0 \<notin># snd `# a\<close>
@@ -844,6 +831,11 @@ lemma distinct_var_order_Id_var_order:
           sorted_wrt var_order a\<close>
   by (induction a) (auto simp: rel2p_def)
 
+text \<open>TODO: candidate for \<open>cl_fold\<close> \<comment> \<open>full walk, prepend-only accumulator, and the
+  \<open>shuffle_coefficients\<close> spec below is already permutation-level, so the fold's reversal
+  needs no new abstract reasoning. Step: copy the monom, sort the copy, prepend.
+  Only worthwhile if the input polynomial must be kept (\<open>\<^sup>k\<close>); if \<open>full_normalize_poly\<close>
+  consumes its argument anyway, a destructive pop-walk is cheaper (no copies).\<close>\<close>
 definition sort_all_coeffs :: \<open>llist_polynomial \<Rightarrow> llist_polynomial nres\<close> where
 \<open>sort_all_coeffs xs = monadic_nfoldli xs (\<lambda>_. RETURN True) (\<lambda>(a, n) b. do {a \<leftarrow> sort_coeff a; RETURN ((a, n) # b)}) []\<close>
 
