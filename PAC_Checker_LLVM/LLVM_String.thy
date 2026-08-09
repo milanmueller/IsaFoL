@@ -10,6 +10,7 @@ text \<open>Here, we provide two implementations of strings:
 section \<open>String by List\<close>
 abbreviation \<open>strl_assn \<equiv> cl_assn char_assn\<close>
 abbreviation \<open>strl_assn' \<equiv> cl_assn' char_assn\<close>
+lemmas [safe_constraint_rules] = CN_FALSEI[of is_pure strl_assn']
 
 interpretation strl: copyable_assn char_assn \<open>\<lambda>_. Mreturn ()\<close> Mreturn
   apply unfold_locales
@@ -129,8 +130,102 @@ sepref_definition prependtest_impl is \<open>uncurry (RETURN oo prependtest)\<cl
 end
 
 section \<open>String by Array\<close>
-definition \<open>stra_assn \<equiv> larray_assn char_assn\<close>
-(* Deferred for now *)
+
+text \<open>To be able to print constant strings (like @{term \<open>''string''\<close>},
+  we need to convert the HOL String representation into @{term \<open>8 word\<close>})\<close>
+
+text \<open>The conversion of HOL chars to ascii chars is provided by
+  @{term asciichar_of_holchar} in \<open>Char_Assn\<close>: the @{term Char}
+  constructor is registered as a sepref operation, so string literals synthesize
+  at @{term \<open>cl_assn' char_assn\<close>} (via @{thm cl_empty_hnr} and @{thm cl_prepend_hnr})
+  out of the box.\<close>
+
+abbreviation \<open>stra_assn \<equiv> larray_assn' TYPE(64) char_assn\<close>
+
+subsection \<open>Conversion from list based string to array based string\<close>
+text \<open>Since the length of list based string is not bounded, we can not
+  convert every string to an array.
+  What we do is truncate every string to it's longest representable prefix.\<close>
+(* TODO: by eval might be considered evel, maybe we want to change it? *)
+definition \<open>strl_ceil \<equiv> 9223372036854775807\<close>
+lemma strl_ceil_val: \<open>strl_ceil = max_snat 64 - 1\<close> unfolding strl_ceil_def by eval
+
+sepref_def strl_ceil_impl is \<open>uncurry0 (RETURN strl_ceil)\<close>
+  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a (snat_assn' TYPE(64))\<close>
+  unfolding strl_ceil_def
+  apply (annot_snat_const "TYPE(64)")
+  by sepref
+
+definition capped_length :: \<open>'a list \<Rightarrow> nat nres\<close> where
+  \<open>capped_length xs \<equiv> doN {
+    (r,_) \<leftarrow> WHILEIT
+      (\<lambda>(r,ys). r \<le> strl_ceil \<and> r + length ys = length xs)
+      (\<lambda>(r,xs). r < strl_ceil \<and> xs \<noteq> [])
+      (\<lambda>(r,xs). doN {
+        ASSERT(r+1 < max_snat 64);
+        (x,xs) \<leftarrow> mop_list_pop_hd xs;
+        RETURN (r+1,xs) 
+      }) (0, xs);
+    RETURN r 
+  }\<close>
+
+lemma capped_length_spec:
+  \<open>capped_length xs \<le> SPEC (\<lambda>r. r = min (length xs) strl_ceil)\<close>
+  unfolding capped_length_def
+  apply (refine_vcg WHILEIT_rule[where R="measure (\<lambda>(_,xs). length xs)"])
+  apply clarsimp_all
+  subgoal using strl_ceil_val by linarith
+  subgoal by auto
+  done 
+
+context freeable_assn
+begin
+sepref_def capped_length_impl is \<open>capped_length\<close>
+  :: \<open>(cl_assn' A)\<^sup>d \<rightarrow>\<^sub>a (snat_assn' TYPE(64))\<close>
+  unfolding capped_length_def ls_emp
+  apply (annot_snat_const "TYPE(64)")
+  by sepref
+end
+
+
+definition stra_of_strl :: \<open>string \<Rightarrow> string nres\<close> where
+  \<open>stra_of_strl xs = doN{ 
+    l \<leftarrow> capped_length (COPY xs);
+    let r = replicate l (char_of_word 0);
+    (r,_,_) \<leftarrow> WHILET
+      (\<lambda>(r,xs,i). xs\<noteq>[])
+      (\<lambda>(r,xs,i). doN {
+        ASSERT(i + 1 < max_snat 64);
+        (s,xs) \<leftarrow> mop_list_pop_hd xs;
+        r' \<leftarrow> mop_list_set r i s;
+        RETURN (r',xs,i+1)
+      })
+      (r,xs,0::nat);
+    RETURN r
+  }\<close>
+
+sepref_register \<open>capped_length\<close>
+sepref_def stra_of_strl_impl is \<open>stra_of_strl\<close>
+  :: \<open>strl_assn'\<^sup>d \<rightarrow>\<^sub>a stra_assn\<close>
+  unfolding stra_of_strl_def ls_emp 
+    larray_fold_custom_replicate
+  supply [sepref_fr_rules] = cl_length_hnr[where 'l=64]
+  apply (annot_snat_const "TYPE(64)")
+  by sepref 
+
+sepref_register stra_of_strl
+
+definition \<open>printing_failed \<equiv> ''<string too long to print>''\<close>
+
+text \<open>The literal is built at the list-based string level (empty + prepends of
+  constant chars) and then converted to an array-based string. A direct synthesis
+  against \<open>RETURN printing_failed\<close> at @{term stra_assn} cannot work: larrays have
+  no producers besides replicate.\<close>
+sepref_def printing_failed_impl is \<open>uncurry0 (stra_of_strl printing_failed)\<close>
+  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a stra_assn\<close>
+  unfolding printing_failed_def
+  by sepref
+
 
 experiment
 begin

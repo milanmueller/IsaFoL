@@ -870,6 +870,10 @@ proof -
   qed
 qed
 
+term sbi_assn
+term sbi_aux_assn
+term ascii_strl_assn
+
 section \<open>Decimal Byte Strings to Integers\<close>
 
 text \<open>With bigint \<rightarrow> String in place, we now want to go the other direction of string \<rightarrow> big_int\<close>

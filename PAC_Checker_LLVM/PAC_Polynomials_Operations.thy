@@ -163,10 +163,6 @@ lemma add_poly_l_add_poly:
   using add_poly_pref_add_poly_l'[of p q]
   by (auto simp: add_poly_l1_alt_def add_poly_l2_alt_def split: prod.splits)
 
-(* TODO - move to Copying List *)
-lemma ls_emp: \<open>p\<noteq>[] \<equiv> \<not>(op_list_is_empty p)\<close> by simp
-lemma ls_emp': \<open>p = [] \<equiv> op_list_is_empty p\<close> by simp
-
 definition nonzero_coeffs where
   \<open>nonzero_coeffs a \<longleftrightarrow> 0 \<notin># snd `# a\<close>
 

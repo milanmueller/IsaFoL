@@ -22,7 +22,9 @@ text \<open>coverage of the @{theory Isabelle_LLVM.IICF_List} interface
                                           out and also return the \<open>tl\<close> of the list.
     \<^item> [x] \<open>op_list_is_empty\<close>  (\<open>os_is_empty\<close>)
     \<^item> [x] \<open>op_list_concat\<close>    (\<open>cl_concat_hnr\<close>; destructively links both lists)
-    \<^item> [x] \<open>op_list_append\<close>    (\<open>cl_append_hnr\<close>; snoc, O(n), takes ownership of the element)
+    \<^item> [x] \<open>op_list_append\<close>    (\<open>cl_append_hnr\<close>; snoc, O(n), takes ownership of the element;
+                                          O(1) on the tail-pointer builder \<open>clt_assn\<close>,
+                                          see \<open>clt_snoc_hnr\<close>)
     \<^item> [x] \<open>op_list_rev\<close>       (\<open>cl_rev_hnr\<close>; destructive in-place reversal, O(n))
 
   Infrastructure (not interface ops):
@@ -345,7 +347,7 @@ text \<open>Using our other functions like @{term op_list_hd} or @{term op_list_
   There are, however, cases, where we want a read only walk. For these cases, we
   implement a fold operation, parameterized over an f, that keeps the inner elements intact\<close>
 
-definition cl_fold :: \<open>('a::llvm_rep \<Rightarrow> 'b::llvm_rep \<Rightarrow> 'a llM) \<Rightarrow> 'b cl_list \<times> 'a \<Rightarrow> 'a llM\<close>
+definition cl_fold :: \<open>('a::llvm_rep \<Rightarrow> 'b::llvm_rep \<Rightarrow> 'a llM) \<Rightarrow> ('b cl_list \<times> 'a) \<Rightarrow> 'a llM\<close>
   where
   \<open>cl_fold f \<equiv> MMonad.REC (\<lambda>ff (xi, a).
     if xi = null then Mreturn a
@@ -378,6 +380,91 @@ next
     apply (subst cl_fold_unfold)
     by vcg
 qed
+
+(* for nicer refinment, we want uncurried version *)
+definition \<open>cl_fold' f a xi \<equiv> cl_fold f (xi, a)\<close>
+
+lemma cl_fold'_rule:
+  assumes F: \<open>\<And>a ai x xi. llvm_htriple
+      (R a ai ** A x xi) (f ai xi) (\<lambda>r. R (fa a x) r ** A x xi)\<close>
+  shows \<open>llvm_htriple
+    (R a ai ** cl_assn' A xs p)
+    (cl_fold' f ai p)
+    (\<lambda>r. R (foldl fa a xs) r ** cl_assn' A xs p)\<close>
+  unfolding cl_fold'_def
+  supply [vcg_rules] = cl_fold_rule[where a="a" and ai="ai" and R="R", OF F]
+  by vcg
+
+term cl_fold'
+fun mfoldl :: \<open>('a \<Rightarrow> 'b \<Rightarrow> 'a nres) \<Rightarrow> 'a \<Rightarrow> 'b list \<Rightarrow> 'a nres\<close> where
+  \<open>mfoldl _ a [] = RETURN a\<close>
+| \<open>mfoldl f a (b#bs) = doN {a' \<leftarrow> f a b; mfoldl f a' bs}\<close>
+
+(* Not sure if useful *)
+lemma mfoldl_RETURN:
+  \<open>mfoldl (\<lambda>a b. RETURN (fa a b)) a bs = RETURN (foldl fa a bs)\<close>
+  by (induction bs arbitrary: a) auto
+
+lemma mfoldl_nfoldli:
+  \<open>mfoldl f a bs = nfoldli bs (\<lambda>_. True) (\<lambda>b a. f a b) a\<close>
+  by (induction bs arbitrary: a) auto
+
+lemma cl_fold_hfref:
+  assumes F: \<open>(uncurry fi, uncurry (RETURN oo fa)) \<in> R\<^sup>d *\<^sub>a A\<^sup>k \<rightarrow>\<^sub>a R\<close>
+  shows \<open>(uncurry (cl_fold' fi), uncurry (RETURN oo foldl fa))
+        \<in> R\<^sup>d *\<^sub>a (cl_assn' A)\<^sup>k \<rightarrow>\<^sub>a R\<close>
+proof -
+  have BODY: \<open>llvm_htriple (R a ai ** A x xi) (fi ai xi)
+                (\<lambda>r. R (fa a x) r ** A x xi)\<close> for a ai x xi
+    apply (rule htriple_ent_post[OF _ hfref_htriple_d1_k2[OF F]])
+    by (simp add: sep_conj_aci)
+  show ?thesis
+    thm cl_fold'_rule[where R=R and A=A and f=fi and fa=fa, OF BODY]
+    supply [vcg_rules] = cl_fold'_rule[where R=R and A=A and f=fi and fa=fa, OF BODY]
+    by (sepref_to_hoare; vcg)
+qed
+
+text \<open>Additional assertions @{term \<Phi>} survive cl_fold. This is needed when the
+  fold's step function captures further (read-only) parameters beyond the
+  accumulator and the current element: their assertions ride along in \<open>\<Phi>\<close>.\<close>
+lemma cl_fold_rule':
+  assumes F: \<open>\<And>a ai x xi. llvm_htriple
+      (\<Phi> ** R a ai ** A x xi) (f ai xi) (\<lambda>r. \<Phi> ** R (fa a x) r ** A x xi)\<close>
+  shows \<open>llvm_htriple
+    (\<Phi> ** R a ai ** cl_assn' A xs p)
+    (cl_fold' f ai p)
+    (\<lambda>r. \<Phi> ** R (foldl fa a xs) r ** cl_assn' A xs p)\<close>
+  unfolding cl_fold'_def
+proof (induction xs arbitrary: a ai p)
+  case Nil
+  show ?case
+    supply [simp] = cl_assn_simps
+    apply (subst cl_fold_unfold)
+    by vcg
+next
+  case (Cons x xs)
+  note [vcg_rules] = Cons.IH F
+  show ?case
+    supply [simp] = cl_assn_simps
+    apply (subst cl_fold_unfold)
+    by vcg
+qed
+
+text \<open>Parameterized version of @{thm cl_fold_hfref}: the step function takes an
+  additional kept parameter \<open>P\<close> (e.g. the fixed operand of an outer loop).\<close>
+lemma cl_fold_hfref_param:
+  assumes F: \<open>(uncurry2 fi, uncurry2 (RETURN ooo fa)) \<in> P\<^sup>k *\<^sub>a R\<^sup>d *\<^sub>a A\<^sup>k \<rightarrow>\<^sub>a R\<close>
+  shows \<open>(uncurry2 (\<lambda>pi. cl_fold' (fi pi)), uncurry2 (RETURN ooo (\<lambda>p. foldl (fa p))))
+        \<in> P\<^sup>k *\<^sub>a R\<^sup>d *\<^sub>a (cl_assn' A)\<^sup>k \<rightarrow>\<^sub>a R\<close>
+proof -
+  have BODY: \<open>llvm_htriple (P p pi ** R a ai ** A x xi) (fi pi ai xi)
+                (\<lambda>r. P p pi ** R (fa p a x) r ** A x xi)\<close> for p pi a ai x xi
+    by (rule hfref_htriple_k1_d2_k3[OF F])
+  show ?thesis
+    supply [vcg_rules] = cl_fold_rule'[where R=R and A=A, OF BODY]
+    by (sepref_to_hoare; vcg)
+qed
+
 
 section \<open>@{term op_list_contains}\<close>
 
@@ -710,9 +797,10 @@ lemma cl_rev_hnr[sepref_fr_rules]:
   by (sepref_to_hoare; vcg)
 
 text \<open>Comparison operations only load elements, so they need neither free nor
-  copy; they live in the \<open>linorder_assn\<close> context.\<close>
+  copy; equality needs only \<open>aeq\<close> and lives in the \<open>eq_assn\<close> context (the order
+  operations below live in \<open>linorder_assn\<close>).\<close>
 
-context linorder_assn
+context eq_assn
 begin
 
 definition cl_eq_impl :: \<open>'b cl_list \<times> 'b cl_list \<Rightarrow> 1 word llM\<close> where[llvm_code, llvm_inline]:
@@ -1001,6 +1089,385 @@ sepref_definition test_nested_impl is \<open>uncurry0 test_nested\<close>
 
 sepref_definition test_nested2_impls is \<open>uncurry0 (RETURN ([[(1::nat),2],[3,4]]))\<close>
   :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a (cl_assn' (cl_assn' (snat_assn' TYPE(64))))\<close>
+  apply (annot_snat_const "TYPE(64)")
+  by sepref
+
+end
+
+section \<open>Tail-Pointer Builder List\<close>
+
+type_synonym 'a clt_list = \<open>'a node ptr \<times> 'a node ptr\<close>
+
+subsection \<open>Auxiliary Lemmas about @{term olseg}\<close>
+
+lemma entails_exE: \<open>(\<And>x. P x \<turnstile> Q) \<Longrightarrow> (EXS x. P x) \<turnstile> Q\<close>
+  by (auto simp: entails_def)
+
+lemma olseg_nil: \<open>olseg A [] p q = \<up>(p = q)\<close>
+  unfolding olseg_def
+  by (auto simp: sep_algebra_simps)
+
+lemma olseg_snoc:
+  \<open>olseg A ys p q ** \<upharpoonleft>ll_bpto (Node c r) q ** A y c \<turnstile> olseg A (ys @ [y]) p r\<close>
+proof -
+  have H: \<open>lseg xsi p q ** \<upharpoonleft>(list_assn (mk_assn A)) ys xsi ** \<upharpoonleft>ll_bpto (Node c r) q ** A y c
+      \<turnstile> olseg A (ys @ [y]) p r\<close> for xsi
+  proof (rule entails_pureI)
+    assume \<open>pure_part (lseg xsi p q ** \<upharpoonleft>(list_assn (mk_assn A)) ys xsi
+        ** \<upharpoonleft>ll_bpto (Node c r) q ** A y c)\<close>
+    then have L: \<open>length ys = length xsi\<close>
+      by (auto dest!: pure_part_split_conj dest: list_assn_pure_part)
+    have R: \<open>(lseg xsi p q ** \<upharpoonleft>(list_assn (mk_assn A)) ys xsi
+          ** \<upharpoonleft>ll_bpto (Node c r) q ** A y c)
+        = ((lseg xsi p q ** \<upharpoonleft>ll_bpto (Node c r) q)
+          ** (\<upharpoonleft>(list_assn (mk_assn A)) ys xsi ** A y c))\<close>
+      by (simp add: sep_conj_aci)
+    have S: \<open>\<upharpoonleft>(list_assn (mk_assn A)) (ys @ [y]) (xsi @ [c])
+        = (\<upharpoonleft>(list_assn (mk_assn A)) ys xsi ** A y c)\<close>
+      by (simp add: L sep_algebra_simps)
+    show \<open>lseg xsi p q ** \<upharpoonleft>(list_assn (mk_assn A)) ys xsi
+        ** \<upharpoonleft>ll_bpto (Node c r) q ** A y c \<turnstile> olseg A (ys @ [y]) p r\<close>
+      unfolding olseg_def R
+      apply (rule entails_exI[where x = \<open>xsi @ [c]\<close>])
+      unfolding S
+      by (rule conj_entails_mono[OF lseg_snoc entails_refl])
+  qed
+  have E: \<open>(olseg A ys p q ** \<upharpoonleft>ll_bpto (Node c r) q ** A y c)
+      = (EXS xsi. lseg xsi p q ** \<upharpoonleft>(list_assn (mk_assn A)) ys xsi
+          ** \<upharpoonleft>ll_bpto (Node c r) q ** A y c)\<close>
+    unfolding olseg_def by (simp add: sep_conj_exists)
+  show ?thesis
+    unfolding E by (rule entails_exE[OF H])
+qed
+
+lemma olseg_append: \<open>olseg A xs p q ** olseg A ys q r \<turnstile> olseg A (xs @ ys) p r\<close>
+proof -
+  have H: \<open>lseg xsi p q ** \<upharpoonleft>(list_assn (mk_assn A)) xs xsi
+      ** lseg ysi q r ** \<upharpoonleft>(list_assn (mk_assn A)) ys ysi
+      \<turnstile> olseg A (xs @ ys) p r\<close> for xsi ysi
+  proof (rule entails_pureI)
+    assume \<open>pure_part (lseg xsi p q ** \<upharpoonleft>(list_assn (mk_assn A)) xs xsi
+        ** lseg ysi q r ** \<upharpoonleft>(list_assn (mk_assn A)) ys ysi)\<close>
+    then have L: \<open>length xs = length xsi\<close>
+      by (auto dest!: pure_part_split_conj dest: list_assn_pure_part)
+    have R: \<open>(lseg xsi p q ** \<upharpoonleft>(list_assn (mk_assn A)) xs xsi
+        ** lseg ysi q r ** \<upharpoonleft>(list_assn (mk_assn A)) ys ysi)
+      = ((lseg xsi p q ** lseg ysi q r)
+        ** (\<upharpoonleft>(list_assn (mk_assn A)) xs xsi ** \<upharpoonleft>(list_assn (mk_assn A)) ys ysi))\<close>
+      by (simp add: sep_conj_aci)
+    have S: \<open>\<upharpoonleft>(list_assn (mk_assn A)) (xs @ ys) (xsi @ ysi)
+        = (\<upharpoonleft>(list_assn (mk_assn A)) xs xsi ** \<upharpoonleft>(list_assn (mk_assn A)) ys ysi)\<close>
+      by (simp add: L sep_algebra_simps)
+    show \<open>lseg xsi p q ** \<upharpoonleft>(list_assn (mk_assn A)) xs xsi
+        ** lseg ysi q r ** \<upharpoonleft>(list_assn (mk_assn A)) ys ysi
+        \<turnstile> olseg A (xs @ ys) p r\<close>
+      unfolding olseg_def R
+      apply (rule entails_exI[where x = \<open>xsi @ ysi\<close>])
+      unfolding S
+      by (rule conj_entails_mono[OF lseg_fuse entails_refl])
+  qed
+  have E: \<open>(olseg A xs p q ** olseg A ys q r)
+      = (EXS xsi ysi. lseg xsi p q ** \<upharpoonleft>(list_assn (mk_assn A)) xs xsi
+          ** lseg ysi q r ** \<upharpoonleft>(list_assn (mk_assn A)) ys ysi)\<close>
+    unfolding olseg_def by (simp add: sep_conj_exists)
+  show ?thesis
+    unfolding E by (intro entails_exE, rule H)
+qed
+
+subsection \<open>Assertion\<close>
+
+definition clt_assn where
+  \<open>clt_assn A \<equiv> mk_assn (\<lambda>xs (p, q).
+     if xs = [] then \<up>(p = null)
+     else EXS c. olseg A (butlast xs) p q ** \<upharpoonleft>ll_bpto (Node c null) q
+        ** A (last xs) c ** \<up>(p \<noteq> null))\<close>
+
+definition \<open>clt_assn' A \<equiv> \<upharpoonleft>(clt_assn A)\<close>
+
+lemma clt_assn_conv:
+  \<open>clt_assn' A xs (p, q) =
+     (if xs = [] then \<up>(p = null)
+      else EXS c. olseg A (butlast xs) p q ** \<upharpoonleft>ll_bpto (Node c null) q
+        ** A (last xs) c ** \<up>(p \<noteq> null))\<close>
+  unfolding clt_assn'_def clt_assn_def by simp
+
+text \<open>Forgetting the tail pointer recovers an ordinary copying list.\<close>
+
+lemma clt_cl_entails: \<open>clt_assn' A xs (p, q) \<turnstile> cl_assn' A xs p\<close>
+proof (cases \<open>xs = []\<close>)
+  case True
+  then show ?thesis
+    by (simp add: clt_assn_conv cl_assn_simps)
+next
+  case False
+  then have E: \<open>butlast xs @ [last xs] = xs\<close> by simp
+  have H: \<open>olseg A (butlast xs) p q ** \<upharpoonleft>ll_bpto (Node c null) q ** A (last xs) c
+      \<turnstile> olseg A xs p null\<close> for c
+    using olseg_snoc[of A \<open>butlast xs\<close> p q c null \<open>last xs\<close>] unfolding E .
+  show ?thesis
+    unfolding clt_assn_conv cl_assn'_def cl_assn_def
+    using False
+    apply simp
+    apply (rule entails_exE)
+    subgoal for c
+      using H[of c]
+      apply (auto simp: entails_def)
+      by (metis (no_types, lifting) pred_lift_extract_simps(2) sep.mult_assoc
+          sep.mult_commute)
+    done
+qed
+
+subsection \<open>Operations\<close>
+
+subsubsection \<open>Empty Builder\<close>
+
+definition clt_empty :: \<open>('a::llvm_rep) clt_list llM\<close> where [llvm_code, llvm_inline]:
+  \<open>clt_empty \<equiv> Mreturn (null, null)\<close>
+
+lemma clt_empty_rule[vcg_rules]: \<open>llvm_htriple \<box> clt_empty (\<lambda>r. clt_assn' A [] r)\<close>
+  unfolding clt_empty_def
+  supply [simp] = clt_assn_conv
+  by vcg
+
+subsubsection \<open>Snoc (append at the end, O(1))\<close>
+
+text \<open>Takes ownership of the element, like @{term cl_prepend}. The list argument comes
+  first to match @{term op_list_append}.\<close>
+
+definition clt_snoc :: \<open>'a::llvm_rep clt_list \<Rightarrow> 'a \<Rightarrow> 'a clt_list llM\<close> where [llvm_code]:
+  \<open>clt_snoc \<equiv> \<lambda>(p, q) x. doM {
+    r \<leftarrow> ll_ref (Node x null);
+    if p = null then Mreturn (r, r)
+    else doM {
+      n \<leftarrow> ll_load q;
+      ll_store (Node (node.val n) r) q;
+      Mreturn (p, r)
+    }
+  }\<close>
+
+context begin
+
+private lemma clt_snoc_step:
+  assumes \<open>xs \<noteq> []\<close> and \<open>p \<noteq> null\<close>
+  shows \<open>ENTAILS
+    (\<upharpoonleft>ll_bpto (Node c r) q ** A (last xs) c ** A x ci
+      ** \<upharpoonleft>ll_bpto (Node ci null) r ** olseg A (butlast xs) p q)
+    (clt_assn' A (xs @ [x]) (p, r))\<close>
+proof -
+  have E: \<open>butlast xs @ [last xs] = xs\<close> using assms by simp
+  have H: \<open>olseg A (butlast xs) p q ** \<upharpoonleft>ll_bpto (Node c r) q ** A (last xs) c
+      \<turnstile> olseg A xs p r\<close>
+    using olseg_snoc[of A \<open>butlast xs\<close> p q c r \<open>last xs\<close>] unfolding E .
+  have R: \<open>(\<upharpoonleft>ll_bpto (Node c r) q ** A (last xs) c ** A x ci
+      ** \<upharpoonleft>ll_bpto (Node ci null) r ** olseg A (butlast xs) p q)
+    = ((olseg A (butlast xs) p q ** \<upharpoonleft>ll_bpto (Node c r) q ** A (last xs) c)
+      ** (\<upharpoonleft>ll_bpto (Node ci null) r ** A x ci))\<close>
+    by (simp add: sep_conj_aci)
+  have SP: \<open>(\<upharpoonleft>ll_bpto (Node c r) q ** A (last xs) c ** A x ci
+      ** \<upharpoonleft>ll_bpto (Node ci null) r ** olseg A (butlast xs) p q)
+    \<turnstile> olseg A xs p r ** \<upharpoonleft>ll_bpto (Node ci null) r ** A x ci\<close>
+    unfolding R by (rule conj_entails_mono[OF H entails_refl])
+  show ?thesis
+    unfolding ENTAILS_def
+    apply (rule entails_trans[OF SP])
+    apply (simp add: clt_assn_conv)
+    apply (rule entails_exI[where x = ci])
+    using assms
+    by (simp add: sep_algebra_simps pred_lift_extract_simps)
+qed
+
+lemma clt_snoc_rule[vcg_rules]:
+  \<open>llvm_htriple (clt_assn' A xs pq ** A x xi) (clt_snoc pq xi)
+    (\<lambda>r. clt_assn' A (xs @ [x]) r)\<close>
+  unfolding clt_snoc_def
+  supply [simp] = clt_assn_conv olseg_nil sep_conj_exists
+  apply (cases pq; cases \<open>xs = []\<close>; simp)
+  subgoal by vcg
+  subgoal
+    apply vcg
+    apply (rule clt_snoc_step; assumption)
+    done
+  done
+
+end
+
+subsubsection \<open>Concatenation (O(1))\<close>
+
+text \<open>Destructively links the last node of the first list to the head of the
+  second list; both arguments are consumed. Unlike @{term cl_concat} this needs
+  no list traversal, thanks to the tail pointer.\<close>
+
+definition clt_concat :: \<open>'a::llvm_rep clt_list \<Rightarrow> 'a clt_list \<Rightarrow> 'a clt_list llM\<close>
+  where [llvm_code]:
+  \<open>clt_concat \<equiv> \<lambda>(p1, q1) (p2, q2).
+    if p1 = null then Mreturn (p2, q2)
+    else if p2 = null then Mreturn (p1, q1)
+    else doM {
+      n \<leftarrow> ll_load q1;
+      ll_store (Node (node.val n) p2) q1;
+      Mreturn (p1, q2)
+    }\<close>
+
+context begin
+
+private lemma clt_concat_step:
+  assumes \<open>xs \<noteq> []\<close> and \<open>ys \<noteq> []\<close> and \<open>p1 \<noteq> null\<close>
+  shows \<open>ENTAILS
+    (\<upharpoonleft>ll_bpto (Node c1 p2) q1 ** A (last xs) c1 ** olseg A (butlast ys) p2 q2
+      ** \<upharpoonleft>ll_bpto (Node c2 null) q2 ** A (last ys) c2 ** olseg A (butlast xs) p1 q1)
+    (clt_assn' A (xs @ ys) (p1, q2))\<close>
+proof -
+  have E: \<open>butlast xs @ [last xs] = xs\<close> using assms by simp
+  have H1: \<open>olseg A (butlast xs) p1 q1 ** \<upharpoonleft>ll_bpto (Node c1 p2) q1 ** A (last xs) c1
+      \<turnstile> olseg A xs p1 p2\<close>
+    using olseg_snoc[of A \<open>butlast xs\<close> p1 q1 c1 p2 \<open>last xs\<close>] unfolding E .
+  have R: \<open>(\<upharpoonleft>ll_bpto (Node c1 p2) q1 ** A (last xs) c1 ** olseg A (butlast ys) p2 q2
+      ** \<upharpoonleft>ll_bpto (Node c2 null) q2 ** A (last ys) c2 ** olseg A (butlast xs) p1 q1)
+    = (((olseg A (butlast xs) p1 q1 ** \<upharpoonleft>ll_bpto (Node c1 p2) q1 ** A (last xs) c1)
+        ** olseg A (butlast ys) p2 q2)
+      ** (\<upharpoonleft>ll_bpto (Node c2 null) q2 ** A (last ys) c2))\<close>
+    by (simp add: sep_conj_aci)
+  have SP: \<open>((olseg A (butlast xs) p1 q1 ** \<upharpoonleft>ll_bpto (Node c1 p2) q1 ** A (last xs) c1)
+        ** olseg A (butlast ys) p2 q2) ** (\<upharpoonleft>ll_bpto (Node c2 null) q2 ** A (last ys) c2)
+      \<turnstile> olseg A (xs @ butlast ys) p1 q2 ** (\<upharpoonleft>ll_bpto (Node c2 null) q2 ** A (last ys) c2)\<close>
+    by (rule conj_entails_mono[OF entails_trans[OF
+          conj_entails_mono[OF H1 entails_refl] olseg_append] entails_refl])
+  show ?thesis
+    unfolding ENTAILS_def R
+    apply (rule entails_trans[OF SP])
+    apply (simp add: clt_assn_conv butlast_append last_append assms)
+    apply (rule entails_exI[where x = c2])
+    using assms by (simp add: sep_algebra_simps pred_lift_extract_simps)
+qed
+
+lemma clt_concat_rule[vcg_rules]:
+  \<open>llvm_htriple (clt_assn' A xs pq1 ** clt_assn' A ys pq2)
+    (clt_concat pq1 pq2)
+    (\<lambda>r. clt_assn' A (xs @ ys) r)\<close>
+  unfolding clt_concat_def
+  supply [simp] = clt_assn_conv olseg_nil sep_conj_exists
+  apply (cases pq1; cases pq2; cases \<open>xs = []\<close>; cases \<open>ys = []\<close>; simp)
+  subgoal by vcg
+  subgoal by vcg
+  subgoal by vcg
+  subgoal
+    apply vcg
+    apply (rule clt_concat_step; assumption)
+    done
+  done
+
+end
+
+subsubsection \<open>Conversion to @{term cl_assn}\<close>
+
+definition clt_to_cl :: \<open>'a::llvm_rep clt_list \<Rightarrow> 'a cl_list llM\<close> where [llvm_code, llvm_inline]:
+  \<open>clt_to_cl \<equiv> \<lambda>(p, q). Mreturn p\<close>
+
+lemma clt_to_cl_rule[vcg_rules]:
+  \<open>llvm_htriple (clt_assn' A xs pq) (clt_to_cl pq) (\<lambda>r. cl_assn' A xs r)\<close>
+  unfolding clt_to_cl_def
+  apply (cases pq; simp)
+  subgoal for p q
+    apply (rule htriple_ent_pre[OF clt_cl_entails])
+    by vcg
+  done
+
+subsubsection \<open>Free\<close>
+
+context freeable_assn
+begin
+
+definition clt_free :: \<open>'b clt_list \<Rightarrow> unit llM\<close> where [llvm_code]:
+  \<open>clt_free \<equiv> \<lambda>(p, q). cl_free p\<close>
+
+lemma clt_assn_free[sepref_frame_free_rules]: \<open>MK_FREE (clt_assn' A) clt_free\<close>
+proof (rule MK_FREEI)
+  fix xs pq
+  show \<open>llvm_htriple (clt_assn' A xs pq) (clt_free pq) (\<lambda>_. \<box>)\<close>
+    unfolding clt_free_def
+    apply (cases pq; simp)
+    subgoal for p q
+      apply (rule htriple_ent_pre[OF clt_cl_entails])
+      by vcg
+    done
+qed
+
+end
+
+subsection \<open>Interface (hnr) Rules\<close>
+
+definition op_clt_empty :: \<open>'a list\<close> where [simp]: \<open>op_clt_empty \<equiv> op_list_empty\<close>
+sepref_register op_clt_empty
+
+lemma fold_clt_empty:
+  \<open>[] = op_clt_empty\<close>
+  \<open>op_list_empty = op_clt_empty\<close>
+  \<open>mop_list_empty = RETURN op_clt_empty\<close>
+  by simp_all
+
+lemma clt_empty_hnr[sepref_fr_rules]:
+  \<open>(uncurry0 clt_empty, uncurry0 (RETURN op_clt_empty)) \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a clt_assn' A\<close>
+  unfolding op_clt_empty_def
+  by (sepref_to_hoare; vcg)
+
+lemma clt_snoc_hnr[sepref_fr_rules]:
+  \<open>(uncurry clt_snoc, uncurry (RETURN oo op_list_append))
+    \<in> (clt_assn' A)\<^sup>d *\<^sub>a A\<^sup>d \<rightarrow>\<^sub>a clt_assn' A\<close>
+  by (sepref_to_hoare; vcg)
+
+lemma clt_concat_hnr[sepref_fr_rules]:
+  \<open>(uncurry clt_concat, uncurry (RETURN oo op_list_concat))
+    \<in> (clt_assn' A)\<^sup>d *\<^sub>a (clt_assn' A)\<^sup>d \<rightarrow>\<^sub>a clt_assn' A\<close>
+  by (sepref_to_hoare; vcg)
+
+definition op_clt_to_cl :: \<open>'a list \<Rightarrow> 'a list\<close> where [simp]: \<open>op_clt_to_cl xs = xs\<close>
+sepref_register op_clt_to_cl
+
+lemma clt_to_cl_hnr[sepref_fr_rules]:
+  \<open>(clt_to_cl, RETURN o op_clt_to_cl) \<in> (clt_assn' A)\<^sup>d \<rightarrow>\<^sub>a cl_assn' A\<close>
+  by (sepref_to_hoare; vcg)
+
+section \<open>Extras\<close>
+text \<open>Some lemmas which are often helpful for refining functions that work on lists\<close>
+lemma ls_emp: \<open>p\<noteq>[] \<equiv> \<not>(op_list_is_empty p)\<close> by simp
+lemma ls_emp': \<open>p = [] \<equiv> op_list_is_empty p\<close> by simp
+
+subsection \<open>Regression Tests\<close>
+
+experiment begin
+
+interpretation P: copyable_assn \<open>snat_assn' TYPE(64)\<close> \<open>\<lambda>_. Mreturn ()\<close> Mreturn
+  apply unfold_locales
+  subgoal by (rule mk_free_pure)
+  subgoal by (rule hnr_pure_COPY) simp
+  done
+
+definition test_clt :: \<open>nat list nres\<close> where
+  \<open>test_clt = doN {
+    let xs = op_clt_empty;
+    let xs = op_list_append xs 1;
+    let xs = op_list_append xs 2;
+    RETURN (op_clt_to_cl xs)
+  }\<close>
+
+sepref_definition test_clt_impl is \<open>uncurry0 test_clt\<close>
+  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a cl_assn' (snat_assn' TYPE(64))\<close>
+  unfolding test_clt_def
+  apply (annot_snat_const "TYPE(64)")
+  by sepref
+
+definition test_clt_concat :: \<open>nat list nres\<close> where
+  \<open>test_clt_concat = doN {
+    let xs = op_clt_empty;
+    let xs = op_list_append xs 1;
+    let ys = op_clt_empty;
+    let ys = op_list_append ys 2;
+    RETURN (op_clt_to_cl (xs @ ys))
+  }\<close>
+
+sepref_definition test_clt_concat_impl is \<open>uncurry0 test_clt_concat\<close>
+  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a cl_assn' (snat_assn' TYPE(64))\<close>
+  unfolding test_clt_concat_def
   apply (annot_snat_const "TYPE(64)")
   by sepref
 

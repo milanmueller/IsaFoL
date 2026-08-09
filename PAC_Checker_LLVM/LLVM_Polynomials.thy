@@ -9,6 +9,7 @@ text \<open>This theory defines refinment targets for polynomials in LLVM.
 
 term strl_assn
 abbreviation \<open>monom_assn \<equiv> cl_assn' strl_assn'\<close>
+lemmas [safe_constraint_rules] = CN_FALSEI[of is_pure monom_assn]
 
 interpretation monom: copyable_assn \<open>strl_assn'\<close> \<open>strl.cl_free\<close> \<open>strl.cl_copy\<close>
   apply unfold_locales
@@ -36,6 +37,29 @@ interpretation monom: cmp_env_impl
   subgoal by auto
   subgoal by (rule strl_le_hnr)
   done
+
+text \<open>Printing for monoms, using lists with tail pointer. Not verified!\<close>
+definition print_monom :: \<open>char list list \<Rightarrow> char list nres\<close> where
+  \<open>print_monom \<equiv> \<lambda>ms. doN {
+    (r,_) \<leftarrow> WHILET
+      (\<lambda>(r,ms). ms\<noteq>[])
+      (\<lambda>(r,ms). doN {
+        (m,ms) \<leftarrow> mop_list_pop_hd ms;
+        (r',_) \<leftarrow> WHILET
+          (\<lambda>(r',ms'). ms'\<noteq>[])
+          (\<lambda>(r',ms'). doN {
+            (m',ms') \<leftarrow> mop_list_pop_hd ms';
+            RETURN (r'@[m'],ms') 
+          }) ([], m);
+        RETURN (r@r',ms)
+      }) ([], ms);
+    RETURN r 
+  }\<close>
+
+sepref_def print_monom_impl is \<open>print_monom\<close>
+  :: \<open>monom_assn\<^sup>d \<rightarrow>\<^sub>a strl_assn'\<close>
+  unfolding print_monom_def ls_emp
+  by sepref
 
 experiment
 begin
@@ -78,6 +102,8 @@ end
 
 section \<open>Monomials\<close>
 abbreviation \<open>monomial_assn \<equiv> monom_assn \<times>\<^sub>a sbi_assn\<close>
+lemmas [safe_constraint_rules] = CN_FALSEI[of is_pure monomial_assn]
+
 text \<open>Since for tuples, we can not instatiate the copy setup from the copying list,
   we need to do some ground work for freeing and copying monomials.\<close>
 
@@ -200,9 +226,33 @@ lemma monomial_le_hnr[sepref_fr_rules]:
   supply [simp] = list_le_less_eq pure_def
   by (sepref_to_hoare; vcg)
 
+text \<open>Monomial equality: compare the variable lists first, the coefficients only
+  on a match. Like @{term monomial_le_impl'} this is written at the llM level to
+  keep both tuples intact.\<close>
+
+definition mnml_eq_impl' :: \<open>monomial_conc \<Rightarrow> monomial_conc \<Rightarrow> 1 word llM\<close> where[llvm_code]:
+  \<open>mnml_eq_impl' \<equiv> \<lambda>(pm,pn) (qm,qn). doM {
+    r \<leftarrow> monom.cl_eq pm qm;
+    llc_if r (signed_big_int_eq_impl pn qn) (Mreturn 0)
+  }\<close>
+
+context begin
+interpretation llvm_prim_ctrl_setup .
+
+lemma mnml_eq_hnr[sepref_fr_rules]:
+  \<open>(uncurry mnml_eq_impl', uncurry (RETURN oo (=)))
+  \<in> monomial_assn\<^sup>k *\<^sub>a monomial_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding mnml_eq_impl'_def
+  supply [vcg_rules] = hfref_htriple_k2[OF signed_big_int_eq_impl_hnr]
+  supply [simp] = pure_def bool1_rel_def bool.rel_def in_br_conv 
+  by (sepref_to_hoare; vcg)
+
+end
+
 section \<open>Polynomials\<close>
-  
+
 abbreviation \<open>polynomial_assn \<equiv> cl_assn' monomial_assn\<close>
+lemmas [safe_constraint_rules] = CN_FALSEI[of is_pure polynomial_assn]
 
 interpretation poly: copyable_assn \<open>monomial_assn\<close> \<open>mnml_free\<close> \<open>mnml_copy\<close>
   apply unfold_locales
@@ -217,12 +267,25 @@ interpretation poly: cmp_env_impl \<open>monomial_le\<close> \<open>monomial_ass
   subgoal by (rule monomial_le_hnr)
   done
 
+interpretation poly: eq_assn \<open>monomial_assn\<close> \<open>mnml_eq_impl'\<close>
+  by unfold_locales (rule mnml_eq_hnr)
+
 experiment
 begin
 
 sepref_definition polynomial_empty_impl is \<open>uncurry0 (RETURN [])\<close>
   :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a polynomial_assn\<close>
   by sepref
+
+
+sepref_register \<open>(=) :: llist_polynomial \<Rightarrow> llist_polynomial \<Rightarrow> bool\<close>
+sepref_definition polynomial_eq_test is \<open>uncurry (RETURN oo (=))\<close>
+  :: \<open>polynomial_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  apply sepref_dbg_keep
+  apply sepref_dbg_trans_keep
+  apply sepref_dbg_trans_step_keep
+  apply sepref_dbg_side_unfold
+  oops
 
 end
 

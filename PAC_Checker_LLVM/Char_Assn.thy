@@ -152,6 +152,130 @@ sepref_register \<open>(<) :: char \<Rightarrow> char \<Rightarrow> bool\<close>
 sepref_register \<open>(\<le>) :: char \<Rightarrow> char \<Rightarrow> bool\<close>
 sepref_register op_neq_char: "op_neq :: char \<Rightarrow> _"
 
+section \<open>Producing Chars (HOL \<open>Char\<close> Constructor)\<close>
+
+text \<open>String literals elaborate into @{term \<open>Char b0 b1 b2 b3 b4 b5 b6 b7\<close>} constructor
+  applications over eight booleans (least significant bit first). To let sepref synthesize
+  them, we implement the constructor generically: zero-extend each 1-bit word to 8 bits,
+  shift it into position, and or everything together. At literal call sites the arguments
+  are constants, so LLVM constant-folds the chain into a single \<open>i8\<close> constant.\<close>
+
+definition asciichar_of_holchar ::
+  \<open>1 word \<Rightarrow> 1 word \<Rightarrow> 1 word \<Rightarrow> 1 word \<Rightarrow> 1 word \<Rightarrow> 1 word \<Rightarrow> 1 word \<Rightarrow> 1 word \<Rightarrow> 8 word llM\<close>
+  where [llvm_code, llvm_inline]:
+  \<open>asciichar_of_holchar b0 b1 b2 b3 b4 b5 b6 b7 \<equiv> doM {
+    x0 \<leftarrow> ll_zext b0 TYPE(8 word);
+    x1 \<leftarrow> ll_zext b1 TYPE(8 word);
+    x2 \<leftarrow> ll_zext b2 TYPE(8 word);
+    x3 \<leftarrow> ll_zext b3 TYPE(8 word);
+    x4 \<leftarrow> ll_zext b4 TYPE(8 word);
+    x5 \<leftarrow> ll_zext b5 TYPE(8 word);
+    x6 \<leftarrow> ll_zext b6 TYPE(8 word);
+    x7 \<leftarrow> ll_zext b7 TYPE(8 word);
+    x1 \<leftarrow> ll_shl x1 1;
+    x2 \<leftarrow> ll_shl x2 2;
+    x3 \<leftarrow> ll_shl x3 3;
+    x4 \<leftarrow> ll_shl x4 4;
+    x5 \<leftarrow> ll_shl x5 5;
+    x6 \<leftarrow> ll_shl x6 6;
+    x7 \<leftarrow> ll_shl x7 7;
+    r \<leftarrow> ll_or x0 x1;
+    r \<leftarrow> ll_or r x2;
+    r \<leftarrow> ll_or r x3;
+    r \<leftarrow> ll_or r x4;
+    r \<leftarrow> ll_or r x5;
+    r \<leftarrow> ll_or r x6;
+    r \<leftarrow> ll_or r x7;
+    Mreturn r
+  }\<close>
+
+lemma word1_exhaust: \<open>b = 0 \<or> b = 1\<close> for b :: \<open>1 word\<close>
+proof -
+  have \<open>unat b < 2\<close>
+    using unat_lt2p[of b] by simp
+  then have \<open>unat b = 0 \<or> unat b = 1\<close>
+    by linarith
+  then show ?thesis
+    by (metis unsigned_0 unsigned_1 word_unat_eq_iff)
+qed
+
+lemma bit_word1_iff: \<open>bit (b :: 1 word) n \<longleftrightarrow> n = 0 \<and> b \<noteq> 0\<close>
+  using word1_exhaust[of b] by (cases n) (auto simp: bit_0 dest: bit_imp_le_length)
+
+text \<open>The ambient simpset rewrites \<open><< 1\<close> to \<open>* 2\<close>, so this operand needs its own bit rule.
+  Proved by exhausting the two values of the 1-word (simp re-normalizes \<open>push_bit\<close> back
+  to \<open>* 2\<close>, so the bit-algebraic route is not available here).\<close>
+lemma bit_ucast18_double: \<open>bit (UCAST(1 \<rightarrow> 8) (b :: 1 word) * 2) n \<longleftrightarrow> n = 1 \<and> b \<noteq> 0\<close>
+proof (cases \<open>b = 0\<close>)
+  case True
+  then show ?thesis by simp
+next
+  case False
+  with word1_exhaust[of b] have b1: \<open>b = 1\<close> by simp
+  have \<open>bit (2 :: 8 word) n \<longleftrightarrow> n = 1\<close>
+    by (cases n) (auto simp: bit_0 bit_Suc bit_1_iff)
+  with b1 show ?thesis by simp
+qed
+
+lemma bit_ucast18: \<open>bit (UCAST(1 \<rightarrow> 8) (b :: 1 word)) n \<longleftrightarrow> n = 0 \<and> b \<noteq> 0\<close>
+  by (auto simp: bit_ucast_iff bit_word1_iff)
+
+lemma word1_lsb: \<open>lsb (b :: 1 word) \<longleftrightarrow> b \<noteq> 0\<close>
+  using word1_exhaust[of b] by auto
+
+lemma bit_ucast18_shiftl: \<open>bit (UCAST(1 \<rightarrow> 8) (b :: 1 word) << k) n \<longleftrightarrow> n = k \<and> k < 8 \<and> b \<noteq> 0\<close>
+  by (auto simp: bit_shiftl_word_iff bit_ucast18)
+
+text \<open>The assembled byte has exactly the constructor's booleans as bits. The statement
+  is normalized to the shape the ambient simpset leaves in the vcg goal: left-nested
+  or-chain, \<open><< 1\<close> already rewritten to \<open>* 2\<close>, and \<open>to_bool\<close> unfolded to \<open>\<noteq> 0\<close>.
+  The proof must not unfold to \<open>push_bit\<close> (the ambient simpset normalizes it back,
+  overflowing the simplifier); only atom-level \<open>bit\<close> rules are used.\<close>
+lemma asciichar_of_holchar_correct:
+  fixes b0 b1 b2 b3 b4 b5 b6 b7 :: \<open>1 word\<close>
+  shows \<open>char_of_word
+      (((((((UCAST(1 \<rightarrow> 8) b0 OR UCAST(1 \<rightarrow> 8) b1 * 2) OR (UCAST(1 \<rightarrow> 8) b2 << 2))
+        OR (UCAST(1 \<rightarrow> 8) b3 << 3)) OR (UCAST(1 \<rightarrow> 8) b4 << 4)) OR (UCAST(1 \<rightarrow> 8) b5 << 5))
+        OR (UCAST(1 \<rightarrow> 8) b6 << 6)) OR (UCAST(1 \<rightarrow> 8) b7 << 7))
+    = Char (b0 \<noteq> 0) (b1 \<noteq> 0) (b2 \<noteq> 0) (b3 \<noteq> 0) (b4 \<noteq> 0) (b5 \<noteq> 0) (b6 \<noteq> 0) (b7 \<noteq> 0)\<close>
+  unfolding char_of_word_def comp_apply char_of_def
+  by (simp add: bit_unsigned_iff bit_or_iff bit_ucast18 bit_ucast18_double bit_ucast18_shiftl
+      bit_word1_iff word1_lsb)
+
+sepref_register Char
+
+text \<open>The library's @{thm norm_RETURN_o} (in \<open>to_hnr_post\<close>) only normalizes
+  \<open>(RETURN o\<dots>o f)$x$\<dots>\<close> heads up to arity 5; the 8-ary constructor needs its own rule,
+  otherwise the \<open>sepref_fr_rules\<close> attribute rejects the rule with "Invalid abstract head".\<close>
+lemma norm_RETURN_o8[to_hnr_post]:
+  \<open>\<And>f. (\<lambda>x y z a b. RETURN ooo f x y z a b)$x$y$z$a$b$c$d$e = (RETURN$(f$x$y$z$a$b$c$d$e))\<close>
+  by auto
+
+context begin
+interpretation llvm_prim_arith_setup .
+
+lemma asciichar_of_holchar_hnr[sepref_fr_rules]:
+  \<open>(uncurry7 asciichar_of_holchar, uncurry7 (RETURN oooooooo Char))
+    \<in> bool1_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a
+      bool1_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k \<rightarrow>\<^sub>a char_assn\<close>
+  unfolding asciichar_of_holchar_def char_assn_def
+  supply [simp] = is_up' pure_def in_br_conv char_rel_def bool1_rel_def bool.rel_def
+  apply sepref_to_hoare
+  apply vcg (* very slow *)
+  by (simp add: asciichar_of_holchar_correct ENTAILS_def entails_def
+      sep_algebra_simps sep_conj_exists pred_lift_extract_simps)
+
+end
+
+experiment
+begin
+
+sepref_definition char_lit_test is \<open>uncurry0 (RETURN (CHR ''a''))\<close>
+  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a char_assn\<close>
+  by sepref
+
+end
+
 section \<open>Hashing of Chars\<close>
 (* As desribed in https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function *)
 abbreviation \<open>fnv_offset \<equiv> (0xcbf29ce484222325 :: 64 word)\<close>

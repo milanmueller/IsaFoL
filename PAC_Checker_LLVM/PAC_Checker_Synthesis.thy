@@ -292,7 +292,10 @@ definition is_cfailed_impl :: \<open>status_conc \<Rightarrow> 1 word llM\<close
   \<open>is_cfailed_impl \<equiv> \<lambda>(tag,msg). ll_icmp_eq tag 2\<close>
 
 context begin
-interpretation llvm_prim_arith_setup .
+text \<open>\<open>llvm_prim_ctrl_setup\<close> activates the \<open>llc_if\<close> normalization rules
+  (\<open>llc_if_simps\<close>/\<open>llc_if_simp\<close> are scoped to that locale), needed for the
+  branching in \<open>merge_cstatus_impl\<close>.\<close>
+interpretation llvm_prim_arith_setup + llvm_prim_ctrl_setup .
 
 lemma is_success_hnr[sepref_fr_rules]:
   \<open>(is_cfound_impl, (RETURN o is_cfound))
@@ -316,13 +319,16 @@ lemma is_cfailed_hnr[sepref_fr_rules]:
       (auto simp: pred_lift_extract_simps)
   done
 
-
-term merge_cstatus
 definition merge_cstatus_impl :: \<open>status_conc \<Rightarrow> status_conc \<Rightarrow> status_conc llM\<close>
   where[llvm_code]: \<open>merge_cstatus_impl \<equiv> \<lambda>(t1,msg1) (t2,msg2). doM {
     failed1 \<leftarrow> is_cfailed_impl (t1,msg1);
     llc_if failed1
-      (Mreturn (t1,msg1))
+      (doM {
+        failed2 \<leftarrow> is_cfailed_impl (t2,msg2);
+        llc_if failed2
+          (doM { strl.cl_free msg2; Mreturn (t1,msg1) })
+          (Mreturn (t1,msg1))
+      })
       (doM {
         failed2 \<leftarrow> is_cfailed_impl (t2,msg2);
         llc_if failed2
@@ -337,15 +343,21 @@ definition merge_cstatus_impl :: \<open>status_conc \<Rightarrow> status_conc \<
                     (Mreturn (t2,msg2))
                     (Mreturn (0,init))
                 })
-          }) 
+          })
       })
   }\<close>
 
 lemma merge_cstatus_hnr[sepref_fr_rules]:
   \<open>(uncurry merge_cstatus_impl, uncurry (RETURN oo merge_cstatus)) \<in>
     status_assn\<^sup>d *\<^sub>a  status_assn\<^sup>d \<rightarrow>\<^sub>a status_assn\<close>
-  unfolding merge_cstatus_impl_def
+  unfolding merge_cstatus_impl_def is_cfailed_impl_def is_cfound_impl_def
   apply sepref_to_hoare
+  subgoal for y x yi xi
+    apply (cases x; cases y; cases xi; cases yi; simp)
+    by (all \<open>vcg\<close>)
+      (auto simp: ENTAILS_def entails_def sep_algebra_simps
+        pred_lift_extract_simps sep_conj_exists)
+  done
 
 end
 
@@ -365,133 +377,272 @@ sepref_definition add_poly_l_impl is \<open>uncurry add_poly_l\<close>
     apl_cond_def apl_body_def apl2_body_def ls_emp term_order_rel_by_lt
   by sepref
 
+lemma var_order_rel_alt: \<open>(x,y) \<in> var_order_rel \<equiv> x < y\<close>
+  unfolding var_order_rel_def less_char_def p2rel_def
+  by (simp add: List.lexordp_def less_char_def less_char_inst
+    less_list_def)
 
-text \<open>For @{term mult_monoms} as defined, we would have to copy the lists
-  to walk then, even though the function can be seen as "readonly".
-  We therefore implement a manual refinement for mult_monoms\<close>
 
-typ term_poly_list
-typ monom_conc
-term monom_assn
-definition mult_monoms_impl :: \<open>monom_conc \<Rightarrow> monom_conc\<close>
+definition \<open>mult_monoms_inner p\<^sub>0 q\<^sub>0 \<equiv> WHILEIT
+    (\<lambda>(r,p,q). mult_monoms p\<^sub>0 q\<^sub>0 = r @ mult_monoms p q)
+    (\<lambda>(r,p,q). p\<noteq>[] \<and> q\<noteq>[])
+    (\<lambda>(r,p,q). doN {
+      (x,p) \<leftarrow> mop_list_pop_hd p;
+      (y,q) \<leftarrow> mop_list_pop_hd q;
+      if x = y then
+        RETURN (op_list_append r x, p, q)
+      else if (x,y) \<in> var_order_rel then
+        RETURN (op_list_append r x, p, y#q)
+      else 
+        RETURN  (op_list_append r y, x#p, q)
+    }) ([], p\<^sub>0, q\<^sub>0)\<close>
 
-sepref_definition mult_monoms_impl
-  is \<open>uncurry (RETURN oo mult_monoms)\<close>
-  :: \<open>monom_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a monom_assn\<close>
-  unfolding mult_monoms_alt_def
-  apply sepref_dbg_keep
-  apply sepref_dbg_trans_keep
-  apply sepref_dbg_trans_step_keep
-  apply sepref_dbg_side_unfold
-  oops
+abbreviation \<open>monom_assn_tail \<equiv> clt_assn' strl_assn'\<close>
 
-  (* unfolding mult_poly_raw_def
-   *   HOL_list.fold_custom_empty
-   *   var_order'_def[symmetric]
-   *   term_order_rel'_alt_def
-   *   mult_monoms_alt_def
-   *   var_order_rel_var_order *)
-
-sepref_definition mult_monomials_impl
-  is \<open>uncurry (RETURN oo mult_monomials)\<close>
-  :: \<open>(monomial_assn)\<^sup>k *\<^sub>a (monomial_assn)\<^sup>k \<rightarrow>\<^sub>a (monomial_assn)\<close>
-  supply [[goals_limit=1]]
-  unfolding mult_monomials_def
-    HOL_list.fold_custom_empty
-    term_order_rel'_def[symmetric]
-    term_order_rel'_alt_def
+sepref_def mult_monoms_inner_impl is \<open>uncurry mult_monoms_inner\<close>
+  :: \<open>monom_assn\<^sup>d *\<^sub>a monom_assn\<^sup>d \<rightarrow>\<^sub>a (monom_assn_tail \<times>\<^sub>a monom_assn \<times>\<^sub>a monom_assn)\<close>
+  unfolding mult_monoms_inner_def ls_emp var_order_rel_alt
+  unfolding fold_clt_empty 
   by sepref
 
-
-lemma map_append_alt_def2:
-  \<open>(RETURN o (map_append f b)) xs = REC\<^sub>T
-    (\<lambda>g xs. case xs of [] \<Rightarrow> RETURN b
-      | x # xs \<Rightarrow> do {
-           y \<leftarrow> g xs;
-           RETURN (f x # y)
-     }) xs\<close>
-   apply (subst eq_commute)
-  apply (induction f b xs rule: map_append.induct)
-  subgoal by (subst RECT_unfold, refine_mono) auto
-  subgoal by (subst RECT_unfold, refine_mono) auto
+lemma mult_monoms_inner_refine:
+  \<open>mult_monoms_inner p\<^sub>0 q\<^sub>0 \<le> SPEC (\<lambda>(r,p,q). mult_monoms p\<^sub>0 q\<^sub>0 = r @ mult_monoms p q \<and> (p = [] \<or> q = []))\<close>
+  unfolding mult_monoms_inner_def
+  apply (refine_vcg WHILEIT_rule[where R="measure (\<lambda>(r,p,q). length p + length q)"])
+  apply clarsimp_all
+  apply (metis list.exhaust_sel mult_monoms.simps(3))+
   done
 
+definition \<open>mult_monoms_alt \<equiv> \<lambda>p q. doN { 
+    (r,p',q') \<leftarrow> mult_monoms_inner (COPY p) (COPY q);
+    let rcl = op_clt_to_cl r;
+    RETURN (rcl @ p' @ q')
+  }\<close>
 
-definition map_append_poly_mult where
-  \<open>map_append_poly_mult x = map_append (mult_monomials x)\<close>
+lemma mult_monoms_Nil_right[simp]: \<open>mult_monoms p [] = p\<close>
+  by (cases p) auto
 
-sepref_definition map_append_poly_mult_impl
-  is \<open>uncurry2 (RETURN ooo map_append_poly_mult)\<close>
-  :: \<open>monomial_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
-  unfolding map_append_poly_mult_def
-    map_append_alt_def2
+lemma mult_monoms_Nil_left[simp]: \<open>mult_monoms [] q = q\<close>
+  by (cases q) auto
+
+lemma mult_monoms_alt_spec:
+  \<open>mult_monoms_alt p q \<le> SPEC (\<lambda>r. r = mult_monoms p q)\<close>
+  unfolding mult_monoms_alt_def op_clt_to_cl_def COPY_def
+  by (refine_vcg mult_monoms_inner_refine[THEN order_trans]) auto
+
+lemma mult_monoms_alt_refine:
+  \<open>(uncurry mult_monoms_alt, uncurry (RETURN oo mult_monoms))
+  \<in> Id \<times>\<^sub>r Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  apply (intro frefI nres_relI)
+  apply (auto simp: RETURN_SPEC_conv)
+  using mult_monoms_alt_spec by auto
+
+sepref_register mult_monoms_inner
+sepref_def mult_monoms_impl is \<open>uncurry mult_monoms_alt\<close>
+  :: \<open>monom_assn\<^sup>k *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a monom_assn\<close>
+  unfolding mult_monoms_alt_def
   by sepref
 
+lemmas mult_monoms_hnr[sepref_fr_rules] =
+  mult_monoms_impl.refine[FCOMP mult_monoms_alt_refine]
 
-text \<open>TODO @{thm map_by_foldl} is the worst possible implementation of map!
+sepref_def mult_monomials_impl
+  is \<open>uncurry (RETURN oo mult_monomials)\<close>
+  :: \<open>monomial_assn\<^sup>k *\<^sub>a monomial_assn\<^sup>k \<rightarrow>\<^sub>a monomial_assn\<close>
+  unfolding mult_monomials_def
+  by sepref
 
-  TODO: reimplement as a nested \<open>cl_fold\<close>: both walks (over \<open>p\<close> and \<open>q\<close>) are read-only,
-  every output monomial is freshly allocated by \<open>mult_monoms\<close>, and the accumulator is
-  prepend-only replaces the non-tail \<open>map_append\<close> REC and the per-leaf accumulator copy
-  (quadratic!). Caveat: \<open>cl_prepend\<close> reverses each map segment vs \<open>map \<dots> @ b\<close>; prove the
-  fold-with-prepend variant equal to \<open>mult_poly_raw\<close> up to \<open>mset\<close> (harmless, since
-  \<open>mult_poly_full\<close> normalizes immediately afterwards).\<close>
+(* lemma map_append_alt_def2:
+ *   \<open>(RETURN o (map_append f b)) xs = REC\<^sub>T
+ *     (\<lambda>g xs. case xs of [] \<Rightarrow> RETURN b
+ *       | x # xs \<Rightarrow> do {
+ *            y \<leftarrow> g xs;
+ *            RETURN (f x # y)
+ *      }) xs\<close>
+ *    apply (subst eq_commute)
+ *   apply (induction f b xs rule: map_append.induct)
+ *   subgoal by (subst RECT_unfold, refine_mono) auto
+ *   subgoal by (subst RECT_unfold, refine_mono) auto
+ *   done
+ * 
+ * 
+ * definition map_append_poly_mult where
+ *   \<open>map_append_poly_mult x = map_append (mult_monomials x)\<close>
+ * 
+ * sepref_definition map_append_poly_mult_impl
+ *   is \<open>uncurry2 (RETURN ooo map_append_poly_mult)\<close>
+ *   :: \<open>monomial_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a polynomial_assn\<close>
+ *   unfolding map_append_poly_mult_def
+ *     map_append_alt_def2
+ *   by sepref *)
+
+text \<open>We want to use our custom readonly fold and our appendable tail pointer list.
+  Note the row order of @{term mult_poly_raw}: each step \<^emph>\<open>prepends\<close> its row
+  (\<open>map (mult_monomials x) q @ b\<close>), so the rows appear in reverse order of \<open>p\<close>.
+  We reproduce this exactly: the inner fold builds a fresh row (in \<open>q\<close>-order) as a
+  tail-pointer list, and the outer fold prepends it to the accumulator via the
+  O(1) \<open>clt_concat\<close>.
+
+  The fold steps capture an outer read-only parameter (\<open>pm\<close> resp. \<open>q\<close>), so plain
+  \<open>cl_fold_hfref\<close> does not apply; we use \<open>cl_fold_hfref_param\<close> and eta-friendly
+  argument order (parameter, accumulator, element) for the step functions. The
+  folds themselves are named constants (\<open>poly_row_fold\<close>/\<open>poly_mult_fold\<close>) so that
+  their hnr rules can fire (a \<open>foldl\<close> over a lambda has no registrable head).\<close>
+
+type_synonym monomial_abs = \<open>(term_poly_list \<times> int)\<close>
+abbreviation \<open>polynomial_assn_tail \<equiv> clt_assn' monomial_assn\<close>
+
+definition mult_poly_raw_inner :: \<open>monomial_abs \<Rightarrow> llist_polynomial \<Rightarrow> monomial_abs \<Rightarrow> llist_polynomial\<close>
+  where \<open>mult_poly_raw_inner pm b qm \<equiv> b @ [(mult_monomials pm qm)]\<close>
+
+sepref_register mult_monomials
+sepref_def mult_poly_raw_inner_impl is \<open>uncurry2 (RETURN ooo mult_poly_raw_inner)\<close>
+  :: \<open>monomial_assn\<^sup>k *\<^sub>a polynomial_assn_tail\<^sup>d *\<^sub>a monomial_assn\<^sup>k \<rightarrow>\<^sub>a polynomial_assn_tail\<close>
+  unfolding mult_poly_raw_inner_def
+  by sepref
+
+definition poly_row_fold :: \<open>monomial_abs \<Rightarrow> llist_polynomial \<Rightarrow> llist_polynomial \<Rightarrow> llist_polynomial\<close>
+  where \<open>poly_row_fold pm \<equiv> foldl (mult_poly_raw_inner pm)\<close>
+
+sepref_register poly_row_fold
+lemma poly_row_fold_hnr[sepref_fr_rules]:
+  \<open>(uncurry2 (\<lambda>pmi. cl_fold' (mult_poly_raw_inner_impl pmi)),
+    uncurry2 (RETURN ooo poly_row_fold))
+    \<in> monomial_assn\<^sup>k *\<^sub>a polynomial_assn_tail\<^sup>d *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a polynomial_assn_tail\<close>
+  unfolding poly_row_fold_def[abs_def]
+  by (rule cl_fold_hfref_param[OF mult_poly_raw_inner_impl.refine])
+
+definition mult_poly_raw_inner2 :: \<open>monomial_abs \<Rightarrow> llist_polynomial \<Rightarrow> llist_polynomial\<close>
+  where \<open>mult_poly_raw_inner2 pm q \<equiv> poly_row_fold pm [] q\<close>
+
+sepref_register mult_poly_raw_inner2
+sepref_def mult_poly_raw_inner2_impl is \<open>uncurry (RETURN oo mult_poly_raw_inner2)\<close>
+  :: \<open>monomial_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a polynomial_assn_tail\<close>
+  unfolding mult_poly_raw_inner2_def
+  unfolding fold_clt_empty
+  by sepref
+
+definition mult_poly_raw_outer :: \<open>llist_polynomial \<Rightarrow> llist_polynomial \<Rightarrow> monomial_abs \<Rightarrow> llist_polynomial\<close>
+  where \<open>mult_poly_raw_outer q b pm \<equiv> mult_poly_raw_inner2 pm q @ b\<close>
+
+sepref_def mult_poly_raw_outer_impl is \<open>uncurry2 (RETURN ooo mult_poly_raw_outer)\<close>
+  :: \<open>polynomial_assn\<^sup>k *\<^sub>a polynomial_assn_tail\<^sup>d *\<^sub>a monomial_assn\<^sup>k \<rightarrow>\<^sub>a polynomial_assn_tail\<close>
+  unfolding mult_poly_raw_outer_def
+  by sepref
+
+definition poly_mult_fold :: \<open>llist_polynomial \<Rightarrow> llist_polynomial \<Rightarrow> llist_polynomial \<Rightarrow> llist_polynomial\<close>
+  where \<open>poly_mult_fold q \<equiv> foldl (mult_poly_raw_outer q)\<close>
+
+sepref_register poly_mult_fold
+lemma poly_mult_fold_hnr[sepref_fr_rules]:
+  \<open>(uncurry2 (\<lambda>qi. cl_fold' (mult_poly_raw_outer_impl qi)),
+    uncurry2 (RETURN ooo poly_mult_fold))
+    \<in> polynomial_assn\<^sup>k *\<^sub>a polynomial_assn_tail\<^sup>d *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a polynomial_assn_tail\<close>
+  unfolding poly_mult_fold_def[abs_def]
+  by (rule cl_fold_hfref_param[OF mult_poly_raw_outer_impl.refine])
+
+lemma foldl_snoc_conv_map: \<open>foldl (\<lambda>b x. b @ [g x]) b\<^sub>0 xs = b\<^sub>0 @ map g xs\<close>
+  by (induction xs arbitrary: b\<^sub>0) auto
+
+lemma mult_poly_raw_inner2_map: \<open>mult_poly_raw_inner2 pm q = map (mult_monomials pm) q\<close>
+  unfolding mult_poly_raw_inner2_def poly_row_fold_def mult_poly_raw_inner_def[abs_def]
+  by (simp add: foldl_snoc_conv_map)
+
+lemma mult_poly_raw_alt:
+  \<open>mult_poly_raw p q = op_clt_to_cl (poly_mult_fold q [] p)\<close>
+  unfolding mult_poly_raw_def poly_mult_fold_def mult_poly_raw_outer_def[abs_def]
+    op_clt_to_cl_def
+  by (simp add: mult_poly_raw_inner2_map)
 
 sepref_def mult_poly_raw_impl
   is \<open>uncurry (RETURN oo mult_poly_raw)\<close>
-  :: \<open>poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
-  supply [[goals_limit=1]]
-  supply [[eta_contract = false, show_abbrevs=false]]
-  unfolding mult_poly_raw_def
-    HOL_list.fold_custom_empty
-    term_order_rel'_def[symmetric]
-    term_order_rel'_alt_def
-    foldl_conv_fold
-    fold_eq_nfoldli
-    map_append_poly_mult_def[symmetric]
-    map_append_alt_def[symmetric]
+  :: \<open>polynomial_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a polynomial_assn\<close>
+  unfolding mult_poly_raw_alt
+  unfolding fold_clt_empty
   by sepref
 
-declare mult_poly_raw_impl.refine[sepref_fr_rules]
+definition merge_coeffs_inner :: \<open>llist_polynomial \<Rightarrow> (llist_polynomial \<times> llist_polynomial) nres\<close> where
+  \<open>merge_coeffs_inner p\<^sub>0 \<equiv> WHILEIT
+  (\<lambda>(r,p). merge_coeffs p\<^sub>0 = r @ merge_coeffs p)
+  (\<lambda>(r,p). p\<noteq>[])
+  (\<lambda>(r,p). doN {
+    ((xs,n),p) \<leftarrow> mop_list_pop_hd p;
+    if p=[] then RETURN (op_list_append r (xs,n), p)
+    else doN {
+      ((ys,m),p) \<leftarrow> mop_list_pop_hd p;
+      if xs = ys then doN {
+        let s = n + m;
+        if s = 0 then RETURN (r,p)
+        else RETURN (r, (xs, s)#p)
+      }
+      else
+        RETURN (op_list_append r (xs,n), (ys,m)#p)
+    }
+  }) ([], p\<^sub>0)\<close>
 
+lemma merge_coeffs_inner_refine:
+  \<open>merge_coeffs_inner p\<^sub>0 \<le> SPEC (\<lambda>(r,p). r = merge_coeffs p\<^sub>0 \<and> p = [])\<close>
+  unfolding merge_coeffs_inner_def
+  apply (refine_vcg WHILEIT_rule[where R=\<open>measure (\<lambda>(r,p). length p)\<close>])
+  apply clarsimp_all
+  apply (metis list.exhaust_sel merge_coeffs.simps(2) merge_coeffs.simps(3))+
+  done
 
-sepref_definition mult_poly_impl
+definition merge_coeffs_alt :: \<open>llist_polynomial \<Rightarrow> llist_polynomial nres\<close> where
+  \<open>merge_coeffs_alt p \<equiv> doN {
+    (r, p') \<leftarrow> merge_coeffs_inner p;
+    let rcl = op_clt_to_cl r;
+    RETURN (rcl @ p')
+  }\<close>
+
+lemma merge_coeffs_alt_spec:
+  \<open>merge_coeffs_alt p \<le> SPEC (\<lambda>r. r = merge_coeffs p)\<close>
+  unfolding merge_coeffs_alt_def op_clt_to_cl_def
+  by (refine_vcg merge_coeffs_inner_refine[THEN order_trans]) auto
+
+lemma merge_coeffs_alt_refine:
+  \<open>(merge_coeffs_alt, RETURN o merge_coeffs) \<in> Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  apply (intro frefI nres_relI)
+  apply (auto simp: RETURN_SPEC_conv)
+  using merge_coeffs_alt_spec by auto
+
+sepref_register merge_coeffs_inner
+sepref_def merge_coeffs_inner_impl is \<open>merge_coeffs_inner\<close>
+  :: \<open>polynomial_assn\<^sup>d \<rightarrow>\<^sub>a (polynomial_assn_tail \<times>\<^sub>a polynomial_assn)\<close>
+  unfolding merge_coeffs_inner_def ls_emp ls_emp'
+  unfolding fold_clt_empty
+  by sepref
+
+sepref_def merge_coeffs_impl is \<open>merge_coeffs_alt\<close>
+  :: \<open>polynomial_assn\<^sup>d \<rightarrow>\<^sub>a polynomial_assn\<close>
+  unfolding merge_coeffs_alt_def
+  by sepref
+
+lemmas merge_coeffs_hnr[sepref_fr_rules] =
+  merge_coeffs_impl.refine[FCOMP merge_coeffs_alt_refine]
+
+sepref_def mult_poly_impl
   is \<open>uncurry mult_poly_full\<close>
-  :: \<open>poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a poly_assn\<close>
-  supply [[goals_limit=1]]
-  unfolding mult_poly_full_def
-    HOL_list.fold_custom_empty
-    term_order_rel'_def[symmetric]
-    term_order_rel'_alt_def
+  :: \<open>polynomial_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a polynomial_assn\<close>
+  unfolding mult_poly_full_def normalize_poly_def
   by sepref
 
 declare mult_poly_impl.refine[sepref_fr_rules]
 
-lemma inverse_monomial:
-  \<open>monom_rel\<inverse> \<times>\<^sub>r int_rel = (monom_rel \<times>\<^sub>r int_rel)\<inverse>\<close>
-  by (auto)
-
-lemma eq_poly_rel_eq[sepref_import_param]:
-  \<open>((=), (=)) \<in> poly_rel \<rightarrow> poly_rel \<rightarrow> bool_rel\<close>
-  using list_rel_sv[of \<open>monomial_rel\<close>, OF single_valued_monomial_rel]
-  using list_rel_sv[OF single_valued_monomial_rel'[unfolded IS_LEFT_UNIQUE_def inv_list_rel_eq]]
-  unfolding inv_list_rel_eq[symmetric]
-  by (auto intro!: frefI simp:
-      rel2p_def single_valued_def p2rel_def
-    simp del: inv_list_rel_eq)
-
+sepref_register \<open>(=) :: llist_polynomial \<Rightarrow> llist_polynomial \<Rightarrow> bool\<close>
 sepref_definition weak_equality_l_impl
   is \<open>uncurry weak_equality_l\<close>
-  :: \<open>poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
-  supply [[goals_limit=1]]
+  :: \<open>polynomial_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   unfolding weak_equality_l_def
-  by sepref
+  apply sepref_dbg_keep
+  apply sepref_dbg_trans_keep
+  apply sepref_dbg_trans_step_keep
+  apply sepref_dbg_side_unfold
+
 
 declare weak_equality_l_impl.refine[sepref_fr_rules]
-sepref_register add_poly_l mult_poly_full
 
-abbreviation raw_string_assn :: \<open>string \<Rightarrow> string \<Rightarrow> assn\<close> where
-  \<open>raw_string_assn \<equiv> list_assn id_assn\<close>
+abbreviation \<open>raw_string_assn \<equiv> stra_assn\<close>
 
 definition show_nat :: \<open>nat \<Rightarrow> string\<close> where
   \<open>show_nat i = show i\<close>
@@ -508,8 +659,8 @@ lemma status_assn_pure_conv:
 
 lemma [sepref_fr_rules]:
   \<open>(uncurry3 (\<lambda>x y. return oo (error_msg_not_equal_dom x y)), uncurry3 check_not_equal_dom_err) \<in>
-  poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a raw_string_assn\<close>
-  unfolding show_nat_def[symmetric] list_assn_pure_conv
+  polynomial_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a raw_string_assn\<close>
+  unfolding show_nat_def[symmetric] 
     prod_assn_pure_conv check_not_equal_dom_err_def
   by (sepref_to_hoare; sep_auto simp: error_msg_not_equal_dom_def)
 
