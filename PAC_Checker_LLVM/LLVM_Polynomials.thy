@@ -1,11 +1,19 @@
 theory LLVM_Polynomials
   imports LLVM_String BigInt_LLVM.LLVM_CodeGen_Signed IICF_PartialMap
-    PAC_Polynomials_Term
+    PAC_Polynomials_Term BigInt_String
 begin
 
 text \<open>This theory defines refinment targets for polynomials in LLVM.
   The HOL-datatype we want to refine is `llist_polynomial` (i.e.
   @{typ \<open>(char list list \<times> int) list\<close>}, c.f. `PAC_Polynomials_Term`).\<close>
+
+text \<open>\<open>BigInt_String\<close> (via the old \<open>IICF_Open_List\<close>) registers a rule for
+  @{term op_list_empty} at os-lists. Since it is a producer (its result
+  assertion is unconstrained at rule-application time) and more recently
+  declared than the copying-list rule, sepref would commit to it when
+  synthesizing list literals, and fail later. All lists in this theory are
+  copying lists, so we simply deregister it.\<close>
+lemmas [sepref_fr_rules del] = os_empty_hnr
 
 term strl_assn
 abbreviation \<open>monom_assn \<equiv> cl_assn' strl_assn'\<close>
@@ -281,12 +289,135 @@ sepref_definition polynomial_empty_impl is \<open>uncurry0 (RETURN [])\<close>
 sepref_register \<open>(=) :: llist_polynomial \<Rightarrow> llist_polynomial \<Rightarrow> bool\<close>
 sepref_definition polynomial_eq_test is \<open>uncurry (RETURN oo (=))\<close>
   :: \<open>polynomial_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
-  apply sepref_dbg_keep
-  apply sepref_dbg_trans_keep
-  apply sepref_dbg_trans_step_keep
-  apply sepref_dbg_side_unfold
-  oops
+  by sepref
 
 end
+
+section \<open>Printing of Polynomials\<close>
+
+lemma char_of_digit_zero: \<open>char_of_word (ascii_of_digit 0) = CHR ''0''\<close>
+  by eval
+
+lemma char_of_word_hyphen_lit: \<open>char_of_word word_hyphen = CHR ''-''\<close>
+  by eval
+
+text \<open>Relating byte strings to their character strings.\<close>
+definition char_bytes_rel :: \<open>(char list \<times> 8 word list) set\<close> where
+  \<open>char_bytes_rel \<equiv> {(cs, bs). cs = map char_of_word bs}\<close>
+
+subsection \<open>Unsigned big integers to strings\<close>
+
+text \<open>Fused variant of @{term print_bi_ascii'} that produces HOL characters.\<close>
+definition print_bi_strl :: \<open>big_int \<Rightarrow> char list nres\<close> where
+  \<open>print_bi_strl bi \<equiv> doN {
+    ASSERT (big_int_invar bi);
+    if big_int_length bi = 0 then RETURN ''0''
+    else doN {
+      (_, res) \<leftarrow> WHILEIT
+        (\<lambda>_. True)
+        (\<lambda>(q, _). 0 < big_int_length q)
+        (\<lambda>(q, res). doN {
+          (q', r) \<leftarrow> bi_div_by_w64 q 10;
+          RETURN (q', char_of_word (ascii_of_digit r) # res)
+        })
+        (bi, []);
+      RETURN res
+    }
+  }\<close>
+
+lemma print_bi_strl_refine:
+  \<open>print_bi_strl bi \<le> \<Down> char_bytes_rel (print_bi_ascii' bi)\<close>
+  unfolding print_bi_strl_def print_bi_ascii'_def
+  apply (refine_rcg WHILEIT_refine[where R = \<open>Id \<times>\<^sub>r char_bytes_rel\<close>])
+  apply refine_dref_type
+  by (auto simp: char_bytes_rel_def conc_Id char_of_digit_zero)
+
+sepref_register print_bi_strl
+sepref_def print_bi_strl_impl is \<open>print_bi_strl\<close>
+  :: \<open>bi_aux_assn\<^sup>d \<rightarrow>\<^sub>a strl_assn'\<close>
+  unfolding print_bi_strl_def
+  apply (annot_snat_const size_t)
+  by sepref
+
+subsection \<open>Signed big integers to strings\<close>
+
+definition print_sbi_strl :: \<open>signed_big_int \<Rightarrow> char list nres\<close> where
+  \<open>print_sbi_strl sbi \<equiv> doN {
+    let \<sigma>_in = \<sigma> sbi;
+    bi \<leftarrow> dest_extr_bi sbi;
+    abs_str \<leftarrow> print_bi_strl bi;
+    if \<sigma>_in then RETURN (CHR ''-'' # abs_str) else RETURN abs_str
+  }\<close>
+
+lemma print_sbi_strl_refine:
+  \<open>print_sbi_strl sbi \<le> \<Down> char_bytes_rel (print_sbi_ascii sbi)\<close>
+  unfolding print_sbi_strl_def print_sbi_ascii_def
+  apply (refine_rcg print_bi_strl_refine)
+  apply refine_dref_type
+  by (auto simp: char_bytes_rel_def conc_Id char_of_word_hyphen_lit)
+
+lemma print_sbi_strl_correct:
+  assumes \<open>(sbi, i) \<in> signed_big_int_rel\<close>
+  shows \<open>print_sbi_strl sbi \<le> SPEC (\<lambda>s. (s, i) \<in> ascii_str_int_rel)\<close>
+  using print_sbi_strl_refine[of sbi] print_sbi_ascii_correct[OF assms]
+  by (auto simp: pw_le_iff refine_pw_simps char_bytes_rel_def)
+
+sepref_def print_sbi_strl_impl is \<open>print_sbi_strl\<close>
+  :: \<open>sbi_aux_assn\<^sup>d \<rightarrow>\<^sub>a strl_assn'\<close>
+  unfolding print_sbi_strl_def
+  by sepref
+
+subsection \<open>Integers to strings\<close>
+
+text \<open>The abstract operation on the @{typ int} level: any decimal string
+  representation of the integer. This is the operation to use in abstract
+  programs whose integers are refined by @{term sbi_assn}.\<close>
+definition strl_of_int :: \<open>int \<Rightarrow> char list nres\<close> where
+  \<open>strl_of_int i \<equiv> SPEC (\<lambda>s. (s, i) \<in> ascii_str_int_rel)\<close>
+
+lemma print_sbi_strl_fref:
+  \<open>(print_sbi_strl, strl_of_int) \<in> signed_big_int_rel \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  by (intro frefI nres_relI)
+    (auto simp: strl_of_int_def conc_Id intro!: print_sbi_strl_correct)
+
+sepref_register strl_of_int
+context notes [fcomp_norm_unfold] = sbi_assn_def[symmetric]
+begin
+lemmas strl_of_int_hnr[sepref_fr_rules] =
+  print_sbi_strl_impl.refine[FCOMP print_sbi_strl_fref]
+end
+
+subsection \<open>Printing whole polynomials\<close>
+
+text \<open>Like @{term print_monom}, the printing of polynomials is not verified.
+  Monomials are printed as \<open>coefficient*variables\<close> and separated by \<open> + \<close>;
+  the empty polynomial prints as \<open>0\<close>. Note that negative coefficients keep
+  their sign, so a polynomial may print as e.g.\ \<open>2*xy + -1*z\<close>.\<close>
+
+sepref_register print_monom
+
+definition print_polynomial :: \<open>llist_polynomial \<Rightarrow> char list nres\<close> where
+  \<open>print_polynomial \<equiv> \<lambda>p. doN {
+    if p = [] then RETURN ''0''
+    else doN {
+      ((m, c), p) \<leftarrow> mop_list_pop_hd p;
+      cs \<leftarrow> strl_of_int c;
+      ms \<leftarrow> print_monom m;
+      (r, _) \<leftarrow> WHILET
+        (\<lambda>(r, p). p \<noteq> [])
+        (\<lambda>(r, p). doN {
+          ((m, c), p) \<leftarrow> mop_list_pop_hd p;
+          cs \<leftarrow> strl_of_int c;
+          ms \<leftarrow> print_monom m;
+          RETURN (r @ '' + '' @ cs @ ''*'' @ ms, p)
+        }) (cs @ ''*'' @ ms, p);
+      RETURN r
+    }
+  }\<close>
+
+sepref_def print_polynomial_impl is \<open>print_polynomial\<close>
+  :: \<open>polynomial_assn\<^sup>d \<rightarrow>\<^sub>a strl_assn'\<close>
+  unfolding print_polynomial_def ls_emp ls_emp'
+  by sepref
 
 end

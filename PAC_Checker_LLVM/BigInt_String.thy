@@ -1,13 +1,13 @@
 theory BigInt_String
   imports
     BigInt_LLVM.LLVM_CodeGen_Signed
-    PAC_Checker_LLVM_old.IICF_Open_List
+    LLVM_String
+    Char_Assn
 begin
 
 text \<open>In this theory we implement conversions from and to strings\<close>
 
 section \<open>Basic High-Level Relations\<close>
-type_synonym str = \<open>char list\<close>
 
 text \<open>First we fix define the semantics/values of characters. 
   We assume ASCII encoded characters. We only accept characters 0-9, all other characters
@@ -22,16 +22,24 @@ definition char_val :: \<open>char \<Rightarrow> nat\<close> where
 
 definition \<open>ascii_char_nat_rel \<equiv> br char_val is_ascii_num\<close>
 
-definition is_ascii_num_str :: \<open>str \<Rightarrow> bool\<close> where
+definition is_ascii_num_str :: \<open>string \<Rightarrow> bool\<close> where
   \<open>is_ascii_num_str ss \<equiv> ss \<noteq> [] \<and> foldl (\<lambda>acc d. acc \<and> is_ascii_num d) True ss\<close>
 
 text \<open>Note that for strings, other than for big integers, we use a big endian encoding\<close>
-definition str_val :: \<open>str \<Rightarrow> nat\<close> where
+definition str_val :: \<open>string \<Rightarrow> nat\<close> where
   \<open>str_val ss \<equiv>
     let exps = map nat (rev [0 .. int (length ss-1)]) in
     foldl (\<lambda>acc (exp, c). acc + 10^exp * char_val c) 0 (zip exps ss)\<close>
 
 definition \<open>ascii_str_nat_rel \<equiv> br str_val is_ascii_num_str\<close>
+definition \<open>ascii_ws_nat_rel \<equiv> \<langle>char_rel\<rangle>list_rel O ascii_str_nat_rel\<close>
+
+(* As some lemmas were written before ascii_ws_nat_rel was defined, we sometimes need
+   the helper lemma: *)
+lemma ascii_ws_nat_rel_aux: \<open>(map char_of_word x,y) \<in> ascii_str_nat_rel \<Longrightarrow> (x,y) \<in> ascii_ws_nat_rel\<close>
+    unfolding ascii_ws_nat_rel_def
+    apply (induction x arbitrary: y; auto)
+    by (metis char_rel_def map_consI(1) map_in_list_rel_conv relcomp.relcompI)
 
 lemma ascii_num_str_nempty:
   assumes \<open>is_ascii_num_str ss\<close>
@@ -228,7 +236,6 @@ proof -
   have hi_lt: \<open>unat hi < limb_sz\<close> using limb_nat_lt[of hi] unfolding limb_nat_def by simp
   have lo_lt: \<open>unat lo < limb_sz\<close> using limb_nat_lt[of lo] unfolding limb_nat_def by simp
   have sz: \<open>limb_sz = 2 ^ limb_wd\<close> by (simp add: limb_sz_def)
-  \<comment> \<open>the shifted high limb, using \<open>unat (push_bit n w) = (2^n * unat w) mod 2^len\<close>\<close>
   have sh: \<open>unat (extend hi << limb_wd) = unat hi * limb_sz\<close>
   proof -
     have \<open>unat (extend hi << limb_wd) = (2 ^ limb_wd * unat hi) mod (limb_sz * limb_sz)\<close>
@@ -298,9 +305,11 @@ section \<open>Big Int to String conversion\<close>
 
 text \<open>On the HOL side, we want to reason on @{term char}, but
   on the LLVM side we work with @{term \<open>8 word\<close>}, so we first
-  need to define a bijective mapping between the two.\<close>
+  need to define a bijective mapping between the two.
+  The direction from words to chars, @{const char_of_word}, is provided
+  by \<open>Char_Assn\<close> (where it also gets its sepref setup); here we add the
+  inverse direction.\<close>
 
-definition \<open>char_of_word (w :: 8 word) \<equiv> char_of (unat w)\<close>
 definition \<open>word_of_char (c :: char) \<equiv> (of_char :: char \<Rightarrow> 8 word) c\<close>
 definition \<open>char_word_rel = br word_of_char (\<lambda>_. True)\<close>
 definition \<open>word_char_rel = br char_of_word (\<lambda>_. True)\<close>
@@ -321,7 +330,7 @@ lemma char_of_word_word_of_char: \<open>char_of_word (word_of_char c) = c\<close
   by (simp add: unat_of_char_8word)
 
 lemma word_of_char_char_of_word: \<open>word_of_char (char_of_word w) = w\<close>
-  unfolding char_of_word_def word_of_char_def
+  unfolding char_of_word_def word_of_char_def comp_apply
 proof -
   have wlt: \<open>unat w < 256\<close> using unsigned_less[of w] by simp
   have \<open>unat (of_char (char_of (unat w)) :: 8 word) = unat w\<close>
@@ -436,7 +445,7 @@ lemma dec_of_big_int_correct:
     using big_int_to_nat_unique by force
   done
 
-abbreviation \<open>digits_assn \<equiv> os_assn (word_assn' size_t)\<close>
+abbreviation \<open>digits_assn \<equiv> cl_assn' (word_assn' size_t)\<close>
 
 sepref_def dec_of_big_int_impl is \<open>dec_of_big_int\<close>
   :: \<open>bi_aux_assn\<^sup>d \<rightarrow>\<^sub>a digits_assn\<close>
@@ -478,7 +487,7 @@ proof -
     using assms by (auto simp: ascii_char_nat_rel_def in_br_conv char_val_def is_ascii_num_def)
 qed
 
-corollary is_ascii_num_char_of_digit:
+lemma is_ascii_num_char_of_digit:
   \<open>unat d < 10 \<Longrightarrow> is_ascii_num (char_of_word (ascii_of_digit d))\<close>
   using char_of_digit_rel[of d] by (simp add: ascii_char_nat_rel_def in_br_conv)
 
@@ -586,7 +595,11 @@ proof -
     done
 qed
 
-abbreviation \<open>ascii_strl_assn \<equiv> os_assn (word_assn' TYPE(8))\<close>
+lemma print_bi_ascii_correct':
+  assumes \<open>(bi, b) \<in> big_int_rel\<close>
+  shows \<open>print_bi_ascii bi \<le> SPEC (\<lambda>r. (r,b) \<in> ascii_ws_nat_rel)\<close>
+  using print_bi_ascii_correct[OF assms] ascii_ws_nat_rel_aux
+  by (metis (no_types, lifting) SPEC_cons_rule)
 
 subsection \<open>Fused variant: convert to ASCII inside the division loop\<close>
 
@@ -618,8 +631,6 @@ lemma print_bi_ascii'_refine_dec:
   apply refine_dref_type
   by (auto simp: ascii_list_rel_def conc_Id)
 
-text \<open>For this (functional) relation, dropping down to \<^const>\<open>ascii_list_rel\<close> coincides with mapping
-  the conversion over the result.\<close>
 lemma conc_ascii_le:
   \<open>\<Down> ascii_list_rel m \<le> m \<bind> (\<lambda>d. RETURN (map ascii_of_digit d))\<close>
   by (auto simp: pw_le_iff refine_pw_simps pw_conc_inres pw_conc_nofail ascii_list_rel_def)
@@ -640,6 +651,12 @@ lemma print_bi_ascii'_correct:
   using print_bi_ascii'_refine[of bi] print_bi_ascii_correct[OF assms]
   by (rule order_trans)
 
+lemma print_bi_ascii'_correct':
+  assumes \<open>(bi, b) \<in> big_int_rel\<close>
+  shows \<open>print_bi_ascii' bi \<le> SPEC (\<lambda>r. (r, b) \<in> ascii_ws_nat_rel)\<close>
+  using print_bi_ascii'_correct[OF assms]
+  by (meson SPEC_cons_rule ascii_ws_nat_rel_aux)
+
 subsection \<open>LLVM synthesis\<close>
 
 lemma is_downcast_64_8: \<open>is_down' UCAST(64 \<rightarrow> 8)\<close>
@@ -659,13 +676,14 @@ begin
     by vcg
 end
 
+abbreviation \<open>ascii_strl_assn \<equiv> cl_assn' (word_assn' TYPE(8))\<close>
 sepref_def print_bi_ascii_impl is \<open>print_bi_ascii'\<close>
   :: \<open>bi_aux_assn\<^sup>d \<rightarrow>\<^sub>a ascii_strl_assn\<close>
   unfolding print_bi_ascii'_def
   apply (annot_snat_const size_t)
   by sepref
 
-
+(*
 lemma word_char_list_rel_map:
   \<open>(bytes, map char_of_word bytes) \<in> \<langle>word_char_rel\<rangle>list_rel\<close>
   by (simp add: word_char_rel_def list_rel_def in_br_conv list_all2_map2 list_all2_same)
@@ -680,6 +698,7 @@ proof -
     by (auto simp: pw_le_iff refine_pw_simps intro: word_char_list_rel_map)
   finally show ?thesis .
 qed
+*)
 
 section \<open>Extending to Signed Big Integers\<close>
 
@@ -697,17 +716,25 @@ lemma word_hyphen_hnr[sepref_fr_rules]:
   apply sepref_dbg_keep
   oops
 
-definition int_of_str :: \<open>str \<Rightarrow> int\<close> where
+definition int_of_str :: \<open>string \<Rightarrow> int\<close> where
   \<open>int_of_str ss \<equiv> case ss of
     [] \<Rightarrow> undefined
   | (c # cs) \<Rightarrow> (if c = char_hyphen then -int (str_val cs) else int (str_val ss))
   \<close>
-definition is_ascii_int :: \<open>str \<Rightarrow> bool\<close> where
+definition is_ascii_int :: \<open>string \<Rightarrow> bool\<close> where
   \<open>is_ascii_int ss \<equiv> case ss of
     [] \<Rightarrow> False
   | (c # cs) \<Rightarrow> c = char_hyphen \<and> is_ascii_num_str cs \<and> 0 < str_val cs \<or> is_ascii_num_str ss
 \<close>
 definition \<open>ascii_str_int_rel \<equiv> br int_of_str is_ascii_int\<close>
+definition \<open>ascii_ws_int_rel \<equiv> \<langle>char_rel\<rangle>list_rel O ascii_str_int_rel\<close>
+
+(* As some lemmas were written before ascii_ws_nat_rel was defined, we sometimes need
+   the helper lemma: *)
+lemma ascii_ws_ine_rel_aux: \<open>(map char_of_word x,y) \<in> ascii_str_int_rel \<Longrightarrow> (x,y) \<in> ascii_ws_int_rel\<close>
+    unfolding ascii_ws_int_rel_def
+    apply (induction x arbitrary: y; auto)
+    by (metis char_rel_def list.simps(9) map_in_list_rel_conv relcomp.simps)
 
 lemma of_char_hyphen: \<open>(of_char char_hyphen :: nat) = ascii_hyphen\<close>
   by (simp add: of_char_of)
@@ -870,9 +897,19 @@ proof -
   qed
 qed
 
-term sbi_assn
-term sbi_aux_assn
-term ascii_strl_assn
+lemma print_sbi_ascii_correct':
+  assumes \<open>(sbi, i) \<in> signed_big_int_rel\<close>
+  shows \<open>print_sbi_ascii sbi \<le>
+         SPEC (\<lambda>r. (r, i) \<in> ascii_ws_int_rel)\<close>
+  using print_sbi_ascii_correct[OF assms]
+  by (meson SPEC_cons_rule ascii_ws_ine_rel_aux)
+(*
+lemma print_sbi_ascii_hfref:
+  \<open>(print_sbi_ascii, Id) \<in> ...\<close>
+
+lemmas print_sbi_ascii_hnr[sepref_fr_rules] =
+*)
+thm print_sbi_ascii_impl.refine
 
 section \<open>Decimal Byte Strings to Integers\<close>
 
@@ -913,13 +950,13 @@ proof -
   have step: \<open>bytes_dec_val (take (Suc j) cs) = 10 * bytes_dec_val (take j cs) + byte_val (cs ! j)\<close>
     if \<open>j < length cs\<close> for j and cs :: \<open>8 word list\<close>
     using that by (simp add: take_Suc_conv_app_nth bytes_dec_val_snoc)
-  have dstep: \<open>int (bytes_dec_val (take (Suc i - i⇩0) (drop i⇩0 bs)))
-                = 10 * int (bytes_dec_val (take (i - i⇩0) (drop i⇩0 bs))) + int (byte_val (bs ! i))\<close>
-    if ii: \<open>i⇩0 \<le> i\<close> and il: \<open>i < length bs\<close> for i
+  have dstep: \<open>int (bytes_dec_val (take (Suc i - i\<^sub>0) (drop i\<^sub>0 bs)))
+                = 10 * int (bytes_dec_val (take (i - i\<^sub>0) (drop i\<^sub>0 bs))) + int (byte_val (bs ! i))\<close>
+    if ii: \<open>i\<^sub>0 \<le> i\<close> and il: \<open>i < length bs\<close> for i
   proof -
-    have jl: \<open>i - i⇩0 < length (drop i⇩0 bs)\<close> using ii il by simp
-    have \<open>bytes_dec_val (take (Suc (i - i⇩0)) (drop i⇩0 bs))
-           = 10 * bytes_dec_val (take (i - i⇩0) (drop i⇩0 bs)) + byte_val (bs ! i)\<close>
+    have jl: \<open>i - i\<^sub>0 < length (drop i\<^sub>0 bs)\<close> using ii il by simp
+    have \<open>bytes_dec_val (take (Suc (i - i\<^sub>0)) (drop i\<^sub>0 bs))
+           = 10 * bytes_dec_val (take (i - i\<^sub>0) (drop i\<^sub>0 bs)) + byte_val (bs ! i)\<close>
       using step[OF jl] ii il by simp
     then show ?thesis
       using ii by (simp add: Suc_diff_le)
@@ -928,8 +965,8 @@ proof -
 
     unfolding int_of_bytes_def
       apply (refine_vcg WHILET_rule[where
-        I = \<open>\<lambda>(i, acc). i⇩0 \<le> i \<and> i \<le> length bs
-                         \<and> acc = int (bytes_dec_val (take (i - i⇩0) (drop i⇩0 bs)))\<close> and
+        I = \<open>\<lambda>(i, acc). i\<^sub>0 \<le> i \<and> i \<le> length bs
+                         \<and> acc = int (bytes_dec_val (take (i - i\<^sub>0) (drop i\<^sub>0 bs)))\<close> and
         R = \<open>measure (\<lambda>(i, _). length bs - i)\<close>])
       using I\<^sub>0
       apply (auto simp: L D[THEN bspec] dstep bytes_dec_val_Nil algebra_simps)

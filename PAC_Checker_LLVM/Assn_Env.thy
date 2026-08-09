@@ -7,10 +7,6 @@ text \<open>This theory defines a hierarchy of locales on refinement assertions
 
 section \<open>Generic bridge from \<open>hfref\<close> rules to Hoare triples\<close>
 
-text \<open>The locale assumptions below are refinement rules (\<open>hfref\<close>). 
-  \<open>vgc\<close>, however, works with Hoare triples. Therefore we might want
-  a translation of _hnr rules to vcg_rules\<close>
-
 lemma hfref_htriple_k1:
   assumes R: \<open>(f, RETURN o g) \<in> A\<^sup>k \<rightarrow>\<^sub>a B\<close>
   shows \<open>llvm_htriple (A a ai) (f ai) (\<lambda>r. A a ai ** B (g a) r)\<close>
@@ -75,6 +71,43 @@ proof -
     done
 qed
 
+text \<open>Guarded variant of @{text hfref_htriple_d1_k2}: the hfref carries a
+  precondition, which becomes a premise of the triple.\<close>
+lemma hfref_htriple_d1_k2_guard:
+  assumes R: \<open>(uncurry f, uncurry (RETURN oo g)) \<in> [P]\<^sub>a A\<^sup>d *\<^sub>a B\<^sup>k \<rightarrow> C\<close>
+  assumes PRE: \<open>P (a, b)\<close>
+  shows \<open>llvm_htriple (A a ai ** B b bi) (f ai bi) (\<lambda>r. B b bi ** C (g a b) r)\<close>
+proof -
+  note HNR = R[to_hnr, unfolded autoref_tag_defs]
+  note HT = HNR[OF PRE, THEN hn_refineD]
+  show ?thesis
+    apply (rule htriple_ent_pre[OF _ htriple_ent_post[OF _ HT]])
+    unfolding hn_ctxt_def
+    apply (rule entails_refl)
+    subgoal
+      apply (auto simp: entails_def sep_algebra_simps)
+      by (simp add: invalid_assn_def pred_lift_extract_simps(2))
+    subgoal by simp
+    done
+qed
+
+lemma hfref_htriple_k1_k2_guard:
+  assumes R: \<open>(uncurry f, uncurry (RETURN oo g)) \<in> [P]\<^sub>a A\<^sup>k *\<^sub>a B\<^sup>k \<rightarrow> C\<close>
+  assumes PRE: \<open>P (a, b)\<close>
+  shows \<open>llvm_htriple (A a ai ** B b bi) (f ai bi) (\<lambda>r. A a ai ** B b bi ** C (g a b) r)\<close>
+proof -
+  note HNR = R[to_hnr, unfolded autoref_tag_defs]
+  note HT = HNR[OF PRE, THEN hn_refineD]
+  show ?thesis
+    apply (rule htriple_ent_pre[OF _ htriple_ent_post[OF _ HT]])
+    unfolding hn_ctxt_def
+    apply (rule entails_refl)
+    subgoal by (auto simp: entails_def sep_algebra_simps pred_lift_extract_simps
+      sep_conj_exists pw_le_iff refine_pw_simps)
+    subgoal by simp
+    done
+qed
+
 lemma hfref_htriple_k1_d2_k3:
   assumes R: \<open>(uncurry2 f, uncurry2 (RETURN ooo g)) \<in> A\<^sup>k *\<^sub>a B\<^sup>d *\<^sub>a C\<^sup>k \<rightarrow>\<^sub>a D\<close>
   shows \<open>llvm_htriple (A a ai ** B b bi ** C c ci) (f ai bi ci)
@@ -87,10 +120,9 @@ proof -
     unfolding hn_ctxt_def
     apply (rule entails_refl)
     subgoal
-      apply (auto simp: entails_def sep_algebra_simps pred_lift_extract_simps
-        sep_conj_exists pw_le_iff refine_pw_simps)
-      by (simp add: invalid_assn_def pred_lift_extract_simps(2) sep_algebra_simps
-        sep_conj_aci)
+      apply (auto simp: entails_def invalid_assn_def sep_algebra_simps
+        pred_lift_extract_simps sep_conj_exists pw_le_iff refine_pw_simps)
+      by (simp add: sep_conj_aci)
     subgoal by simp
     done
 qed
@@ -200,10 +232,6 @@ end
 
 section \<open>Regression tests\<close>
 
-text \<open>Instantiate the hierarchy with 64-bit \<open>snat\<close> numbers (a pure assertion, so
-  free is a no-op and copy is \<open>Mreturn\<close>) to validate that the assumptions are
-  dischargeable and that the diamond in \<open>linorder_copyable_assn\<close> merges.\<close>
-
 experiment
 begin
 
@@ -220,10 +248,6 @@ interpretation N: linorder_assn \<open>snat_assn' TYPE(64)\<close> ll_icmp_eq ll
   done
 
 end
-
-text \<open>The combined locale, interpreted in a fresh context (with \<open>copyable_assn\<close> or
-  \<open>linorder_assn\<close> already interpreted at the same parameters, \<open>interpretation\<close> only
-  generates obligations for the parts that are new).\<close>
 
 experiment
 begin

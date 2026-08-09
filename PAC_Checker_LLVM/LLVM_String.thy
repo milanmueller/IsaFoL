@@ -95,11 +95,7 @@ definition \<open>tststr \<equiv> ''aba''\<close>
 sepref_definition tststr_impl is \<open>uncurry0 (RETURN tststr)\<close>
   :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a strl_assn'\<close>
   unfolding tststr_def
-  apply sepref_dbg_keep
-  apply sepref_dbg_trans_keep
-  apply sepref_dbg_trans_step_keep
-  apply sepref_dbg_side_unfold
-  oops
+  by sepref
 
 sepref_definition strl_lt_test is \<open>uncurry (RETURN oo list_lt)\<close>
   :: \<open>strl_assn'\<^sup>k *\<^sub>a strl_assn'\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
@@ -187,7 +183,6 @@ sepref_def capped_length_impl is \<open>capped_length\<close>
   by sepref
 end
 
-
 definition stra_of_strl :: \<open>string \<Rightarrow> string nres\<close> where
   \<open>stra_of_strl xs = doN{ 
     l \<leftarrow> capped_length (COPY xs);
@@ -213,33 +208,21 @@ sepref_def stra_of_strl_impl is \<open>stra_of_strl\<close>
   apply (annot_snat_const "TYPE(64)")
   by sepref 
 
-sepref_register stra_of_strl
-
-definition \<open>printing_failed \<equiv> ''<string too long to print>''\<close>
-
-text \<open>The literal is built at the list-based string level (empty + prepends of
-  constant chars) and then converted to an array-based string. A direct synthesis
-  against \<open>RETURN printing_failed\<close> at @{term stra_assn} cannot work: larrays have
-  no producers besides replicate.\<close>
-sepref_def printing_failed_impl is \<open>uncurry0 (stra_of_strl printing_failed)\<close>
-  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a stra_assn\<close>
-  unfolding printing_failed_def
-  by sepref
-
-
 experiment
 begin
 
 definition \<open>tststr \<equiv> ''aba''\<close>
 
-sepref_definition tststr_impl is \<open>uncurry0 (RETURN tststr)\<close>
-  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a stra_assn'\<close>
+sepref_definition teststrl_impl is \<open>uncurry0 (RETURN tststr)\<close>
+  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a strl_assn'\<close>
   unfolding tststr_def
-  apply sepref_dbg_keep
-  apply sepref_dbg_trans_keep
-  apply sepref_dbg_trans_step_keep
-  apply sepref_dbg_side_unfold
-  oops
+  by sepref
+lemmas [sepref_fr_rules] = teststrl_impl.refine
+
+sepref_register stra_of_strl
+sepref_definition tststra_impl is \<open>uncurry0 (stra_of_strl tststr)\<close>
+  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a stra_assn\<close>
+  by sepref
 
 sepref_definition strl_lt_test is \<open>uncurry (RETURN oo list_lt)\<close>
   :: \<open>stra_assn\<^sup>k *\<^sub>a stra_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>

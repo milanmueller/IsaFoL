@@ -96,10 +96,26 @@ lemma cl_assn_simps:
     apply (auto simp: sep_algebra_simps list_assn_cons1_conv)
     (* Sledgehammer finds this - TODO: find nicer proof *)
     proof -
-    { fix bb :: 'b and pp :: "'b node ptr" and bbs :: "'b list" and aa :: llvm_amemory and bba :: 'b and ppa :: "'b node ptr" and bbsa :: "'b list"
-      have "\<not> (\<upharpoonleft>ll_bpto (Node bb pp) p \<and>* A x bb \<and>* lseg bbs pp null \<and>* \<upharpoonleft>(list_assn (mk_assn A)) xs bbs) aa \<and> \<not> (\<upharpoonleft>ll_bpto (Node bba ppa) p \<and>* lseg bbsa ppa null \<and>* A x bba \<and>* \<upharpoonleft>(list_assn (mk_assn A)) xs bbsa) aa \<or> (\<exists>b pa bs ba pb bsa. (\<upharpoonleft>ll_bpto (Node b pa) p \<and>* A x b \<and>* lseg bs pa null \<and>* \<upharpoonleft>(list_assn (mk_assn A)) xs bs) aa \<and> (\<upharpoonleft>ll_bpto (Node ba pb) p \<and>* lseg bsa pb null \<and>* A x ba \<and>* \<upharpoonleft>(list_assn (mk_assn A)) xs bsa) aa)"
+      { fix bb :: 'b and pp :: "'b node ptr" and bbs :: "'b list" 
+        and aa :: llvm_amemory and bba :: 'b and ppa :: "'b node ptr" 
+        and bbsa :: "'b list"
+      have "\<not> (\<upharpoonleft>ll_bpto (Node bb pp) p 
+                \<and>* A x bb \<and>* lseg bbs pp null 
+                \<and>* \<upharpoonleft>(list_assn (mk_assn A)) xs bbs) aa 
+         \<and> \<not> (\<upharpoonleft>ll_bpto (Node bba ppa) p 
+                \<and>* lseg bbsa ppa null 
+                \<and>* A x bba \<and>* \<upharpoonleft>(list_assn (mk_assn A)) xs bbsa) aa 
+           \<or> (\<exists>b pa bs ba pb bsa. (\<upharpoonleft>ll_bpto (Node b pa) p 
+                                    \<and>* A x b \<and>* lseg bs pa null 
+                                    \<and>* \<upharpoonleft>(list_assn (mk_assn A)) xs bs) aa 
+                                 \<and> (\<upharpoonleft>ll_bpto (Node ba pb) p \<and>* lseg bsa pb null 
+                                    \<and>* A x ba \<and>* \<upharpoonleft>(list_assn (mk_assn A)) xs bsa) aa)"
      by (smt (verit) sep.mult.left_commute) }
-    then show "(\<lambda>a. \<exists>b bs pa. (\<upharpoonleft>ll_bpto (Node b pa) p \<and>* lseg bs pa null \<and>* A x b \<and>* \<upharpoonleft>(list_assn (mk_assn A)) xs bs) a) = (\<lambda>a. \<exists>b pa bs. (\<upharpoonleft>ll_bpto (Node b pa) p \<and>* A x b \<and>* lseg bs pa null \<and>* \<upharpoonleft>(list_assn (mk_assn A)) xs bs) a)"
+  then show "(\<lambda>a. \<exists>b bs pa. (\<upharpoonleft>ll_bpto (Node b pa) p 
+                              \<and>* lseg bs pa null \<and>* A x b 
+                              \<and>* \<upharpoonleft>(list_assn (mk_assn A)) xs bs) a) = (\<lambda>a. \<exists>b pa bs. (\<upharpoonleft>ll_bpto (Node b pa) p 
+                              \<and>* A x b \<and>* lseg bs pa null 
+                              \<and>* \<upharpoonleft>(list_assn (mk_assn A)) xs bs) a)"
       by meson
     qed
   done 
@@ -465,6 +481,63 @@ proof -
     by (sepref_to_hoare; vcg)
 qed
 
+
+text \<open>Guarded variant: the step function's rule only holds for elements
+  satisfying \<open>P\<close>; the fold then requires all list elements to satisfy \<open>P\<close>.\<close>
+lemma cl_fold_rule_guard:
+  assumes F: \<open>\<And>a ai x xi. P x \<Longrightarrow> llvm_htriple
+      (R a ai ** A x xi) (f ai xi) (\<lambda>r. R (fa a x) r ** A x xi)\<close>
+  assumes ALL: \<open>\<forall>x \<in> set xs. P x\<close>
+  shows \<open>llvm_htriple
+    (R a ai ** cl_assn' A xs p)
+    (cl_fold f (p, ai))
+    (\<lambda>r. R (foldl fa a xs) r ** cl_assn' A xs p)\<close>
+  using ALL
+proof (induction xs arbitrary: a ai p)
+  case Nil
+  show ?case
+    supply [simp] = cl_assn_simps
+    apply (subst cl_fold_unfold)
+    by vcg
+next
+  case (Cons x xs)
+  from Cons.prems have Px: \<open>P x\<close> and TL: \<open>\<forall>y \<in> set xs. P y\<close> by auto
+  note [vcg_rules] = Cons.IH[OF TL] F[OF Px]
+  show ?case
+    supply [simp] = cl_assn_simps
+    apply (subst cl_fold_unfold)
+    by vcg
+qed
+
+lemma cl_fold'_rule_guard:
+  assumes F: \<open>\<And>a ai x xi. P x \<Longrightarrow> llvm_htriple
+      (R a ai ** A x xi) (f ai xi) (\<lambda>r. R (fa a x) r ** A x xi)\<close>
+  assumes ALL: \<open>\<forall>x \<in> set xs. P x\<close>
+  shows \<open>llvm_htriple
+    (R a ai ** cl_assn' A xs p)
+    (cl_fold' f ai p)
+    (\<lambda>r. R (foldl fa a xs) r ** cl_assn' A xs p)\<close>
+  unfolding cl_fold'_def
+  supply [vcg_rules] = cl_fold_rule_guard[where a=a and ai=ai and R=R, OF F ALL]
+  by vcg
+
+lemma cl_fold_hfref_guard:
+  assumes F: \<open>(uncurry fi, uncurry (RETURN oo fa)) \<in> [\<lambda>(_, x). P x]\<^sub>a R\<^sup>d *\<^sub>a A\<^sup>k \<rightarrow> R\<close>
+  shows \<open>(uncurry (cl_fold' fi), uncurry (RETURN oo foldl fa))
+        \<in> [\<lambda>(_, xs). \<forall>x \<in> set xs. P x]\<^sub>a R\<^sup>d *\<^sub>a (cl_assn' A)\<^sup>k \<rightarrow> R\<close>
+proof -
+  have BODY: \<open>P x \<Longrightarrow> llvm_htriple (R a ai ** A x xi) (fi ai xi)
+                (\<lambda>r. R (fa a x) r ** A x xi)\<close> for a ai x xi
+    apply (rule htriple_ent_post[OF _ hfref_htriple_d1_k2_guard[OF F]])
+    by (simp_all add: sep_conj_aci)
+  show ?thesis
+    apply sepref_to_hoare
+    subgoal premises prems for b bi a ai
+      supply [vcg_rules] =
+        cl_fold'_rule_guard[where R=R and A=A and f=fi and fa=fa, OF BODY prems(1)]
+      by vcg
+    done
+qed
 
 section \<open>@{term op_list_contains}\<close>
 
