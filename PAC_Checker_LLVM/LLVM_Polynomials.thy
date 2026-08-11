@@ -1,19 +1,11 @@
 theory LLVM_Polynomials
   imports LLVM_String BigInt_LLVM.LLVM_CodeGen_Signed IICF_PartialMap
-    PAC_Polynomials_Term BigInt_String
+    PAC_Polynomials_Term LLVM_ASCII_String IICF_Copying_List
 begin
 
 text \<open>This theory defines refinment targets for polynomials in LLVM.
   The HOL-datatype we want to refine is `llist_polynomial` (i.e.
   @{typ \<open>(char list list \<times> int) list\<close>}, c.f. `PAC_Polynomials_Term`).\<close>
-
-text \<open>\<open>BigInt_String\<close> (via the old \<open>IICF_Open_List\<close>) registers a rule for
-  @{term op_list_empty} at os-lists. Since it is a producer (its result
-  assertion is unconstrained at rule-application time) and more recently
-  declared than the copying-list rule, sepref would commit to it when
-  synthesizing list literals, and fail later. All lists in this theory are
-  copying lists, so we simply deregister it.\<close>
-lemmas [sepref_fr_rules del] = os_empty_hnr
 
 term strl_assn
 abbreviation \<open>monom_assn \<equiv> cl_assn' strl_assn'\<close>
@@ -45,29 +37,6 @@ interpretation monom: cmp_env_impl
   subgoal by auto
   subgoal by (rule strl_le_hnr)
   done
-
-text \<open>Printing for monoms, using lists with tail pointer. Not verified!\<close>
-definition print_monom :: \<open>char list list \<Rightarrow> char list nres\<close> where
-  \<open>print_monom \<equiv> \<lambda>ms. doN {
-    (r,_) \<leftarrow> WHILET
-      (\<lambda>(r,ms). ms\<noteq>[])
-      (\<lambda>(r,ms). doN {
-        (m,ms) \<leftarrow> mop_list_pop_hd ms;
-        (r',_) \<leftarrow> WHILET
-          (\<lambda>(r',ms'). ms'\<noteq>[])
-          (\<lambda>(r',ms'). doN {
-            (m',ms') \<leftarrow> mop_list_pop_hd ms';
-            RETURN (r'@[m'],ms') 
-          }) ([], m);
-        RETURN (r@r',ms)
-      }) ([], ms);
-    RETURN r 
-  }\<close>
-
-sepref_def print_monom_impl is \<open>print_monom\<close>
-  :: \<open>monom_assn\<^sup>d \<rightarrow>\<^sub>a strl_assn'\<close>
-  unfolding print_monom_def ls_emp
-  by sepref
 
 experiment
 begin
@@ -214,8 +183,6 @@ lemma monomial_assn_unfold:
   \<open>ENTAILS (monomial_assn p pii) (case p of (pm,pn) \<Rightarrow> case pii of (pmi,pni) \<Rightarrow> monom_assn pm pmi ** sbi_assn pn pni)\<close>
   by (auto simp: sep_algebra_simps ENTAILS_def entails_def) 
 
-lemma stupid: \<open>monomial_assn = (monom_assn \<times>\<^sub>a sbi_assn)\<close> by simp
-
 lemma monomial_le_rule[vcg_rules]:
   \<open>llvm_htriple
     (monomial_assn p pii ** monomial_assn q qii)
@@ -293,131 +260,100 @@ sepref_definition polynomial_eq_test is \<open>uncurry (RETURN oo (=))\<close>
 
 end
 
-section \<open>Printing of Polynomials\<close>
+section \<open>Printing\<close>
 
-lemma char_of_digit_zero: \<open>char_of_word (ascii_of_digit 0) = CHR ''0''\<close>
-  by eval
+text \<open>Note that printing is not verified, as that would require a semantics
+  for polynomial strings which we currently don't have.\<close>
 
-lemma char_of_word_hyphen_lit: \<open>char_of_word word_hyphen = CHR ''-''\<close>
-  by eval
+(* Todo: migrate to strlt_assn as follows and make ^k version - should be possible
+ * by using fold for print_monom *)
+abbreviation \<open>strlt_assn \<equiv> clt_assn' char_assn\<close>
 
-text \<open>Relating byte strings to their character strings.\<close>
-definition char_bytes_rel :: \<open>(char list \<times> 8 word list) set\<close> where
-  \<open>char_bytes_rel \<equiv> {(cs, bs). cs = map char_of_word bs}\<close>
+definition print_monom_inner :: \<open>char list \<Rightarrow> char list \<Rightarrow> char list\<close> where
+  \<open>print_monom_inner \<equiv> \<lambda>acc t. acc @ (cl_to_clt t)\<close>
 
-subsection \<open>Unsigned big integers to strings\<close>
-
-text \<open>Fused variant of @{term print_bi_ascii'} that produces HOL characters.\<close>
-definition print_bi_strl :: \<open>big_int \<Rightarrow> char list nres\<close> where
-  \<open>print_bi_strl bi \<equiv> doN {
-    ASSERT (big_int_invar bi);
-    if big_int_length bi = 0 then RETURN ''0''
-    else doN {
-      (_, res) \<leftarrow> WHILEIT
-        (\<lambda>_. True)
-        (\<lambda>(q, _). 0 < big_int_length q)
-        (\<lambda>(q, res). doN {
-          (q', r) \<leftarrow> bi_div_by_w64 q 10;
-          RETURN (q', char_of_word (ascii_of_digit r) # res)
-        })
-        (bi, []);
-      RETURN res
-    }
-  }\<close>
-
-lemma print_bi_strl_refine:
-  \<open>print_bi_strl bi \<le> \<Down> char_bytes_rel (print_bi_ascii' bi)\<close>
-  unfolding print_bi_strl_def print_bi_ascii'_def
-  apply (refine_rcg WHILEIT_refine[where R = \<open>Id \<times>\<^sub>r char_bytes_rel\<close>])
-  apply refine_dref_type
-  by (auto simp: char_bytes_rel_def conc_Id char_of_digit_zero)
-
-sepref_register print_bi_strl
-sepref_def print_bi_strl_impl is \<open>print_bi_strl\<close>
-  :: \<open>bi_aux_assn\<^sup>d \<rightarrow>\<^sub>a strl_assn'\<close>
-  unfolding print_bi_strl_def
-  apply (annot_snat_const size_t)
+sepref_def print_monom_inner_impl is \<open>uncurry (RETURN oo print_monom_inner)\<close>
+  :: \<open>strlt_assn\<^sup>d *\<^sub>a strl_assn'\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
+  unfolding print_monom_inner_def
   by sepref
 
-subsection \<open>Signed big integers to strings\<close>
+definition print_monom :: \<open>char list list \<Rightarrow> char list\<close> where
+  \<open>print_monom \<equiv> foldl print_monom_inner []\<close>
 
-definition print_sbi_strl :: \<open>signed_big_int \<Rightarrow> char list nres\<close> where
-  \<open>print_sbi_strl sbi \<equiv> doN {
-    let \<sigma>_in = \<sigma> sbi;
-    bi \<leftarrow> dest_extr_bi sbi;
-    abs_str \<leftarrow> print_bi_strl bi;
-    if \<sigma>_in then RETURN (CHR ''-'' # abs_str) else RETURN abs_str
-  }\<close>
+definition \<open>print_monom_impl \<equiv> \<lambda>m. doM {e \<leftarrow> clt_empty; cl_fold' print_monom_inner_impl e m}\<close> 
 
-lemma print_sbi_strl_refine:
-  \<open>print_sbi_strl sbi \<le> \<Down> char_bytes_rel (print_sbi_ascii sbi)\<close>
-  unfolding print_sbi_strl_def print_sbi_ascii_def
-  apply (refine_rcg print_bi_strl_refine)
-  apply refine_dref_type
-  by (auto simp: char_bytes_rel_def conc_Id char_of_word_hyphen_lit)
+lemma print_monom_rule: \<open>llvm_htriple
+  (monom_assn m mi)
+  (print_monom_impl mi)
+  (\<lambda>r. monom_assn m mi ** strlt_assn (print_monom m) r)\<close>
+proof -
+  have INNER_vcg: \<open>llvm_htriple
+    (strlt_assn acc acci ** strl_assn' t ti)
+    (print_monom_inner_impl acci ti)
+    (\<lambda>r. strlt_assn (print_monom_inner acc t) r ** strl_assn' t ti)\<close> for acc acci t ti
+    apply (rule htriple_ent_post[OF _ hfref_htriple_d1_k2[OF print_monom_inner_impl.refine]])
+    by (simp add: sep_conj_aci)
+  show ?thesis
+    unfolding print_monom_impl_def
+    supply [vcg_rules] = cl_fold'_rule[where R="strlt_assn" and A="strl_assn'"
+      and f=print_monom_inner_impl and fa=print_monom_inner,
+      OF INNER_vcg]
+    supply [simp] = print_monom_def
+    by vcg
+qed
 
-lemma print_sbi_strl_correct:
-  assumes \<open>(sbi, i) \<in> signed_big_int_rel\<close>
-  shows \<open>print_sbi_strl sbi \<le> SPEC (\<lambda>s. (s, i) \<in> ascii_str_int_rel)\<close>
-  using print_sbi_strl_refine[of sbi] print_sbi_ascii_correct[OF assms]
-  by (auto simp: pw_le_iff refine_pw_simps char_bytes_rel_def)
+lemma print_monom_hnr[sepref_fr_rules]:
+  \<open>(print_monom_impl, (RETURN o print_monom))
+  \<in> monom_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
+  apply (sepref_to_hoare)
+  supply [vcg_rules] = print_monom_rule
+  by vcg
 
-sepref_def print_sbi_strl_impl is \<open>print_sbi_strl\<close>
-  :: \<open>sbi_aux_assn\<^sup>d \<rightarrow>\<^sub>a strl_assn'\<close>
-  unfolding print_sbi_strl_def
+definition \<open>mnml_print \<equiv> \<lambda>(m,n). cl_to_clt (chars_of_int (COPY n)) @ print_monom m\<close>
+
+sepref_def mnml_print_impl is \<open>RETURN o mnml_print\<close>
+  :: \<open>monomial_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
+  unfolding mnml_print_def
   by sepref
 
-subsection \<open>Integers to strings\<close>
+definition poly_print_inner :: \<open>char list \<Rightarrow> char list list \<times> int \<Rightarrow> char list\<close> where
+  \<open>poly_print_inner \<equiv> \<lambda>acc p. acc @ mnml_print p\<close>
 
-text \<open>The abstract operation on the @{typ int} level: any decimal string
-  representation of the integer. This is the operation to use in abstract
-  programs whose integers are refined by @{term sbi_assn}.\<close>
-definition strl_of_int :: \<open>int \<Rightarrow> char list nres\<close> where
-  \<open>strl_of_int i \<equiv> SPEC (\<lambda>s. (s, i) \<in> ascii_str_int_rel)\<close>
-
-lemma print_sbi_strl_fref:
-  \<open>(print_sbi_strl, strl_of_int) \<in> signed_big_int_rel \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
-  by (intro frefI nres_relI)
-    (auto simp: strl_of_int_def conc_Id intro!: print_sbi_strl_correct)
-
-sepref_register strl_of_int
-context notes [fcomp_norm_unfold] = sbi_assn_def[symmetric]
-begin
-lemmas strl_of_int_hnr[sepref_fr_rules] =
-  print_sbi_strl_impl.refine[FCOMP print_sbi_strl_fref]
-end
-
-subsection \<open>Printing whole polynomials\<close>
-
-text \<open>Like @{term print_monom}, the printing of polynomials is not verified.
-  Monomials are printed as \<open>coefficient*variables\<close> and separated by \<open> + \<close>;
-  the empty polynomial prints as \<open>0\<close>. Note that negative coefficients keep
-  their sign, so a polynomial may print as e.g.\ \<open>2*xy + -1*z\<close>.\<close>
-
-sepref_register print_monom
-
-definition print_polynomial :: \<open>llist_polynomial \<Rightarrow> char list nres\<close> where
-  \<open>print_polynomial \<equiv> \<lambda>p. doN {
-    if p = [] then RETURN ''0''
-    else doN {
-      ((m, c), p) \<leftarrow> mop_list_pop_hd p;
-      cs \<leftarrow> strl_of_int c;
-      ms \<leftarrow> print_monom m;
-      (r, _) \<leftarrow> WHILET
-        (\<lambda>(r, p). p \<noteq> [])
-        (\<lambda>(r, p). doN {
-          ((m, c), p) \<leftarrow> mop_list_pop_hd p;
-          cs \<leftarrow> strl_of_int c;
-          ms \<leftarrow> print_monom m;
-          RETURN (r @ '' + '' @ cs @ ''*'' @ ms, p)
-        }) (cs @ ''*'' @ ms, p);
-      RETURN r
-    }
-  }\<close>
-
-sepref_def print_polynomial_impl is \<open>print_polynomial\<close>
-  :: \<open>polynomial_assn\<^sup>d \<rightarrow>\<^sub>a strl_assn'\<close>
-  unfolding print_polynomial_def ls_emp ls_emp'
+sepref_def poly_print_inner_impl is \<open>uncurry (RETURN oo poly_print_inner)\<close>
+  :: \<open>strlt_assn\<^sup>d *\<^sub>a monomial_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
+  unfolding poly_print_inner_def
   by sepref
+
+definition poly_print :: \<open>llist_polynomial \<Rightarrow> string\<close> where
+  \<open>poly_print \<equiv> foldl poly_print_inner []\<close>
+
+definition \<open>poly_print_impl \<equiv> \<lambda>ps. doM {e \<leftarrow> clt_empty; cl_fold' poly_print_inner_impl e ps}\<close>
+
+lemma poly_print_rule: \<open>llvm_htriple
+  (polynomial_assn ps psi)
+  (poly_print_impl psi)
+  (\<lambda>r. polynomial_assn ps psi ** strlt_assn (poly_print ps) r)\<close>
+proof -
+  have INNER_vcg: \<open>llvm_htriple
+    (strlt_assn acc acci ** monomial_assn p pi)
+    (poly_print_inner_impl acci pi)
+    (\<lambda>r. strlt_assn (poly_print_inner acc p) r ** monomial_assn p pi)\<close> for acc acci p pi
+    apply (rule htriple_ent_post[OF _ hfref_htriple_d1_k2[OF poly_print_inner_impl.refine]])
+    by (simp add: sep_conj_aci)
+  show ?thesis
+    unfolding poly_print_impl_def
+    supply [vcg_rules] = cl_fold'_rule[where R="strlt_assn" and A="monomial_assn"
+      and f=poly_print_inner_impl and fa=poly_print_inner,
+      OF INNER_vcg]
+    supply [simp] = poly_print_def
+    by vcg
+qed
+
+lemma poly_print_hnr[sepref_fr_rules]:
+  \<open>(poly_print_impl, (RETURN o poly_print))
+  \<in> polynomial_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
+  apply (sepref_to_hoare)
+  supply [vcg_rules] = poly_print_rule
+  by vcg
 
 end

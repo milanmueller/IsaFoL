@@ -1302,6 +1302,20 @@ lemma clt_empty_rule[vcg_rules]: \<open>llvm_htriple \<box> clt_empty (\<lambda>
   supply [simp] = clt_assn_conv
   by vcg
 
+definition op_clt_empty :: \<open>'a list\<close> where [simp]: \<open>op_clt_empty \<equiv> op_list_empty\<close>
+sepref_register op_clt_empty
+
+lemma fold_clt_empty:
+  \<open>[] = op_clt_empty\<close>
+  \<open>op_list_empty = op_clt_empty\<close>
+  \<open>mop_list_empty = RETURN op_clt_empty\<close>
+  by simp_all
+
+lemma clt_empty_hnr[sepref_fr_rules]:
+  \<open>(uncurry0 clt_empty, uncurry0 (RETURN op_clt_empty)) \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a clt_assn' A\<close>
+  unfolding op_clt_empty_def
+  by (sepref_to_hoare; vcg)
+
 subsubsection \<open>Snoc (append at the end, O(1))\<close>
 
 text \<open>Takes ownership of the element, like @{term cl_prepend}. The list argument comes
@@ -1361,6 +1375,11 @@ lemma clt_snoc_rule[vcg_rules]:
     apply (rule clt_snoc_step; assumption)
     done
   done
+
+lemma clt_snoc_hnr[sepref_fr_rules]:
+  \<open>(uncurry clt_snoc, uncurry (RETURN oo op_list_append))
+    \<in> (clt_assn' A)\<^sup>d *\<^sub>a A\<^sup>d \<rightarrow>\<^sub>a clt_assn' A\<close>
+  by (sepref_to_hoare; vcg)
 
 end
 
@@ -1429,6 +1448,11 @@ lemma clt_concat_rule[vcg_rules]:
     done
   done
 
+lemma clt_concat_hnr[sepref_fr_rules]:
+  \<open>(uncurry clt_concat, uncurry (RETURN oo op_list_concat))
+    \<in> (clt_assn' A)\<^sup>d *\<^sub>a (clt_assn' A)\<^sup>d \<rightarrow>\<^sub>a clt_assn' A\<close>
+  by (sepref_to_hoare; vcg)
+
 end
 
 subsubsection \<open>Conversion to @{term cl_assn}\<close>
@@ -1444,6 +1468,13 @@ lemma clt_to_cl_rule[vcg_rules]:
     apply (rule htriple_ent_pre[OF clt_cl_entails])
     by vcg
   done
+
+definition op_clt_to_cl :: \<open>'a list \<Rightarrow> 'a list\<close> where [simp]: \<open>op_clt_to_cl xs = xs\<close>
+sepref_register op_clt_to_cl
+
+lemma clt_to_cl_hnr[sepref_fr_rules]:
+  \<open>(clt_to_cl, RETURN o op_clt_to_cl) \<in> (clt_assn' A)\<^sup>d \<rightarrow>\<^sub>a cl_assn' A\<close>
+  by (sepref_to_hoare; vcg)
 
 subsubsection \<open>Free\<close>
 
@@ -1467,38 +1498,57 @@ qed
 
 end
 
-subsection \<open>Interface (hnr) Rules\<close>
+subsubsection \<open>Copyable @{term cl_assn} to @{term clt_assn} (keeps the original list)\<close>
 
-definition op_clt_empty :: \<open>'a list\<close> where [simp]: \<open>op_clt_empty \<equiv> op_list_empty\<close>
-sepref_register op_clt_empty
+definition cl_to_clt :: \<open>'a list \<Rightarrow> 'a list\<close> where
+  \<open>cl_to_clt \<equiv> foldl (\<lambda>acc a. acc @ [a]) []\<close>
 
-lemma fold_clt_empty:
-  \<open>[] = op_clt_empty\<close>
-  \<open>op_list_empty = op_clt_empty\<close>
-  \<open>mop_list_empty = RETURN op_clt_empty\<close>
-  by simp_all
+definition cl_to_clt_inner :: \<open>'a list \<Rightarrow> 'a \<Rightarrow> 'a list\<close> where
+  \<open>cl_to_clt_inner \<equiv> \<lambda>acc a. acc @ [COPY a]\<close>
 
-lemma clt_empty_hnr[sepref_fr_rules]:
-  \<open>(uncurry0 clt_empty, uncurry0 (RETURN op_clt_empty)) \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a clt_assn' A\<close>
-  unfolding op_clt_empty_def
+lemma foldl_snoc: \<open>foldl (\<lambda>acc a. acc @ [a]) a xs = a @ xs\<close>
+  by (induction xs arbitrary: a) auto
+
+lemma foldl_cl_to_clt_inner: \<open>foldl cl_to_clt_inner a xs = a @ xs\<close>
+  by (induction xs arbitrary: a) (auto simp: cl_to_clt_inner_def)
+
+lemma cl_to_clt_id: \<open>cl_to_clt xs = xs\<close>
+  unfolding cl_to_clt_def by (simp add: foldl_snoc)
+
+context copyable_assn
+begin
+
+sepref_def cl_to_clt_inner_impl is \<open>uncurry (RETURN oo cl_to_clt_inner)\<close>
+  :: \<open>(clt_assn' A)\<^sup>d *\<^sub>a A\<^sup>k \<rightarrow>\<^sub>a clt_assn' A\<close>
+  unfolding cl_to_clt_inner_def
+  by sepref
+
+definition \<open>cl_to_clt_impl \<equiv> \<lambda>p. doM {e \<leftarrow> clt_empty; cl_fold' cl_to_clt_inner_impl e p}\<close>
+
+lemma cl_to_clt_rule: \<open>llvm_htriple
+  ((cl_assn' A) xs xsi)
+  (cl_to_clt_impl xsi)
+  (\<lambda>r. (cl_assn' A) xs xsi ** (clt_assn' A) xs r)\<close>
+proof -
+  have BODY: \<open>llvm_htriple (clt_assn' A a ai ** A x xi) (cl_to_clt_inner_impl ai xi)
+      (\<lambda>r. clt_assn' A (cl_to_clt_inner a x) r ** A x xi)\<close> for a ai x xi
+    apply (rule htriple_ent_post[OF _ hfref_htriple_d1_k2[OF cl_to_clt_inner_impl.refine]])
+    by (simp add: sep_conj_aci)
+  show ?thesis
+    unfolding cl_to_clt_impl_def
+    supply [vcg_rules] = cl_fold'_rule[where R=\<open>clt_assn' A\<close> and A=A
+        and f=cl_to_clt_inner_impl and fa=cl_to_clt_inner, OF BODY]
+    supply [simp] = foldl_cl_to_clt_inner
+    by vcg
+qed
+
+lemma cl_to_clt_hnr[sepref_fr_rules]:
+  \<open>(cl_to_clt_impl, RETURN o cl_to_clt) \<in> (cl_assn' A)\<^sup>k \<rightarrow>\<^sub>a clt_assn' A\<close>
+  supply [vcg_rules] = cl_to_clt_rule
+  supply [simp] = cl_to_clt_id
   by (sepref_to_hoare; vcg)
-
-lemma clt_snoc_hnr[sepref_fr_rules]:
-  \<open>(uncurry clt_snoc, uncurry (RETURN oo op_list_append))
-    \<in> (clt_assn' A)\<^sup>d *\<^sub>a A\<^sup>d \<rightarrow>\<^sub>a clt_assn' A\<close>
-  by (sepref_to_hoare; vcg)
-
-lemma clt_concat_hnr[sepref_fr_rules]:
-  \<open>(uncurry clt_concat, uncurry (RETURN oo op_list_concat))
-    \<in> (clt_assn' A)\<^sup>d *\<^sub>a (clt_assn' A)\<^sup>d \<rightarrow>\<^sub>a clt_assn' A\<close>
-  by (sepref_to_hoare; vcg)
-
-definition op_clt_to_cl :: \<open>'a list \<Rightarrow> 'a list\<close> where [simp]: \<open>op_clt_to_cl xs = xs\<close>
-sepref_register op_clt_to_cl
-
-lemma clt_to_cl_hnr[sepref_fr_rules]:
-  \<open>(clt_to_cl, RETURN o op_clt_to_cl) \<in> (clt_assn' A)\<^sup>d \<rightarrow>\<^sub>a cl_assn' A\<close>
-  by (sepref_to_hoare; vcg)
+    
+end
 
 section \<open>Extras\<close>
 text \<open>Some lemmas which are often helpful for refining functions that work on lists\<close>
