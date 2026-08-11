@@ -1,5 +1,5 @@
 theory LLVM_String
-  imports Char_Assn IICF_Copying_List Isabelle_LLVM.IICF
+  imports Printing_Setup IICF_Copying_List Isabelle_LLVM.IICF
     PAC_Polynomials_Sort
 begin
 
@@ -188,7 +188,7 @@ definition stra_of_strl :: \<open>string \<Rightarrow> string nres\<close> where
     l \<leftarrow> capped_length (COPY xs);
     let r = replicate l (char_of_word 0);
     (r,_,_) \<leftarrow> WHILET
-      (\<lambda>(r,xs,i). xs\<noteq>[])
+      (\<lambda>(r,xs,i). xs\<noteq>[] \<and> i < l)
       (\<lambda>(r,xs,i). doN {
         ASSERT(i + 1 < max_snat 64);
         (s,xs) \<leftarrow> mop_list_pop_hd xs;
@@ -199,6 +199,17 @@ definition stra_of_strl :: \<open>string \<Rightarrow> string nres\<close> where
     RETURN r
   }\<close>
 
+lemma stra_of_strl_nofail: \<open>stra_of_strl xs \<le> RES UNIV\<close>
+  unfolding stra_of_strl_def
+  apply (refine_vcg capped_length_spec[THEN order_trans]
+      WHILET_rule[where
+        I=\<open>\<lambda>(r,ys,i). length r = min (length xs) strl_ceil \<and> i \<le> length r\<close> and
+        R=\<open>measure (\<lambda>(_,ys,_). length ys)\<close>])
+  apply simp_all
+  apply fastforce
+  by (metis Suc_diff_1 Suc_less_eq max_snat_def nat_zero_less_power_iff
+    numeral_2_eq_2 strl_ceil_val zero_less_Suc) 
+  
 sepref_register \<open>capped_length\<close>
 sepref_def stra_of_strl_impl is \<open>stra_of_strl\<close>
   :: \<open>strl_assn'\<^sup>d \<rightarrow>\<^sub>a stra_assn\<close>

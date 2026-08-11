@@ -1071,9 +1071,6 @@ locale boxed_copying_pmap = boxed_pmap A afree + copyable_assn A afree acopy
   for A :: \<open>'a \<Rightarrow> 'b::llvm_rep \<Rightarrow> assn\<close> and afree and acopy
 begin
 
-text \<open>The \<open>array_pmap\<close> part at the boxed instance is already available through
-  \<open>boxed_pmap\<close>; only the boxed copy operation is new.\<close>
-
 sublocale bx: copying_array_pmap \<open>null\<close> \<open>\<upharpoonleft>(box_assn A)\<close> \<open>box_is_null\<close> \<open>box_free afree\<close> \<open>box_copy acopy\<close>
   apply unfold_locales
   by ((rule box_is_null_rule box_free_rule[OF afree_free]
