@@ -8,14 +8,6 @@ begin
 
 subsection \<open>Addition\<close>
 
-text \<open>In this section, we refine the polynomials to list. These lists will be used in our checker
-to represent the polynomials and execute operations.
-
-There is one \<^emph>\<open>key\<close> difference between the list representation and the usual representation: in the
-former, coefficients can be zero and monomials can appear several times. This makes it easier to
-reason on intermediate representation where this has not yet been sanitized.
-\<close>
-
 fun add_poly_l' :: \<open>llist_polynomial \<times> llist_polynomial \<Rightarrow> llist_polynomial\<close> where
   \<open>add_poly_l' (p, []) = p\<close> |
   \<open>add_poly_l' ([], q) = q\<close> |

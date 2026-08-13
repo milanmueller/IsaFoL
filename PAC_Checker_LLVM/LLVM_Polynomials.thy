@@ -201,10 +201,6 @@ lemma monomial_le_hnr[sepref_fr_rules]:
   supply [simp] = list_le_less_eq pure_def
   by (sepref_to_hoare; vcg)
 
-text \<open>Monomial equality: compare the variable lists first, the coefficients only
-  on a match. Like @{term monomial_le_impl'} this is written at the llM level to
-  keep both tuples intact.\<close>
-
 definition mnml_eq_impl' :: \<open>monomial_conc \<Rightarrow> monomial_conc \<Rightarrow> 1 word llM\<close> where[llvm_code]:
   \<open>mnml_eq_impl' \<equiv> \<lambda>(pm,pn) (qm,qn). doM {
     r \<leftarrow> monom.cl_eq pm qm;

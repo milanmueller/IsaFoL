@@ -188,21 +188,9 @@ lemma pat_map_is_empty[pat_rules]:
   unfolding atomize_eq
   by (auto dest: sym)
 
-text \<open>In current Isabelle, \<open>\<in>#\<close> is an \<^emph>\<open>abbreviation\<close> (\<open>member_mset a M \<equiv>
-  a \<in> set_mset M\<close>), so a pattern written \<open>(\<in>#) $ k $ (dom_m$m)\<close> elaborates to
-  \<open>(\<lambda>a M. a \<in> set_mset M) $ k $ (dom_m$m)\<close> (the \<open>$\<close> tags block beta reduction),
-  which never matches the protected program term
-  \<open>(\<in>) $ k $ (set_mset $ (dom_m $ m))\<close>. The pattern must be stated in the
-  really-elaborated shape (the original AFP form was dead code; its syntheses
-  sidestepped it by manually unfolding \<open>in_dom_m_lookup_iff\<close>). It is \<^emph>\<open>definite\<close>
-  (\<open>def_pat_rules\<close>, applied with priority): the live IICF-multiset pattern
-  \<open>(\<in>) $x$(set_mset$a) \<equiv> op_mset_contains$x$a\<close> otherwise hijacks the term and
-  strands the identification phase on \<open>dom_m\<close>.\<close>
-
 lemma op_map_contains_key[def_pat_rules]:
   "(\<in>) $ k $ (set_mset $ (dom_m$m)) \<equiv> op_fmap_contains_key$k$m"
   by (auto intro!: eq_reflection)
-
 
 subsection \<open>Mapping to Normal Hashmaps\<close>
 

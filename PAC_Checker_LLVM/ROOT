@@ -10,7 +10,6 @@ session PAC_Checker_LLVM = "Isabelle_LLVM" +
     "Polynomials"
     Nested_Multisets_Ordinals
     BigInt_LLVM
-    PAC_Checker_LLVM_old
   theories
     Assn_Env
     More_Loops

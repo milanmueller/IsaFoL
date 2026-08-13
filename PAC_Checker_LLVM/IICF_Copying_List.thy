@@ -47,7 +47,7 @@ text \<open>coverage of the @{theory Isabelle_LLVM.IICF_List} interface
     \<^item> [ ] \<open>op_list_swap\<close>
     \<^item> [ ] \<open>op_list_rotate1\<close>
     \<^item> [ ] \<open>op_split_list\<close>
-    \<^item> [ ] \<open>op_list_contains\<close>  (needs an element-equality parameter)
+    \<^item> [x] \<open>op_list_contains\<close>  (\<open>cl_contains_hnr\<close>, in the \<open>eq_assn\<close> context)
     \<^item> [ ] \<open>op_list_index\<close>     (needs an element-equality parameter)
   
   Maybe a kind of split operation (where both halves are returned 
@@ -576,6 +576,14 @@ next
     by vcg
 qed
 
+lemma cl_contains_hnr[sepref_fr_rules]:
+  \<open>(uncurry cl_contains, uncurry (RETURN oo op_list_contains))
+    \<in> A\<^sup>k *\<^sub>a (cl_assn' A)\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  apply (sepref_to_hoare; vcg)
+  apply (auto simp: ENTAILS_def entails_def sep_algebra_simps
+    bool1_rel_def bool.rel_def in_br_conv bool.assn_def)
+  apply (metis sep.mult_commute)
+  by (metis sep_conj_commuteI)
 end
 
 section \<open>Destructive/Copying Operations\<close>

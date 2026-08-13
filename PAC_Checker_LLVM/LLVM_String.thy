@@ -217,7 +217,45 @@ sepref_def stra_of_strl_impl is \<open>stra_of_strl\<close>
     larray_fold_custom_replicate
   supply [sepref_fr_rules] = cl_length_hnr[where 'l=64]
   apply (annot_snat_const "TYPE(64)")
-  by sepref 
+  by sepref
+
+definition capped :: \<open>string \<Rightarrow> string\<close> where
+  \<open>capped s = take strl_ceil s\<close>
+
+lemma capped_idem[simp]: \<open>capped (capped s) = capped s\<close>
+  unfolding capped_def by simp
+
+lemma stra_of_strl_spec: \<open>stra_of_strl xs \<le> RETURN (capped xs)\<close>
+  unfolding stra_of_strl_def capped_def COPY_def
+  apply (refine_vcg capped_length_spec[THEN order_trans]
+      WHILET_rule[where
+        I=\<open>\<lambda>(r,ys,i). i \<le> min (length xs) strl_ceil \<and> ys = drop i xs \<and>
+              r = take i xs @ replicate (min (length xs) strl_ceil - i) (char_of_word 0)\<close> and
+        R=\<open>measure (\<lambda>(_,ys,_). length ys)\<close>])
+  apply clarsimp_all
+  subgoal by (metis strl_ceil_val less_diff_conv Suc_eq_plus1)
+  subgoal by (metis drop_Suc tl_drop)
+  subgoal
+    by (smt (verit, ccfv_threshold) Cons_nth_drop_Suc One_nat_def
+    append.right_neutral append_Cons append_eq_append_conv2 append_eq_conv_conj
+    bot_nat_0.not_eq_extremum drop_Suc drop_all drop_replicate drop_tl
+    le_eq_less_or_eq length_replicate length_take list.sel(1,2) min_eq_arg(2)
+    min_simps(1) nat_neq_iff take_Nil take_Suc_conv_app_nth
+    upd_conv_take_nth_drop)
+  subgoal by simp
+  subgoal by (auto simp: replicate_append_same)
+  done
+
+lemma stra_of_strl_fref:
+  \<open>(stra_of_strl, RETURN o capped) \<in> Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  by (intro frefI nres_relI) (auto simp: stra_of_strl_spec)
+
+lemmas stra_of_strl_hnr[sepref_fr_rules] =
+  stra_of_strl_impl.refine[FCOMP stra_of_strl_fref]
+
+lemma stra_of_strl_impl_rule[vcg_rules]:
+  \<open>llvm_htriple (strl_assn' xs xsi) (stra_of_strl_impl xsi) (\<lambda>r. stra_assn (capped xs) r)\<close>
+  by (rule hfref_htriple_d1[OF stra_of_strl_hnr])
 
 experiment
 begin

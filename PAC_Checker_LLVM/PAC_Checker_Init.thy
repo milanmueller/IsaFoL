@@ -90,6 +90,15 @@ sepref_def sort_all_coeffs_impl is \<open>sort_all_coeffs\<close>
 
 section \<open>@{term \<open>sort_poly_spec\<close>}\<close>
 
+lemma term_order_rel_alt_def:
+  \<open>term_order_rel = lexord (p2rel char.lexordp)\<close>
+  by (auto simp: p2rel_def char.lexordp_conv_lexord var_order_rel_def intro!: arg_cong[of _ _ lexord])
+
+lemma term_order_rel_by_lt: \<open>(x,y) \<in> term_order_rel \<equiv> x < y\<close>
+  by (rule eq_reflection)
+    (auto simp: lexordp_conv_lexord less_eq_list_def less_list_def lexordp_def
+      var_order_rel_def rel2p_def term_order_rel_alt_def p2rel_def less_char_inst)
+
 lemma monomial_sort_spec:
   \<open>sorted_wrt (rel2p (Id \<union> term_order_rel)) (map fst p) = sorted_wrt monomial_le p\<close> 
   unfolding monomial_le_def rel2p_def 
