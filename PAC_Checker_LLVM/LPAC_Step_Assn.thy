@@ -5,20 +5,11 @@ begin
 text \<open>Low-level implementation of the LPAC step datatype, mirroring \<open>PAC_Step_Assn\<close>:
   the type is only ever instantiated as
   @{typ \<open>(llist_polynomial, string, nat) LPAC_Checker_Specification.pac_step\<close>}, so we fix
-  the types to keep implementation and proofs straightforward.
-
-  Note that both the PAC and the LPAC step datatypes are in scope here and share the
-  constructor names \<open>Extension\<close>/\<open>Del\<close>; unqualified names resolve to the LPAC versions
-  (the later declaration wins), and the case expression below is disambiguated by the
-  scrutinee's type anyway.\<close>
+  the types to keep implementation and proofs straightforward.\<close>
 
 type_synonym srcs_conc = \<open>(poly_conc \<times> 64 word) cl_list\<close>
 type_synonym lpac_step_hol = \<open>(llist_polynomial, string, nat) LPAC_Checker_Specification.pac_step\<close>
 
-text \<open>Tagged product carrying all required data of every constructor. The single label
-  slot is shared: it holds \<open>new_id\<close> for \<open>CL\<close>/\<open>Extension\<close> and \<open>pac_src1\<close> for \<open>Del\<close>.
-  Unused slots are filled with \<open>init\<close> by the producers and left unconstrained by the
-  assertion.\<close>
 type_synonym lpac_step_conc =
   \<open>8 word \<times> 64 word \<times> poly_conc \<times> srcs_conc \<times> strl_conc\<close>
 (* tag    \<times> id      \<times> res poly  \<times> lin-comb srcs \<times> var (for ext) *)
@@ -64,10 +55,6 @@ definition mk_ldel_impl :: \<open>64 word \<Rightarrow> lpac_step_conc llM\<clos
   where [llvm_code, llvm_inline]:
   \<open>mk_ldel_impl s1i \<equiv> Mreturn (2, s1i, init, init, init)\<close>
 
-text \<open>As in \<open>PAC_Step_Assn\<close>, the producer rules are registered globally:
-  \<open>lpac_step_assn\<close> is monomorphic and the only implementation, so the result assertion
-  is ground and the producer-commit pitfall cannot occur.\<close>
-
 lemma mk_cl_impl_hnr[sepref_fr_rules]:
   \<open>(uncurry2 mk_cl_impl, uncurry2 (RETURN ooo CL))
     \<in> srcs_assn\<^sup>d *\<^sub>a si64_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>d \<rightarrow>\<^sub>a lpac_step_assn\<close>
@@ -87,10 +74,6 @@ lemma mk_ldel_impl_hnr[sepref_fr_rules]:
   unfolding mk_ldel_impl_def
   apply sepref_to_hoare
   by (vcg; auto simp: step_pure_reassembly)
-
-text \<open>NB: \<open>PAC_Step_Assn\<close> already registered the \<^emph>\<open>PAC\<close> \<open>Extension\<close>/\<open>Del\<close>
-  constructors; the LPAC ones are distinct constants with the same base name. Should
-  the generated fact names clash, switch to the named form of \<open>sepref_register\<close>.\<close>
 
 sepref_register CL
 sepref_register Extension Del

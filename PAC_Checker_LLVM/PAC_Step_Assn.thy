@@ -1,6 +1,6 @@
 theory PAC_Step_Assn
   imports IICF_Copying_List BigInt_LLVM.LLVM_CodeGen_Signed
-    PAC_Checker LLVM_Polynomials
+    PAC_Checker LLVM_Polynomials PAC_Checker_Specification
 begin
 
 text \<open>This theory defines the low-level implementation for the higher order @{typ \<open>('a, 'b, 'lbls) pac_step\<close>}.
@@ -98,6 +98,167 @@ lemma mk_del_impl_hnr[sepref_fr_rules]:
   apply sepref_to_hoare
   by (vcg; auto simp: step_pure_reassembly)
 
-sepref_register Add Mult Extension Del
+section \<open>Distriminators\<close>
+
+definition isAdd_impl :: \<open>pac_step_conc \<Rightarrow> 1 word llM\<close> where [llvm_code, llvm_inline]:
+  \<open>isAdd_impl \<equiv> \<lambda>(tag, s1i, s2i, nii, multpi, resi, vari).  Mreturn (ll_cmp'_eq tag 0)\<close>
+
+definition isMult_impl :: \<open>pac_step_conc \<Rightarrow> 1 word llM\<close> where [llvm_code, llvm_inline]:
+  \<open>isMult_impl \<equiv> \<lambda>(tag, s1i, s2i, nii, multpi, resi, vari).  Mreturn (ll_cmp'_eq tag 1)\<close>
+
+definition isExtension_impl :: \<open>pac_step_conc \<Rightarrow> 1 word llM\<close> where [llvm_code, llvm_inline]:
+  \<open>isExtension_impl \<equiv> \<lambda>(tag, s1i, s2i, nii, multpi, resi, vari).  Mreturn (ll_cmp'_eq tag 2)\<close>
+
+definition isDel_impl :: \<open>pac_step_conc \<Rightarrow> 1 word llM\<close> where [llvm_code, llvm_inline]:
+  \<open>isDel_impl \<equiv> \<lambda>(tag, s1i, s2i, nii, multpi, resi, vari).  Mreturn (ll_cmp'_eq tag 3)\<close>
+
+lemma pac_step_assn_tag:
+  \<open>pure_part (pac_step_assn step (tag, s1i, s2i, nii, multpi, resi, vari)) \<Longrightarrow>
+     (tag = 0) = is_Add step \<and> (tag = 1) = is_Mult step \<and>
+     (tag = 2) = is_Extension step \<and> (tag = 3) = is_Del step\<close>
+  by (cases step) (auto simp: pac_step_assn_def dest!: pure_part_split_conj)
+
+lemmas pac_step_assn_tagD = pure_partI[THEN pac_step_assn_tag]
+
+lemma is_Add_hnr[sepref_fr_rules]:
+  \<open>(isAdd_impl, RETURN o is_Add) \<in> pac_step_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding isAdd_impl_def ll_cmp'_eq_def
+  apply (sepref_to_hoare; vcg)
+  by (auto simp: step_pure_reassembly bool1_rel_def bool.rel_def in_br_conv
+    dest!: pac_step_assn_tagD)
+
+lemma is_Mult_hnr[sepref_fr_rules]:
+  \<open>(isMult_impl, RETURN o is_Mult) \<in> pac_step_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding isMult_impl_def ll_cmp'_eq_def
+  apply (sepref_to_hoare; vcg)
+  by (auto simp: step_pure_reassembly bool1_rel_def bool.rel_def in_br_conv
+    dest!: pac_step_assn_tagD)
+
+lemma is_Extension_hnr[sepref_fr_rules]:
+  \<open>(isExtension_impl, RETURN o is_Extension) \<in> pac_step_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding isExtension_impl_def ll_cmp'_eq_def
+  apply (sepref_to_hoare; vcg)
+  by (auto simp: step_pure_reassembly bool1_rel_def bool.rel_def in_br_conv
+    dest!: pac_step_assn_tagD)
+
+lemma is_Del_hnr[sepref_fr_rules]:
+  \<open>(isDel_impl, RETURN o is_Del) \<in> pac_step_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding isDel_impl_def ll_cmp'_eq_def
+  apply (sepref_to_hoare; vcg)
+  by (auto simp: step_pure_reassembly bool1_rel_def bool.rel_def in_br_conv
+    dest!: pac_step_assn_tagD)
+
+section \<open>Destructors\<close>
+
+definition dest_add :: \<open>pac_step_hol \<Rightarrow> nat \<times> nat \<times> nat \<times> llist_polynomial\<close> where
+  \<open>dest_add step = (pac_src1 step, pac_src2 step, new_id step, pac_res step)\<close>
+
+definition dest_mult :: \<open>pac_step_hol \<Rightarrow> nat \<times> llist_polynomial \<times> nat \<times> llist_polynomial\<close> where
+  \<open>dest_mult step = (pac_src1 step, pac_mult step, new_id step, pac_res step)\<close>
+
+definition dest_extension :: \<open>pac_step_hol \<Rightarrow> nat \<times> string \<times> llist_polynomial\<close> where
+  \<open>dest_extension step = (new_id step, new_var step, pac_res step)\<close>
+
+definition dest_del :: \<open>pac_step_hol \<Rightarrow> nat\<close> where
+  \<open>dest_del step = pac_src1 step\<close>
+
+definition dest_add_impl :: \<open>pac_step_conc \<Rightarrow> (64 word \<times> 64 word \<times> 64 word \<times> poly_conc) llM\<close>
+  where [llvm_code, llvm_inline]:
+  \<open>dest_add_impl \<equiv> \<lambda>(tag, s1i, s2i, nii, multpi, resi, vari). Mreturn (s1i, s2i, nii, resi)\<close>
+
+definition dest_mult_impl :: \<open>pac_step_conc \<Rightarrow> (64 word \<times> poly_conc \<times> 64 word \<times> poly_conc) llM\<close>
+  where [llvm_code, llvm_inline]:
+  \<open>dest_mult_impl \<equiv> \<lambda>(tag, s1i, s2i, nii, multpi, resi, vari). Mreturn (s1i, multpi, nii, resi)\<close>
+
+definition dest_extension_impl :: \<open>pac_step_conc \<Rightarrow> (64 word \<times> strl_conc \<times> poly_conc) llM\<close>
+  where [llvm_code, llvm_inline]:
+  \<open>dest_extension_impl \<equiv> \<lambda>(tag, s1i, s2i, nii, multpi, resi, vari). Mreturn (nii, vari, resi)\<close>
+
+definition dest_del_impl :: \<open>pac_step_conc \<Rightarrow> 64 word llM\<close>
+  where [llvm_code, llvm_inline]:
+  \<open>dest_del_impl \<equiv> \<lambda>(tag, s1i, s2i, nii, multpi, resi, vari). Mreturn s1i\<close>
+
+definition mop_dest_add :: \<open>pac_step_hol \<Rightarrow> (nat \<times> nat \<times> nat \<times> llist_polynomial) nres\<close> where
+  \<open>mop_dest_add step = do {
+     ASSERT (is_Add step);
+     RETURN (dest_add step)
+   }\<close>
+
+definition mop_dest_mult :: \<open>pac_step_hol \<Rightarrow> (nat \<times> llist_polynomial \<times> nat \<times> llist_polynomial) nres\<close>
+  where
+  \<open>mop_dest_mult step = do {
+     ASSERT (is_Mult step);
+     RETURN (dest_mult step)
+   }\<close>
+
+definition mop_dest_extension :: \<open>pac_step_hol \<Rightarrow> (nat \<times> string \<times> llist_polynomial) nres\<close> where
+  \<open>mop_dest_extension step = do {
+     ASSERT (is_Extension step);
+     RETURN (dest_extension step)
+   }\<close>
+
+definition mop_dest_del :: \<open>pac_step_hol \<Rightarrow> nat nres\<close> where
+  \<open>mop_dest_del step = do {
+     ASSERT (is_Del step);
+     RETURN (dest_del step)
+   }\<close>
+
+lemma dest_add_hnr[sepref_fr_rules]:
+  \<open>(dest_add_impl, mop_dest_add)
+    \<in> pac_step_assn\<^sup>d \<rightarrow>\<^sub>a si64_assn \<times>\<^sub>a si64_assn \<times>\<^sub>a si64_assn \<times>\<^sub>a polynomial_assn\<close>
+  unfolding dest_add_impl_def mop_dest_add_def dest_add_def
+  apply sepref_to_hoare
+  apply (case_tac x; simp_all add: refine_pw_simps)
+  by (vcg; auto simp: step_pure_reassembly)
+
+lemma dest_mult_hnr[sepref_fr_rules]:
+  \<open>(dest_mult_impl, mop_dest_mult)
+    \<in> pac_step_assn\<^sup>d \<rightarrow>\<^sub>a si64_assn \<times>\<^sub>a polynomial_assn \<times>\<^sub>a si64_assn \<times>\<^sub>a polynomial_assn\<close>
+  unfolding dest_mult_impl_def mop_dest_mult_def dest_mult_def
+  apply sepref_to_hoare
+  apply (case_tac x; simp_all add: refine_pw_simps)
+  by (vcg; auto simp: step_pure_reassembly)
+
+lemma dest_extension_hnr[sepref_fr_rules]:
+  \<open>(dest_extension_impl, mop_dest_extension)
+    \<in> pac_step_assn\<^sup>d \<rightarrow>\<^sub>a si64_assn \<times>\<^sub>a strl_assn' \<times>\<^sub>a polynomial_assn\<close>
+  unfolding dest_extension_impl_def mop_dest_extension_def dest_extension_def
+  apply sepref_to_hoare
+  apply (case_tac x; simp_all add: refine_pw_simps)
+  by (vcg; auto simp: step_pure_reassembly)
+
+lemma dest_del_hnr[sepref_fr_rules]:
+  \<open>(dest_del_impl, mop_dest_del) \<in> pac_step_assn\<^sup>d \<rightarrow>\<^sub>a si64_assn\<close>
+  unfolding dest_del_impl_def mop_dest_del_def dest_del_def
+  apply sepref_to_hoare
+  apply (case_tac x; simp_all add: refine_pw_simps)
+  by (vcg; auto simp: step_pure_reassembly)
+
+sepref_register mop_dest_add mop_dest_mult mop_dest_extension mop_dest_del
+
+section \<open>Free\<close>
+
+context begin
+interpretation llvm_prim_arith_setup + llvm_prim_ctrl_setup .
+
+definition pac_step_free :: \<open>pac_step_conc \<Rightarrow> unit llM\<close> where [llvm_code]:
+  \<open>pac_step_free \<equiv> \<lambda>(tag, s1i, s2i, nii, multpi, resi, vari).
+     llc_if (ll_cmp'_eq tag 0) (poly.cl_free resi)
+     (llc_if (ll_cmp'_eq tag 1) (doM { poly.cl_free multpi; poly.cl_free resi })
+     (llc_if (ll_cmp'_eq tag 2) (doM { strl.cl_free vari; poly.cl_free resi })
+       (Mreturn ())))\<close>
+
+lemma pac_step_assn_mk_free[sepref_frame_free_rules]: \<open>MK_FREE pac_step_assn pac_step_free\<close>
+  apply (rule MK_FREEI)
+  subgoal for a c
+    unfolding pac_step_free_def ll_cmp'_eq_def
+    by (cases a; cases c rule: prod_cases7; simp;
+        vcg; auto simp: step_pure_reassembly to_bool_from_bool)
+  done
+
+end
+
+interpretation pstep: freeable_assn pac_step_assn pac_step_free
+  by unfold_locales (rule pac_step_assn_mk_free)
 
 end
