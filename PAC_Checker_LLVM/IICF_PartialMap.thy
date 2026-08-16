@@ -119,6 +119,22 @@ lemma opt_list_the_lookup_refine:
   apply (intro frefI nres_relI)
   by (auto simp: opt_list_map_rel_def in_br_conv opt_list_the_lookup_def opt_list_\<alpha>_def split: if_splits)
 
+text \<open>An upper bound on the domain of the map: the spine length. Middle-level op is a
+  \<open>SPEC\<close> so it composes further up with \<^term>\<open>dom_m\<close>-based bounds.\<close>
+definition opt_list_dom_ub :: \<open>'a opt_list \<Rightarrow> nat\<close> where
+  \<open>opt_list_dom_ub m \<equiv> length m\<close>
+
+definition op_map_dom_ub :: \<open>(nat \<Rightarrow> 'a option) \<Rightarrow> nat nres\<close> where
+  \<open>op_map_dom_ub m = SPEC (\<lambda>n. \<forall>i \<in> dom m. i < n)\<close>
+
+lemma opt_list_dom_ub_refine:
+  \<open>(RETURN o opt_list_dom_ub, op_map_dom_ub)
+    \<in> opt_list_map_rel \<rightarrow>\<^sub>f \<langle>nat_rel\<rangle>nres_rel\<close>
+  apply (intro frefI nres_relI)
+  apply (auto simp: opt_list_map_rel_def in_br_conv opt_list_dom_ub_def op_map_dom_ub_def
+      dest: opt_list_dom_bound)
+  by (metis opt_list_\<alpha>_def option.distinct(1))
+
 lemma opt_list_contains_key_fcomp[fcomp_prenorm_simps]:
   \<open>(ol, m) \<in> opt_list_map_rel \<Longrightarrow> opt_list_contains_key k ol \<longleftrightarrow> m k \<noteq> None\<close>
   by (auto simp: opt_list_map_rel_def in_br_conv opt_list_contains_key_def opt_list_\<alpha>_def)
@@ -195,6 +211,11 @@ lemma iarl_resize_rule[vcg_rules]:
   by vcg'
 
 
+text \<open>Length of the spine, i.e. an upper bound on the key domain. Needs no locale
+  parameters, so it lives at top level (no per-instance code specialization).\<close>
+definition pmap_len :: \<open>('a::llvm_rep, 64) array_list \<Rightarrow> 64 word llM\<close> where[llvm_code]:
+  \<open>pmap_len ai \<equiv> arl_len ai\<close>
+
 locale array_pmap =
   dflt_option_private dflt A is_dflt + freeable_assn A afree
   for dflt and A :: \<open>'b \<Rightarrow> 'a::llvm_rep \<Rightarrow> assn\<close> and is_dflt
@@ -267,6 +288,41 @@ lemma pmap_empty_hnr:
 
 lemmas pmap_empty_hnr2[sepref_fr_rules] =
   pmap_empty_hnr[FCOMP opt_list_empty_refine]
+
+lemma pmap_len_reassemble:
+  assumes \<open>length xs = length xsi \<longrightarrow> \<flat>\<^sub>psnat.assn (length xs) r\<close>
+  shows \<open>ENTAILS
+    (\<upharpoonleft>iarl_assn xsi ai ** \<upharpoonleft>(list_assn (mk_assn option_assn)) xs xsi)
+    ((EXS z. \<upharpoonleft>iarl_assn z ai ** \<upharpoonleft>(list_assn (mk_assn option_assn)) xs z)
+      ** \<upharpoonleft>snat.assn (opt_list_dom_ub xs) r)\<close>
+proof (cases \<open>length xs = length xsi\<close>)
+  case True
+  then show ?thesis
+    using assms
+    unfolding ENTAILS_def opt_list_dom_ub_def
+    apply (simp add: snat.assn_pure[THEN extract_pure_assn] sep_algebra_simps
+        pred_lift_extract_simps)
+    apply (rule entails_exI[where x=xsi])
+    by (simp add: sep_conj_aci entails_refl)
+next
+  case False
+  then show ?thesis
+    unfolding ENTAILS_def by (auto simp: entails_def sep_algebra_simps)
+qed
+
+lemma pmap_len_hnr:
+  \<open>(pmap_len, RETURN o opt_list_dom_ub) \<in> pmap_assn'\<^sup>k \<rightarrow>\<^sub>a snat_assn' TYPE(64)\<close>
+  unfolding snat_rel_def snat.assn_is_rel[symmetric]
+  supply [simp] = pmap_assn_def pmap_len_def
+  apply sepref_to_hoare
+  apply vcg
+  apply (auto simp: ENTAILS_def entails_def sep_algebra_simps)
+  by (smt (verit, ccfv_SIG) extract_pure_assn list_assn_neq_len(2)
+    opt_list_dom_ub_def pure_true_conv sep.mult_commute sep_conj_empty
+    sep_conj_false_left snat.assn_pure)
+
+lemmas pmap_len_hnr2[sepref_fr_rules] =
+  pmap_len_hnr[FCOMP opt_list_dom_ub_refine]
 
 lemma pmap_free_slot_rule[vcg_rules]:
   \<open>llvm_htriple
@@ -1079,12 +1135,6 @@ sublocale bx: copying_array_pmap \<open>null\<close> \<open>\<upharpoonleft>(box
 end
 
 section \<open>Experiments\<close>
-
-text \<open>Sanity tests: instantiate the copying map with boxed 64-bit numbers
-  (a \<open>nat \<rightharpoonup> nat\<close> map at the HOL level) and let sepref synthesize small test
-  programs written against the IICF map interface. This exercises the registered
-  \<open>sepref_fr_rules\<close> (empty/update/delete/contains\_key/lookup/the\_lookup) and the
-  frame free rules (\<open>pmap_free\<close>, lifted through \<open>hr_comp\<close> by @{thm MK_FREE_hrcompI}).\<close>
 
 experiment
 begin

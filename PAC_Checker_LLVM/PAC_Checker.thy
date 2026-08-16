@@ -1302,7 +1302,7 @@ end
 definition remap_polys_l2 :: \<open>llist_polynomial \<Rightarrow> string set \<Rightarrow> (nat, llist_polynomial) fmap \<Rightarrow> _ nres\<close> where
   \<open>remap_polys_l2 spec = (\<lambda>\<V> A. do{
    n \<leftarrow> upper_bound_on_dom A;
-   b \<leftarrow> RETURN (n \<ge> 2^64);
+   b \<leftarrow> RETURN (n \<ge> max_snat 64 - 1);
    if b
    then do {
      c \<leftarrow> remap_polys_l_dom_err;

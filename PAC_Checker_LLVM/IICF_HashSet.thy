@@ -180,9 +180,31 @@ lemma hs_empty_hnr[sepref_fr_rules]:
   unfolding snat_rel_def snat.assn_is_rel[symmetric]
   by (sepref_to_hoare; vcg)
 
-(* We can not register agains high level `op_set_empty_refine` *)
+(* We can not register against high level `op_set_empty_refine` *)
 (* Without resizing implemented, I think it might be better to use the explicit lshs_op_set_empty then *)
 (* lemmas hs_empty_hnr = hs_empty_hnr[FCOMP lshs_op_set_empty_refine] *)
+
+(* Instantiate Hashset with 2^14 elements (not sure if that number makes sense)*)
+lemma hs_empty_fref_2pow14:
+  \<open>(uncurry0 (RETURN (lshs_op_set_empty 16384)), uncurry0 (RETURN op_set_empty))
+  \<in> unit_rel \<rightarrow>\<^sub>f \<langle>lshs_rel\<rangle>nres_rel\<close>
+  apply (intro frefI nres_relI)
+  apply (auto simp: lshs_rel_def in_br_conv lshs_invar_def lshs_\<alpha>_def)
+  subgoal
+    unfolding lshs_op_set_empty_def by (metis in_set_replicate replicate_0)
+  subgoal
+    unfolding lshs_op_set_empty_def by (metis empty_replicate zero_neq_numeral) 
+  subgoal
+    unfolding lshs_op_set_empty_def lshs_bucket_of_def
+      by (metis length_replicate nth_replicate list.set(1) empty_iff)
+  done
+
+sepref_definition hs_empty_2pow14 is "uncurry0 (RETURN (lshs_op_set_empty 16384))"
+  :: "unit_assn\<^sup>k \<rightarrow>\<^sub>a \<upharpoonleft>hs_assn"
+  apply (annot_snat_const \<open>TYPE(64)\<close>)
+  by sepref
+
+lemmas hs_empty_2pow14_hnr = hs_empty_2pow14.refine[FCOMP hs_empty_fref_2pow14]
 
 subsection \<open>Insert\<close>
 

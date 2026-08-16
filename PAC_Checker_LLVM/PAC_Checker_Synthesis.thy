@@ -470,7 +470,7 @@ lemma polys_assn_intf[intf_of_assn]:
 
 (* These lemmas used to exist similarly in PAC_Map_Rel.thy *)
 lemmas fmap_empty_hnr[sepref_fr_rules] =
-  polys.bx.pmap_empty_hnr2[FCOMP fmempty_empty]
+  polys.bx.pmap_empty_hnr2[FCOMP fmempty_empty, unfolded op_fmap_empty_def[symmetric]]
 
 lemmas fmap_delete_hnr[sepref_fr_rules] =
   polys.bx.pmap_delete_hnr2[FCOMP fmdrop_set_None]
@@ -480,6 +480,10 @@ lemmas fmap_update_hnr[sepref_fr_rules] =
 
 lemmas fmap_lookup_hnr[sepref_fr_rules] =
   polys.bx.cpmap_lookup_hnr2[FCOMP op_map_lookup_fmlookup]
+
+lemma polys_assn_free[sepref_frame_free_rules]:
+  \<open>MK_FREE polys_assn polys.bx.pmap_free\<close>
+  by (intro MK_FREE_hrcompI polys.bx.pmap_free_rule)
 
 sepref_register fmlookup' :: \<open>'k \<Rightarrow> ('k, 'v) f_map \<Rightarrow> 'v option\<close>
 sepref_register fmupd :: \<open>'k \<Rightarrow> 'v \<Rightarrow> ('k, 'v) f_map \<Rightarrow> ('k, 'v) f_map\<close>
@@ -895,28 +899,95 @@ sepref_def PAC_checker_l_impl
 lemmas PAC_checker_l_hnr[sepref_fr_rules] =
   PAC_checker_l_impl.refine[FCOMP PAC_checker_l_alt_fref]
 
-lemma pow_2_64: \<open>(2::nat) ^ 64 = 18446744073709551616\<close>
-  by auto
+lemma max_snat_val: \<open>max_snat 64 - 1 = 9223372036854775807\<close>
+  unfolding max_snat_def by auto 
 
 (* abbreviation polys_assn_input where
  *   \<open>polys_assn_input \<equiv> iam_fmap_assn nat_assn poly_assn\<close> *)
 abbreviation \<open>polys_assn_input \<equiv> polys_assn\<close>
 
-(* sepref_register upper_bound_on_dom :: \<open>('k, 'v) f_map \<Rightarrow> 'k nres\<close>
- * sepref_register op_fmap_empty :: \<open>('k, 'v) f_map\<close> *)
+sepref_register upper_bound_on_dom :: \<open>('k, 'v) f_map \<Rightarrow> 'k nres\<close>
+sepref_register op_fmap_empty :: \<open>('k, 'v) f_map\<close>
+
+lemma map_fmap_dom_ub:
+  \<open>(op_map_dom_ub, upper_bound_on_dom) \<in> map_fmap_rel \<rightarrow>\<^sub>f \<langle>nat_rel\<rangle>nres_rel\<close>
+  by (intro frefI nres_relI)
+    (auto simp: op_map_dom_ub_def upper_bound_on_dom_def pw_le_iff refine_pw_simps
+      dom_def map_fmap_rel_dom_iff)
+
+lemmas upper_bound_on_dom_hnr[sepref_fr_rules] =
+  polys.bx.pmap_len_hnr2[FCOMP map_fmap_dom_ub]
+
+lemma nfoldli_body_cong:
+  assumes \<open>\<And>x s. x \<in> set l \<Longrightarrow> f x s = g x s\<close>
+  shows \<open>nfoldli l c f s = nfoldli l c g s\<close>
+  using assms apply (induction l arbitrary: s)
+  by (auto intro: bind_cong)
+
+text \<open>Inserting the update-bound assertion is invisible where the loop bounds hold
+  (\<open>i\<close> below the domain bound \<open>n\<close>, \<open>n\<close> below \<open>max_snat 64 - 1\<close>).\<close>
+lemma ASSERT_insert_bound:
+  assumes \<open>i < n\<close> \<open>n < max_snat 64 - Suc 0\<close>
+  shows \<open>do {ASSERT (Suc i < max_snat 64); m} = (m :: _ nres)\<close>
+proof -
+  from assms have \<open>Suc i < max_snat 64\<close> by linarith
+  then show ?thesis by simp
+qed
+
+lemma remap_polys_l2_alt:
+  \<open>remap_polys_l2 spec = (\<lambda>\<V> A. do{
+   n \<leftarrow> upper_bound_on_dom A;
+   b \<leftarrow> RETURN (n \<ge> max_snat 64 - 1);
+   if b
+   then do {
+     c \<leftarrow> remap_polys_l_dom_err;
+     mop_free A;
+     RETURN (error_msg (0 ::nat) c, \<V>, fmempty)
+   }
+   else do {
+       (b, \<V>, A') \<leftarrow> nfoldli ([0..<n]) (\<lambda>_. True)
+       (\<lambda>i (b, \<V>, A').
+          if i \<in># dom_m A
+          then do {
+            ASSERT(fmlookup A i \<noteq> None);
+            p \<leftarrow> full_normalize_poly (the (fmlookup A i));
+            eq \<leftarrow> weak_equality_l p spec;
+            \<V> \<leftarrow> RETURN (\<V> \<union> vars_llist (the (fmlookup A i)));
+            ASSERT(i + 1 < max_snat 64);
+            RETURN(b \<or> eq, \<V>, fmupd i (BOX p) A')
+          } else RETURN (b, \<V>, A')
+        )
+       (False, \<V>, fmempty);
+     mop_free A;
+     RETURN (if b then CFOUND else CSUCCESS, \<V>, A')
+    }
+ })\<close>
+  unfolding remap_polys_l2_def mop_free_def
+  apply (intro ext)
+  apply (simp only: nres_monad1)
+  apply (rule bind_cong[OF refl])
+  apply (rule if_cong[OF refl refl])
+  apply (rule bind_cong[OF _ refl])
+  apply (rule nfoldli_body_cong)
+  apply (auto simp: BOX_def not_le ASSERT_insert_bound split: prod.splits
+      intro!: bind_cong[OF refl])
+  done
 
 sepref_def remap_polys_l_impl
   is \<open>uncurry2 remap_polys_l2\<close>
   :: \<open>polynomial_assn\<^sup>k *\<^sub>a vars_assn\<^sup>d *\<^sub>a polys_assn_input\<^sup>d \<rightarrow>\<^sub>a
     status_assn \<times>\<^sub>a vars_assn \<times>\<^sub>a polys_assn\<close>
-  supply [[goals_limit=1]] is_Mult_lastI[intro] indom_mI[dest]
-  unfolding remap_polys_l2_def op_fmap_empty_def[symmetric] while_eq_nfoldli[symmetric]
-    while_upt_while_direct pow_2_64
-    in_dom_m_lookup_iff
+  supply is_Mult_lastI[intro] indom_mI[dest]
+  unfolding remap_polys_l2_alt op_fmap_empty_def[symmetric] while_eq_nfoldli[symmetric]
+    while_upt_while_direct max_snat_val
+    in_dom_by_contains
     fmlookup'_def[symmetric]
     union_vars_poly_alt_def[symmetric]
-  apply sepref_dbg_keep
-  oops
+  apply (subst while_upt_while_direct)
+  apply simp
+  apply (annot_snat_const \<open>TYPE(64)\<close>)
+  (* supply [[show_types]] *)
+  by sepref
 
 lemma remap_polys_l2_remap_polys_l:
   \<open>(uncurry2 remap_polys_l2, uncurry2 remap_polys_l) \<in> (Id \<times>\<^sub>r \<langle>Id\<rangle>set_rel) \<times>\<^sub>r Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
@@ -934,76 +1005,103 @@ sepref_register remap_polys_l ::
   \<open>llist_polynomial \<Rightarrow> string set \<Rightarrow> (nat, llist_polynomial) f_map \<Rightarrow>
     (string code_status \<times> string set \<times> (nat, llist_polynomial) f_map) nres\<close>
 
+lemma full_checker_alt:
+  \<open>full_checker_l spec A st = do {
+    spec' \<leftarrow> full_normalize_poly (COPY spec);
+    (b, \<V>, A) \<leftarrow> remap_polys_l spec' {} A;
+    if is_cfailed b
+    then RETURN (b, \<V>, A)
+    else do {
+      let \<V> = \<V> \<union> vars_llist spec;
+      PAC_checker_l spec' (\<V>, A) b st
+    }
+  }\<close>
+  unfolding full_checker_l_def by simp
+
+definition full_checker_l_alt where
+  \<open>full_checker_l_alt spec A st = do {
+    ASSERT (list_all step_id_bounded st);
+    spec' \<leftarrow> full_normalize_poly (COPY spec);
+    (b, \<V>, A) \<leftarrow> remap_polys_l spec' {} A;
+    if is_cfailed b
+    then do {
+      mop_free spec;
+      RETURN (b, \<V>, A)
+    }
+    else do {
+      let \<V> = \<V> \<union> vars_llist spec;
+      mop_free spec;
+      PAC_checker_l spec' (\<V>, A) b st
+    }
+  }\<close>
+
+lemma full_checker_l_alt_full_checker_l:
+  \<open>list_all step_id_bounded st \<Longrightarrow>
+    full_checker_l_alt spec A st \<le> \<Down>Id (full_checker_l spec A st)\<close>
+  unfolding full_checker_l_alt_def full_checker_alt mop_free_def
+  apply (simp only: nres_monad1 Let_def)
+  by (auto intro!: ASSERT_leI)
+
+lemma full_checker_l_alt_fref:
+  \<open>(uncurry2 full_checker_l_alt, uncurry2 full_checker_l)
+    \<in> [\<lambda>((_, _), st). list_all step_id_bounded st]\<^sub>f Id \<rightarrow> \<langle>Id\<rangle>nres_rel\<close>
+  apply (intro frefI nres_relI)
+  using full_checker_l_alt_full_checker_l by auto
+
+term union_vars_poly
+declare strl.hs_empty_2pow14_def[llvm_code]
+sepref_register union_vars_poly 
 sepref_def full_checker_l_impl
-  is \<open>uncurry2 full_checker_l\<close>
+  is \<open>uncurry2 full_checker_l_alt\<close>
   :: \<open>polynomial_assn\<^sup>d *\<^sub>a polys_assn_input\<^sup>d *\<^sub>a (cl_assn' pac_step_assn)\<^sup>d \<rightarrow>\<^sub>a
     status_assn \<times>\<^sub>a vars_assn \<times>\<^sub>a polys_assn\<close>
-  supply [[goals_limit=1]] is_Mult_lastI[intro]
-  unfolding full_checker_l_def
+  supply is_Mult_lastI[intro]
+  unfolding full_checker_l_alt_def
     union_vars_poly_alt_def[symmetric]
     PAC_checker_l_alt2
-  apply sepref_dbg_keep
-  oops
-
-sepref_def PAC_update_impl
-  is \<open>uncurry2 (RETURN ooo fmupd)\<close>
-  :: \<open>si64_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k *\<^sub>a polys_assn_input\<^sup>d \<rightarrow>\<^sub>a polys_assn_input\<close>
-  unfolding comp_def
-  apply sepref_dbg_keep
-  oops
-
-sepref_def PAC_empty_impl
-  is \<open>uncurry0 (RETURN fmempty)\<close>
-  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a polys_assn_input\<close>
-  unfolding op_iam_fmap_empty_def[symmetric] pat_fmap_empty
-  apply sepref_dbg_keep
-  oops
-
-sepref_def empty_vars_impl
-  is \<open>uncurry0 (RETURN {})\<close>
-  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a vars_assn\<close>
-  apply sepref_dbg_keep
-  oops
+  supply [sepref_fr_rules] = strl.hs_empty_2pow14_hnr
+  by sepref
 
 section \<open>Correctness theorem\<close>
+(* TODO: Correctness theorem must assume precondition of step_id_bounded *)
 
-context poly_embed
-begin
-
-definition full_poly_assn where
-  \<open>full_poly_assn = hr_comp polynomial_assn (fully_unsorted_poly_rel O mset_poly_rel)\<close>
-
-definition full_poly_input_assn where
-  \<open>full_poly_input_assn = hr_comp
-        (hr_comp polys_assn_input
-          (\<langle>nat_rel, fully_unsorted_poly_rel O mset_poly_rel\<rangle>fmap_rel))
-        polys_rel\<close>
-
-definition fully_pac_assn where
-  \<open>fully_pac_assn = (list_assn
-        (hr_comp (pac_step_rel_assn si64_assn polynomial_assn strl_assn')
-          (p2rel
-            (\<langle>nat_rel,
-             fully_unsorted_poly_rel O
-             mset_poly_rel, var_rel\<rangle>pac_step_rel_raw))))\<close>
-
-definition code_status_assn where
-  \<open>code_status_assn = hr_comp (status_assn raw_string_assn)
-                            code_status_status_rel\<close>
-
-definition full_vars_assn where
-  \<open>full_vars_assn = hr_comp (hs.assn string_assn)
-                              (\<langle>var_rel\<rangle>set_rel)\<close>
-
-lemma polys_rel_full_polys_rel:
-  \<open>polys_rel_full = Id \<times>\<^sub>r polys_rel\<close>
-  by (auto simp: polys_rel_full_def)
-
-definition full_polys_assn :: \<open>_\<close> where
-\<open>full_polys_assn = hr_comp (hr_comp polys_assn
-                              (\<langle>nat_rel,
-                               sorted_poly_rel O mset_poly_rel\<rangle>fmap_rel))
-                            polys_rel\<close>
+(* context poly_embed
+ * begin
+ * 
+ * definition full_poly_assn where
+ *   \<open>full_poly_assn = hr_comp polynomial_assn (fully_unsorted_poly_rel O mset_poly_rel)\<close>
+ * 
+ * definition full_poly_input_assn where
+ *   \<open>full_poly_input_assn = hr_comp
+ *         (hr_comp polys_assn_input
+ *           (\<langle>nat_rel, fully_unsorted_poly_rel O mset_poly_rel\<rangle>fmap_rel))
+ *         polys_rel\<close>
+ * 
+ * definition fully_pac_assn where
+ *   \<open>fully_pac_assn = (list_assn
+ *         (hr_comp (pac_step_rel_assn si64_assn polynomial_assn strl_assn')
+ *           (p2rel
+ *             (\<langle>nat_rel,
+ *              fully_unsorted_poly_rel O
+ *              mset_poly_rel, var_rel\<rangle>pac_step_rel_raw))))\<close>
+ * 
+ * definition code_status_assn where
+ *   \<open>code_status_assn = hr_comp (status_assn raw_string_assn)
+ *                             code_status_status_rel\<close>
+ * 
+ * definition full_vars_assn where
+ *   \<open>full_vars_assn = hr_comp (hs.assn string_assn)
+ *                               (\<langle>var_rel\<rangle>set_rel)\<close>
+ * 
+ * lemma polys_rel_full_polys_rel:
+ *   \<open>polys_rel_full = Id \<times>\<^sub>r polys_rel\<close>
+ *   by (auto simp: polys_rel_full_def)
+ * 
+ * definition full_polys_assn :: \<open>_\<close> where
+ * \<open>full_polys_assn = hr_comp (hr_comp polys_assn
+ *                               (\<langle>nat_rel,
+ *                                sorted_poly_rel O mset_poly_rel\<rangle>fmap_rel))
+ *                             polys_rel\<close> *)
 
 text \<open>
 
@@ -1035,27 +1133,27 @@ The input parameters are:
 
 \<close>
 
-lemma PAC_full_correctness: (* \htmllink{PAC-full-correctness} *)
-  \<open>(uncurry2 full_checker_l_impl,
-     uncurry2 (\<lambda>spec A _. PAC_checker_specification spec A))
-    \<in> (full_poly_assn)\<^sup>k *\<^sub>a (full_poly_input_assn)\<^sup>d *\<^sub>a (fully_pac_assn)\<^sup>k \<rightarrow>\<^sub>a hr_comp
-      (code_status_assn \<times>\<^sub>a full_vars_assn \<times>\<^sub>a hr_comp polys_assn
-                              (\<langle>nat_rel, sorted_poly_rel O mset_poly_rel\<rangle>fmap_rel))
-                            {((st, G), st', G').
-                             st = st' \<and> (st \<noteq> FAILED \<longrightarrow> (G, G') \<in> Id \<times>\<^sub>r polys_rel)}\<close>
-  using
-    full_checker_l_impl.refine[FCOMP full_checker_l_full_checker',
-      FCOMP full_checker_spec',
-      unfolded full_poly_assn_def[symmetric]
-        full_poly_input_assn_def[symmetric]
-        fully_pac_assn_def[symmetric]
-        code_status_assn_def[symmetric]
-        full_vars_assn_def[symmetric]
-        polys_rel_full_polys_rel
-        hr_comp_prod_conv
-        full_polys_assn_def[symmetric]]
-      hr_comp_Id2
-   by auto
+(* lemma PAC_full_correctness: (\* \htmllink{PAC-full-correctness} *\)
+ *   \<open>(uncurry2 full_checker_l_impl,
+ *      uncurry2 (\<lambda>spec A _. PAC_checker_specification spec A))
+ *     \<in> (full_poly_assn)\<^sup>k *\<^sub>a (full_poly_input_assn)\<^sup>d *\<^sub>a (fully_pac_assn)\<^sup>k \<rightarrow>\<^sub>a hr_comp
+ *       (code_status_assn \<times>\<^sub>a full_vars_assn \<times>\<^sub>a hr_comp polys_assn
+ *                               (\<langle>nat_rel, sorted_poly_rel O mset_poly_rel\<rangle>fmap_rel))
+ *                             {((st, G), st', G').
+ *                              st = st' \<and> (st \<noteq> FAILED \<longrightarrow> (G, G') \<in> Id \<times>\<^sub>r polys_rel)}\<close>
+ *   using
+ *     full_checker_l_impl.refine[FCOMP full_checker_l_full_checker',
+ *       FCOMP full_checker_spec',
+ *       unfolded full_poly_assn_def[symmetric]
+ *         full_poly_input_assn_def[symmetric]
+ *         fully_pac_assn_def[symmetric]
+ *         code_status_assn_def[symmetric]
+ *         full_vars_assn_def[symmetric]
+ *         polys_rel_full_polys_rel
+ *         hr_comp_prod_conv
+ *         full_polys_assn_def[symmetric]]
+ *       hr_comp_Id2
+ *    by auto *)
 
 text \<open>
 
@@ -1091,24 +1189,24 @@ correctness theorem of the code generation (roughly ``if it terminates without e
 is the same''), but it is still unsatisfactory.
 \<close>
 
-end
+(* end *)
 
-definition \<phi> :: \<open>string \<Rightarrow> nat\<close> where
-  \<open>\<phi> = (SOME \<phi>. bij \<phi>)\<close>
+(* definition \<phi> :: \<open>string \<Rightarrow> nat\<close> where
+ *   \<open>\<phi> = (SOME \<phi>. bij \<phi>)\<close>
+ * 
+ * lemma bij_\<phi>: \<open>bij \<phi>\<close>
+ *   using someI[of \<open>\<lambda>\<phi> :: string \<Rightarrow> nat. bij \<phi>\<close>]
+ *   unfolding \<phi>_def[symmetric]
+ *   using poly_embed_EX
+ *   by auto
+ * 
+ * global_interpretation PAC: poly_embed where
+ *   \<phi> = \<phi>
+ *   apply standard
+ *   apply (use bij_\<phi> in \<open>auto simp: bij_def\<close>)
+ *   done *)
 
-lemma bij_\<phi>: \<open>bij \<phi>\<close>
-  using someI[of \<open>\<lambda>\<phi> :: string \<Rightarrow> nat. bij \<phi>\<close>]
-  unfolding \<phi>_def[symmetric]
-  using poly_embed_EX
-  by auto
 
-global_interpretation PAC: poly_embed where
-  \<phi> = \<phi>
-  apply standard
-  apply (use bij_\<phi> in \<open>auto simp: bij_def\<close>)
-  done
-
-
-text \<open>The full correctness theorem is @{thm PAC.PAC_full_correctness}.\<close>
+(* text \<open>The full correctness theorem is @{thm PAC.PAC_full_correctness}.\<close> *)
 
 end
