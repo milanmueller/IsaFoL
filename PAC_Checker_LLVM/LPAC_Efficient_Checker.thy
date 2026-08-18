@@ -36,7 +36,7 @@ definition (in -)add_poly_l_prep :: \<open>(nat,string)vars \<Rightarrow> llist_
 lemma add_poly_alt_def[unfolded conc_Id id_apply]:
   fixes xs ys :: llist_polynomial
   assumes \<open>\<Union>(set ` (fst`set xs)) \<subseteq> set_mset \<D>\<close>  \<open>\<Union>(set ` fst ` set ys) \<subseteq> set_mset \<D>\<close>
-  shows \<open>add_poly_l_prep \<D> (xs, ys) \<le> \<Down> Id (add_poly_l' \<D> (xs, ys))\<close>
+  shows \<open>add_poly_l_prep \<D> (xs, ys) \<le> \<Down> Id (add_poly_l' \<D> xs ys)\<close>
 proof -
   let ?Rx = \<open>{(xs', ys'). (xs', ys') \<in> \<langle>Id\<rangle> list_rel \<and> (\<exists>xs\<^sub>0. xs = xs\<^sub>0 @ xs')}\<close>
   let ?Ry = \<open>{(xs', ys'). (xs', ys') \<in> \<langle>Id\<rangle> list_rel \<and> (\<exists>xs\<^sub>0. ys = xs\<^sub>0 @ xs')}\<close>
@@ -49,7 +49,7 @@ proof -
      by blast
    show ?thesis
      using assms
-     unfolding add_poly_l'_def add_poly_l_def add_poly_l_prep_def
+     unfolding add_poly_l'_def add_poly_l_rec_def add_poly_l_prep_def COPY_def
     apply (refine_vcg perfect_shared_term_order_rel_spec[THEN order_trans])
     apply (rule H)
     subgoal by auto
@@ -322,7 +322,7 @@ proof -
           ASSERT (vars_llist r \<subseteq> \<V>);
           if q = [([], 1)]
           then do {
-            pq \<leftarrow> add_poly_l' \<V>' (p, r);
+            pq \<leftarrow> add_poly_l' \<V>' p r;
             RETURN (pq, tl xs, CSUCCESS)
           }
           else  do {
@@ -331,7 +331,7 @@ proof -
             let q = q;
             pq \<leftarrow> mult_poly_full q r;
             ASSERT (vars_llist pq \<subseteq> \<V>);
-            pq \<leftarrow> add_poly_l' \<V>' (p, pq);
+            pq \<leftarrow> add_poly_l' \<V>' p pq;
             RETURN (pq, tl xs, CSUCCESS)
           }
         }

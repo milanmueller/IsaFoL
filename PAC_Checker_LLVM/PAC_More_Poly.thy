@@ -10,7 +10,7 @@ begin
 
 
 section \<open>Overview\<close>
-
+(* Fix document setup
 text \<open>
 
 One solution to check circuit of multipliers is to use algebraic method, like producing proofs on
@@ -91,7 +91,7 @@ there are four kind of steps:
 Remark that unlike DRAT checker, we do forward checking and check every derived polynomial. The
 target polynomial can also be part of the input file.
 \<close>
-
+*)
 section \<open>Libraries\<close>
 
 subsection \<open>More Polynomials\<close>

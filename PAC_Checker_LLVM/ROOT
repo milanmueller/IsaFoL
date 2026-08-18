@@ -3,7 +3,7 @@ chapter PAC_Checker_LLVM
 session PAC_Checker_LLVM = "Isabelle_LLVM" +
   description \<open>LPAC proof checker with refinement to verified LLVM code\<close>
   options
-    [timeout = 2700]
+    [timeout = 2700, quick_and_dirty]
   sessions
     "HOL-Library"
     "HOL-Algebra"
@@ -14,7 +14,37 @@ session PAC_Checker_LLVM = "Isabelle_LLVM" +
     Assn_Env
     More_Loops
     IICF_Copying_List
+    IICF_HashSet
+    IICF_PartialMap
     LLVM_Sort
+    LLVM_ASCII_String
+    LLVM_Polynomials
+    LLVM_Sort
+    LLVM_String_Vars
+    LPAC_Checker_Specification
+    LPAC_Checker
+    LPAC_Checker_Synthesis
+    LPAC_Perfectly_Shared
+    LPAC_Error
+    LPAC_Specification
+    LPAC_Step_Assn
+    More_Loops
+    PAC_Checker_Error
     PAC_Checker_Init
-    PAC_Specification
+    PAC_Checker_Relation
     PAC_Checker_Specification
+    PAC_Checker_Synthesis
+    PAC_Checker
+    PAC_Map_Rel
+    PAC_Misc
+    PAC_More_Poly
+    PAC_Polynomials_Operations
+    PAC_Polynomials_Sort
+    PAC_Polynomials_Term
+    PAC_Polynomials
+    PAC_Specification
+    PAC_Step_Assn
+    Printing_Setup
+    Aux_Lemmas
+    Char_Assn
+    Finite_Map_Multiset

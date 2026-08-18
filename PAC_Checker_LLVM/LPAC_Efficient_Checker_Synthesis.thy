@@ -1,9 +1,7 @@
 theory LPAC_Efficient_Checker_Synthesis
   imports LPAC_Efficient_Checker
     LPAC_Perfectly_Shared_Vars
-    PAC_Checker.PAC_Checker_Synthesis
-    LPAC_Steps_Refine
-    PAC_Checker.PAC_Checker_Synthesis
+    PAC_Checker_Synthesis
 begin
 
 lemma in_set_rel_inD: \<open>(x,y) \<in>\<langle>R\<rangle>list_rel \<Longrightarrow> a \<in> set x \<Longrightarrow> \<exists>b \<in> set y. (a,b)\<in> R\<close>

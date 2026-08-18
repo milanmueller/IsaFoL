@@ -155,6 +155,45 @@ lemma add_poly_l_add_poly:
   using add_poly_pref_add_poly_l'[of p q]
   by (auto simp: add_poly_l1_alt_def add_poly_l2_alt_def split: prod.splits)
 
+text \<open>The recursive characterization that \<^const>\<open>add_poly_l\<close> had before it was replaced by the
+  loop-based implementation above. Downstream refinement proofs that align \<^const>\<open>add_poly_l\<close>
+  with another \<open>REC\<^sub>T\<close> (e.g.\ \<open>add_poly_l_prep\<close> in \<open>LPAC_Efficient_Checker\<close>) must unfold this
+  instead of \<open>add_poly_l_def\<close>: \<open>refine_vcg\<close> matches the two recursions structurally, and the
+  \<open>WHILE\<^sub>T\<close> pair of \<open>add_poly_l1\<close>/\<open>add_poly_l2\<close> offers nothing to match.\<close>
+lemma add_poly_l_rec_def:
+  \<open>add_poly_l p q = REC\<^sub>T
+      (\<lambda>add_poly_l (p, q).
+        case (p, q) of
+          (p, []) \<Rightarrow> RETURN p
+        | ([], q) \<Rightarrow> RETURN q
+        | ((xs, n) # p, (ys, m) # q) \<Rightarrow>
+            (if xs = ys then if n + m = 0 then add_poly_l (p, q)
+               else do {
+                 pq \<leftarrow> add_poly_l (p, q);
+                 RETURN ((xs, n + m) # pq)
+               }
+            else if (xs, ys) \<in> term_order_rel
+              then do {
+                 pq \<leftarrow> add_poly_l (p, (ys, m) # q);
+                 RETURN ((xs, n) # pq)
+              }
+            else do {
+                 pq \<leftarrow> add_poly_l ((xs, n) # p, q);
+                 RETURN ((ys, m) # pq)
+              }))
+      (p, q)\<close>
+    (is \<open>_ = REC\<^sub>T ?body _\<close>)
+proof -
+  have \<open>REC\<^sub>T ?body (p, q) = RETURN (add_poly_l' (p, q))\<close> for p q
+    apply (induction \<open>(p, q)\<close> arbitrary: p q rule: add_poly_l'.induct)
+    subgoal by (subst RECT_unfold, refine_mono) (auto split: list.splits prod.splits)
+    subgoal by (subst RECT_unfold, refine_mono) (auto split: list.splits prod.splits)
+    subgoal by (subst RECT_unfold, refine_mono) (auto simp: Let_def split: list.splits prod.splits)
+    done
+  then show ?thesis
+    by (simp add: add_poly_l_add_poly)
+qed
+
 definition nonzero_coeffs where
   \<open>nonzero_coeffs a \<longleftrightarrow> 0 \<notin># snd `# a\<close>
 

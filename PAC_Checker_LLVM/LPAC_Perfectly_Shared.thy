@@ -1,6 +1,6 @@
 theory LPAC_Perfectly_Shared
   imports LPAC_Checker_Specification
-    PAC_Checker.PAC_Checker (*for vars_llist*)
+    PAC_Checker (*for vars_llist*)
     LPAC_Checker (*for vars_llist*)
 begin
 

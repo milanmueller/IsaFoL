@@ -213,7 +213,7 @@ lemma check_extension_l2_alt_def:
       }
     }
   }\<close>
-  unfolding check_extension_l2_def COPY_def by (rule refl)
+  unfolding check_extension_l2_def COPY_def by simp
 
 sepref_def check_extension_l_impl
   is \<open>uncurry5 check_extension_l2\<close>
@@ -327,18 +327,63 @@ lemma PAC_checker_l_alt_def:
     (let (\<V>, A) = \<V>A in PAC_checker_l' p \<V> A status steps)\<close>
   unfolding PAC_checker_l'_def by auto
 
+definition PAC_checker_l_loop
+  :: \<open>llist_polynomial \<Rightarrow> _ \<Rightarrow> _ \<Rightarrow> string code_status \<Rightarrow> lpac_step_hol list \<Rightarrow> _\<close>
+  where \<open>PAC_checker_l_loop spec \<V> A b st = do {
+    (S, _) \<leftarrow> WHILE\<^sub>T
+       (\<lambda>((b, _), n). \<not>is_cfailed b \<and> n \<noteq> [])
+       (\<lambda>((bA), n). do {
+          ASSERT(n \<noteq> []);
+          (nh, nt) \<leftarrow> mop_list_pop_hd n;
+          ASSERT(step_id_bounded nh);
+          S \<leftarrow> PAC_checker_l_step spec bA nh;
+          RETURN (S, nt)
+        })
+      ((b, (\<V>, A)), st);
+    RETURN S
+  }\<close>
+
+lemma PAC_checker_l_step_rel_id:
+  \<open>(bA, bA') \<in> Id \<Longrightarrow> (st, st') \<in> Id \<Longrightarrow>
+     PAC_checker_l_step spec bA st \<le> \<Down>Id (PAC_checker_l_step spec bA' st')\<close>
+  by auto
+
+lemma PAC_checker_l_loop_PAC_checker_l':
+  assumes \<open>list_all step_id_bounded st\<close>
+  shows \<open>PAC_checker_l_loop spec \<V> A b st \<le> \<Down>Id (PAC_checker_l' spec \<V> A b st)\<close>
+  unfolding PAC_checker_l_loop_def PAC_checker_l'_def PAC_checker_l_def
+    mop_list_pop_hd_def
+  apply (simp add: ASSERT_dup)
+  apply (rule refine_IdD)
+  apply (refine_rcg
+      WHILET_refine[where R = \<open>Id \<times>\<^sub>r {(n, n'). n' = n \<and> list_all step_id_bounded n}\<close>]
+      PAC_checker_l_step_rel_id)
+  using assms by (auto simp: neq_Nil_conv)
+
+lemma PAC_checker_l_loop_fref:
+  \<open>(uncurry4 PAC_checker_l_loop, uncurry4 PAC_checker_l')
+    \<in> [\<lambda>((((_, _), _), _), st). list_all step_id_bounded st]\<^sub>f Id \<rightarrow> \<langle>Id\<rangle>nres_rel\<close>
+  apply (intro frefI nres_relI)
+  using PAC_checker_l_loop_PAC_checker_l' by auto
+
+sepref_register PAC_checker_l' ::
+  \<open>llist_polynomial \<Rightarrow> string set \<Rightarrow> (nat, llist_polynomial) f_map \<Rightarrow>
+    string code_status \<Rightarrow> lpac_step_hol list \<Rightarrow>
+    (string code_status \<times> string set \<times> (nat, llist_polynomial) f_map) nres\<close>
+
 sepref_definition PAC_checker_l_impl
-  is \<open>uncurry4 PAC_checker_l'\<close>
+  is \<open>uncurry4 PAC_checker_l_loop\<close>
   :: \<open>polynomial_assn\<^sup>k *\<^sub>a vars_assn\<^sup>d *\<^sub>a polys_assn\<^sup>d *\<^sub>a status_assn\<^sup>d *\<^sub>a (cl_assn' lpac_step_assn)\<^sup>d \<rightarrow>\<^sub>a
      status_assn \<times>\<^sub>a vars_assn \<times>\<^sub>a polys_assn\<close>
   supply [[goals_limit=1]] is_Mult_lastI[intro]
-  unfolding PAC_checker_l_def is_success_alt_def[symmetric] PAC_checker_l_step_alt_def
-    nres_bind_let_law[symmetric] PAC_checker_l'_def
-    conv_to_is_Nil is_Nil_def
+  unfolding PAC_checker_l_loop_def is_success_alt_def[symmetric] PAC_checker_l_step_tuple
+    nres_bind_let_law[symmetric]
+    ls_emp
   apply (subst nres_bind_let_law)
-  apply sepref_dbg_keep
+  by sepref
 
-declare PAC_checker_l_impl.refine[sepref_fr_rules]
+lemmas PAC_checker_l_hnr[sepref_fr_rules] =
+  PAC_checker_l_impl.refine[FCOMP PAC_checker_l_loop_fref]
 
 sepref_register upper_bound_on_dom op_fmap_empty
 
@@ -347,11 +392,16 @@ definition full_checker_l2
     (string code_status \<times> _) nres\<close>
 where
   \<open>full_checker_l2 spec A st = do {
+    ASSERT (list_all step_id_bounded st);
     spec' \<leftarrow> full_normalize_poly (COPY spec);
     (b, \<V>, A) \<leftarrow> remap_polys_l spec {} A;
     if is_cfailed b
-    then RETURN (b, \<V>, A)
+    then do {
+      mop_free spec;
+      RETURN (b, \<V>, A)
+    }
     else do {
+      mop_free spec;
       PAC_checker_l spec' (\<V>, A) b st
     }
   }\<close>
@@ -362,12 +412,12 @@ sepref_definition full_checker_l_impl
   is \<open>uncurry2 full_checker_l2\<close>
   :: \<open>polynomial_assn\<^sup>d *\<^sub>a polys_assn_input\<^sup>d *\<^sub>a (cl_assn' lpac_step_assn)\<^sup>d \<rightarrow>\<^sub>a
     status_assn \<times>\<^sub>a vars_assn \<times>\<^sub>a polys_assn\<close>
-  supply [[goals_limit=1]] is_Mult_lastI[intro]
-  unfolding full_checker_l_def 
+  supply is_Mult_lastI[intro]
+  unfolding full_checker_l2_def
     union_vars_poly_alt_def[symmetric]
     PAC_checker_l_alt_def
-    full_checker_l2_def
-  apply sepref_dbg_keep
+  supply [sepref_fr_rules] = strl.hs_empty_2pow14_hnr
+  by sepref
 
 (* sepref_definition PAC_empty_impl
  *   is \<open>uncurry0 (RETURN fmempty)\<close>

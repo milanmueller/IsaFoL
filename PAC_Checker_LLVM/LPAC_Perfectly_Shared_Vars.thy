@@ -1,13 +1,8 @@
 theory LPAC_Perfectly_Shared_Vars
   imports LPAC_Perfectly_Shared
-    PAC_Checker.PAC_Checker_Relation
-    PAC_Checker.PAC_Map_Rel
+    PAC_Checker_Relation
+    PAC_Map_Rel
 begin
-thm import_variableS_def
-  term hm.assn
-  term iam.assn
-  term is_iam
-  term iam_rel
 
 type_synonym ('string2, 'nat) shared_vars_c = \<open>'string2 list \<times> ('string2, 'nat) fmap\<close>
 
