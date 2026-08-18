@@ -98,7 +98,7 @@ lemma mk_del_impl_hnr[sepref_fr_rules]:
   apply sepref_to_hoare
   by (vcg; auto simp: step_pure_reassembly)
 
-section \<open>Distriminators\<close>
+section \<open>Discriminators\<close>
 
 definition isAdd_impl :: \<open>pac_step_conc \<Rightarrow> 1 word llM\<close> where [llvm_code, llvm_inline]:
   \<open>isAdd_impl \<equiv> \<lambda>(tag, s1i, s2i, nii, multpi, resi, vari).  Mreturn (ll_cmp'_eq tag 0)\<close>

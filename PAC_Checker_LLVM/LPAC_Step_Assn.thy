@@ -78,4 +78,151 @@ lemma mk_ldel_impl_hnr[sepref_fr_rules]:
 sepref_register CL
 sepref_register Extension Del
 
+section \<open>Distcriminators\<close>
+
+definition is_CL_impl :: \<open>lpac_step_conc \<Rightarrow> 1 word llM\<close> where [llvm_code, llvm_inline]:
+  \<open>is_CL_impl \<equiv> \<lambda>(tag, idc, resi, srcsi, vari). Mreturn (ll_cmp'_eq tag 0)\<close>
+
+definition is_Extension_impl :: \<open>lpac_step_conc \<Rightarrow> 1 word llM\<close> where [llvm_code, llvm_inline]:
+  \<open>is_Extension_impl \<equiv> \<lambda>(tag, idc, resi, srcsi, vari). Mreturn (ll_cmp'_eq tag 1)\<close>
+
+definition is_Del_impl :: \<open>lpac_step_conc \<Rightarrow> 1 word llM\<close> where [llvm_code, llvm_inline]:
+  \<open>is_Del_impl \<equiv> \<lambda>(tag, idc, resi, srcsi, vari). Mreturn (ll_cmp'_eq tag 2)\<close>
+
+lemma lpac_step_assn_tag:
+  \<open>pure_part (lpac_step_assn step (tag, idc, resi, srcsi, vari)) \<Longrightarrow>
+    (tag = 0) = is_CL step \<and> (tag = 1) = is_Extension step \<and> (tag = 2) = is_Del step\<close>
+  by (cases step; auto simp: lpac_step_assn_def dest!: pure_part_split_conj)
+
+lemmas lpac_step_assn_tagD = pure_partI[THEN lpac_step_assn_tag]
+
+lemma is_CL_hnr[sepref_fr_rules]:
+  \<open>(is_CL_impl, RETURN o is_CL) \<in> lpac_step_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding is_CL_impl_def ll_cmp'_eq_def
+  apply (sepref_to_hoare;vcg)
+  by (auto simp: step_pure_reassembly bool1_rel_def bool.rel_def in_br_conv
+    dest!: lpac_step_assn_tagD)
+
+lemma is_Extension_hnr[sepref_fr_rules]:
+  \<open>(is_Extension_impl, RETURN o is_Extension) \<in> lpac_step_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding is_Extension_impl_def ll_cmp'_eq_def
+  apply (sepref_to_hoare;vcg)
+  by (auto simp: step_pure_reassembly bool1_rel_def bool.rel_def in_br_conv
+    dest!: lpac_step_assn_tagD)
+
+lemma is_Del_hnr[sepref_fr_rules]:
+  \<open>(is_Del_impl, RETURN o is_Del) \<in> lpac_step_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding is_Del_impl_def ll_cmp'_eq_def
+  apply (sepref_to_hoare;vcg)
+  by (auto simp: step_pure_reassembly bool1_rel_def bool.rel_def in_br_conv
+    dest!: lpac_step_assn_tagD)
+
+section \<open>Destructors\<close>
+
+definition dest_cl :: \<open>lpac_step_hol \<Rightarrow> (llist_polynomial \<times> nat) list \<times> nat \<times> llist_polynomial\<close>
+  where
+  \<open>dest_cl step = (pac_srcs step, new_id step, pac_res step)\<close>
+
+definition dest_lextension :: \<open>lpac_step_hol \<Rightarrow> nat \<times> string \<times> llist_polynomial\<close> where
+  \<open>dest_lextension step = (new_id step, new_var step, pac_res step)\<close>
+
+definition dest_ldel :: \<open>lpac_step_hol \<Rightarrow> nat\<close> where
+  \<open>dest_ldel step = pac_src1 step\<close>
+
+definition dest_cl_impl :: \<open>lpac_step_conc \<Rightarrow> (srcs_conc \<times> 64 word \<times> poly_conc) llM\<close>
+  where [llvm_code, llvm_inline]:
+  \<open>dest_cl_impl \<equiv> \<lambda>(tag, idc, resi, srcsi, vari). Mreturn (srcsi, idc, resi)\<close>
+
+definition dest_lextension_impl :: \<open>lpac_step_conc \<Rightarrow> (64 word \<times> strl_conc \<times> poly_conc) llM\<close>
+  where [llvm_code, llvm_inline]:
+  \<open>dest_lextension_impl \<equiv> \<lambda>(tag, idc, resi, srcsi, vari). Mreturn (idc, vari, resi)\<close>
+
+definition dest_ldel_impl :: \<open>lpac_step_conc \<Rightarrow> 64 word llM\<close>
+  where [llvm_code, llvm_inline]:
+  \<open>dest_ldel_impl \<equiv> \<lambda>(tag, idc, resi, srcsi, vari). Mreturn idc\<close>
+
+definition mop_dest_cl ::
+  \<open>lpac_step_hol \<Rightarrow> ((llist_polynomial \<times> nat) list \<times> nat \<times> llist_polynomial) nres\<close> where
+  \<open>mop_dest_cl step = do {
+     ASSERT (is_CL step);
+     RETURN (dest_cl step)
+   }\<close>
+
+definition mop_dest_lextension :: \<open>lpac_step_hol \<Rightarrow> (nat \<times> string \<times> llist_polynomial) nres\<close> where
+  \<open>mop_dest_lextension step = do {
+     ASSERT (is_Extension step);
+     RETURN (dest_lextension step)
+   }\<close>
+
+definition mop_dest_ldel :: \<open>lpac_step_hol \<Rightarrow> nat nres\<close> where
+  \<open>mop_dest_ldel step = do {
+     ASSERT (is_Del step);
+     RETURN (dest_ldel step)
+   }\<close>
+
+lemma dest_cl_hnr[sepref_fr_rules]:
+  \<open>(dest_cl_impl, mop_dest_cl)
+    \<in> lpac_step_assn\<^sup>d \<rightarrow>\<^sub>a srcs_assn \<times>\<^sub>a si64_assn \<times>\<^sub>a polynomial_assn\<close>
+  unfolding dest_cl_impl_def mop_dest_cl_def dest_cl_def
+  apply sepref_to_hoare
+  apply (case_tac x; simp_all add: refine_pw_simps)
+  by (vcg; auto simp: step_pure_reassembly)
+
+lemma dest_lextension_hnr[sepref_fr_rules]:
+  \<open>(dest_lextension_impl, mop_dest_lextension)
+    \<in> lpac_step_assn\<^sup>d \<rightarrow>\<^sub>a si64_assn \<times>\<^sub>a strl_assn' \<times>\<^sub>a polynomial_assn\<close>
+  unfolding dest_lextension_impl_def mop_dest_lextension_def dest_lextension_def
+  apply sepref_to_hoare
+  apply (case_tac x; simp_all add: refine_pw_simps)
+  by (vcg; auto simp: step_pure_reassembly)
+
+lemma dest_ldel_hnr[sepref_fr_rules]:
+  \<open>(dest_ldel_impl, mop_dest_ldel) \<in> lpac_step_assn\<^sup>d \<rightarrow>\<^sub>a si64_assn\<close>
+  unfolding dest_ldel_impl_def mop_dest_ldel_def dest_ldel_def
+  apply sepref_to_hoare
+  apply (case_tac x; simp_all add: refine_pw_simps)
+  by (vcg; auto simp: step_pure_reassembly)
+
+sepref_register mop_dest_cl mop_dest_lextension mop_dest_ldel
+
+section \<open>Free\<close>
+
+text \<open>The sources of a linear combination are a list of (polynomial, index) pairs; only
+  the polynomial component owns memory.\<close>
+
+definition srcs_pair_free :: \<open>poly_conc \<times> 64 word \<Rightarrow> unit llM\<close>
+  where [llvm_code, llvm_inline]:
+  \<open>srcs_pair_free \<equiv> \<lambda>(pi, _). doM { poly.cl_free pi; Mreturn () }\<close>
+
+lemma srcs_pair_free_mk_free:
+  \<open>MK_FREE (polynomial_assn \<times>\<^sub>a si64_assn) srcs_pair_free\<close>
+  using mk_free_pair[OF poly.cl_assn_free mk_free_pure]
+  unfolding srcs_pair_free_def by simp
+
+interpretation srcs: freeable_assn \<open>polynomial_assn \<times>\<^sub>a si64_assn\<close> srcs_pair_free
+  by unfold_locales (rule srcs_pair_free_mk_free)
+
+context begin
+interpretation llvm_prim_arith_setup + llvm_prim_ctrl_setup .
+
+definition lpac_step_free :: \<open>lpac_step_conc \<Rightarrow> unit llM\<close> where [llvm_code]:
+  \<open>lpac_step_free \<equiv> \<lambda>(tag, idc, resi, srcsi, vari).
+     llc_if (ll_cmp'_eq tag 0) (doM { srcs.cl_free srcsi; poly.cl_free resi })
+     (llc_if (ll_cmp'_eq tag 1) (doM { strl.cl_free vari; poly.cl_free resi })
+       (Mreturn ()))\<close>
+
+lemma lpac_step_assn_mk_free[sepref_frame_free_rules]:
+  \<open>MK_FREE lpac_step_assn lpac_step_free\<close>
+  apply (rule MK_FREEI)
+  subgoal for a c
+    unfolding lpac_step_free_def ll_cmp'_eq_def
+    by (cases a; cases c rule: prod_cases5; simp;
+        vcg; auto simp: step_pure_reassembly to_bool_from_bool)
+  done
+
+end
+
+interpretation lpstep: freeable_assn lpac_step_assn lpac_step_free
+  by unfold_locales (rule lpac_step_assn_mk_free)
+
 end

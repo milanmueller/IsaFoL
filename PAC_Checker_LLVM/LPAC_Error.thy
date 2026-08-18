@@ -85,4 +85,32 @@ lemma check_linear_combi_l_mult_err_fref:
 lemmas check_linear_combi_l_mult_err_hnr[sepref_fr_rules] =
   check_linear_combi_l_mult_err_impl.refine[FCOMP check_linear_combi_l_mult_err_fref]
 
+subsection \<open>Error Messages of the Extensions\<close>
+
+definition check_extension_l2_side_cond_err_imp
+  :: \<open>string \<Rightarrow> llist_polynomial \<Rightarrow> llist_polynomial \<Rightarrow> string\<close>
+where
+  \<open>check_extension_l2_side_cond_err_imp v p' q =
+  cl_to_clt ''Error while checking side conditions of extension, var is '' @ cl_to_clt v @
+  cl_to_clt '' polynomial is '' @ poly_print p' @
+  cl_to_clt '' side condition p*p - p = '' @ poly_print q @ cl_to_clt '' and should be 0''\<close>
+
+sepref_def check_extension_l2_side_cond_err_impl is
+  \<open>uncurry2 (RETURN ooo check_extension_l2_side_cond_err_imp)\<close>
+  :: \<open>strl_assn'\<^sup>k *\<^sub>a polynomial_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
+  unfolding check_extension_l2_side_cond_err_imp_def
+  by sepref
+
+lemma check_extension_l2_side_cond_err_fref:
+  \<open>(uncurry2 (RETURN ooo check_extension_l2_side_cond_err_imp),
+  uncurry2 LPAC_Checker.check_extension_l_side_cond_err)
+  \<in> Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  apply (intro frefI nres_relI)
+  unfolding check_extension_l2_side_cond_err_imp_def
+    LPAC_Checker.check_extension_l_side_cond_err_def
+  by auto
+
+lemmas check_extension_l2_side_cond_err_hnr[sepref_fr_rules] =
+  check_extension_l2_side_cond_err_impl.refine[FCOMP check_extension_l2_side_cond_err_fref]
+
 end
