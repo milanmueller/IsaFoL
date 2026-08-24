@@ -17,6 +17,7 @@ subsection \<open>Polynomial Sorting\<close>
 definition mnl_le :: \<open>char list list \<times> int \<Rightarrow> char list list \<times> int \<Rightarrow> bool\<close> where
   \<open>mnl_le \<equiv> \<lambda>(m, _) (m', _). m \<le> m'\<close>
 
+(*
 definition merge_mnls :: \<open>(char list list \<times> int) list \<Rightarrow> _ \<Rightarrow> _\<close> where
   \<open>merge_mnls = merge mnl_le\<close>
 
@@ -24,7 +25,7 @@ definition msort_mnls :: \<open>(char list list \<times> int) list \<Rightarrow>
   \<open>msort_mnls = msort_alt mnl_le\<close>
 
 sepref_register mnl_le merge_mnls msort_mnls
-
+*)
 sepref_def mnl_le_impl is \<open>uncurry (RETURN oo mnl_le)\<close>
   :: \<open>monomial_assn\<^sup>k *\<^sub>a monomial_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   unfolding mnl_le_def
@@ -32,14 +33,14 @@ sepref_def mnl_le_impl is \<open>uncurry (RETURN oo mnl_le)\<close>
 
 text \<open>Correctness at the abstract level: multiset preservation and sortedness w.r.t.
   the (weak) monomial order on pairs \<emdash> the ingredients for \<open>sort_poly_spec\<close>.\<close>
-
+(*
 lemma msort_mnls_mset[simp]: \<open>mset (msort_mnls xs) = mset xs\<close>
   unfolding msort_mnls_def by simp
 
 lemma msort_mnls_sorted: \<open>sorted_wrt mnl_le (msort_mnls xs)\<close>
   unfolding msort_mnls_def
   by (rule msort_alt_sorted) (auto simp: mnl_le_def intro!: transpI)
-
+*)
 text \<open>String/monomial relations, assertions and equality (replacing the AFP's
   \<open>eq_string_monom_hnr\<close>) have moved to \<open>Monom_Assn\<close>.\<close>
 
