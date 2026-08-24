@@ -3,7 +3,6 @@ theory PAC_Polynomials_Operations
     PAC_Polynomials_Term 
     PAC_Checker_Specification
     LLVM_Polynomials
-    LLVM_Sort
 begin
 
 subsection \<open>Addition\<close>
@@ -1129,6 +1128,9 @@ definition merge_coeffs1 :: \<open>llist_polynomial \<Rightarrow> llist_polynomi
     (r, _) \<leftarrow> WHILE\<^sub>T (\<lambda>(_, p). p \<noteq> []) mc_body ([], p);
     add_poly_l2 r [] []
   }\<close>
+
+lemma WHILET_exit: \<open>\<not> c s \<Longrightarrow> WHILE\<^sub>T c f s = RETURN s\<close>
+  by (subst WHILET_unfold) simp
 
 lemma merge_coeffs1_loop:
   \<open>WHILE\<^sub>T (\<lambda>(_, p). p \<noteq> []) mc_body (r, p) = RETURN (rev (merge_coeffs0 p) @ r, [])\<close>

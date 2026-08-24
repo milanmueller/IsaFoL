@@ -1,5 +1,5 @@
 theory PAC_Polynomials_Sort
-  imports LLVM_Sort IICF_Copying_List
+  imports IICF_Copying_List
 begin
 (* TODO: This theory should be named Copying_List_Sort or something *)
 
@@ -197,7 +197,7 @@ lemma msort_spec: \<open>msort xs \<le> SPEC (\<lambda>r. mset xs = mset r \<and
   apply (refine_vcg explode_while_spec run_passes_spec)
   apply simp_all
   subgoal by blast
-  subgoal by force
+  subgoal by (auto simp: rev_map)
   subgoal by fastforce
   done
 

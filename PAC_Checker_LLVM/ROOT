@@ -16,11 +16,8 @@ session PAC_Checker_LLVM = "Isabelle_LLVM" +
     IICF_Copying_List
     IICF_HashSet
     IICF_PartialMap
-    LLVM_Sort
     LLVM_ASCII_String
     LLVM_Polynomials
-    LLVM_Sort
-    LLVM_String_Vars
     LPAC_Checker_Specification
     LPAC_Checker
     LPAC_Checker_Synthesis
