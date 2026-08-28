@@ -1,6 +1,6 @@
 theory LLVM_String
   imports Printing_Setup IICF_Copying_List Isabelle_LLVM.IICF
-    PAC_Polynomials_Sort
+    LLVM_List_Sorting
 begin
 
 text \<open>Here, we provide two implementations of strings:

@@ -14,7 +14,7 @@ text \<open>This theory implement a key-value map.
   A lot of the proofs in here were found by Anthropic LLMs,
   they could most likely be much more concise and readable with some more ground work.\<close>
 
-text \<open>TODO list \<emdash> coverage of the @{theory Isabelle_LLVM.IICF_Map} interface
+text \<open>TODO list coverage of the @{theory Isabelle_LLVM.IICF_Map} interface
   \<^item> [x] \<open>op_map_empty\<close>
   \<^item> [x] \<open>op_map_update\<close>
   \<^item> [x] \<open>op_map_delete\<close>
@@ -119,8 +119,6 @@ lemma opt_list_the_lookup_refine:
   apply (intro frefI nres_relI)
   by (auto simp: opt_list_map_rel_def in_br_conv opt_list_the_lookup_def opt_list_\<alpha>_def split: if_splits)
 
-text \<open>An upper bound on the domain of the map: the spine length. Middle-level op is a
-  \<open>SPEC\<close> so it composes further up with \<^term>\<open>dom_m\<close>-based bounds.\<close>
 definition opt_list_dom_ub :: \<open>'a opt_list \<Rightarrow> nat\<close> where
   \<open>opt_list_dom_ub m \<equiv> length m\<close>
 

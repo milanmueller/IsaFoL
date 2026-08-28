@@ -9,8 +9,8 @@ begin
 
 text \<open>This theory had some significant changes: It used to implement sorting for
   monimials and coefficients, based on WB_Sort which is now removed from the project entirely. 
-  For sorting, we use the generic while-based merge sort implemented in 
-  \<open>PAC_Polynomials_Sort\<close>.\<close>
+  For sorting, we use the generic while-based merge sort implemented in
+  \<open>LLVM_List_Sorting\<close>.\<close>
 
 section \<open>@{term \<open>merge_coeffs0\<close>}\<close>
 text \<open>Here, the refinement uses the WHILE-based implementation

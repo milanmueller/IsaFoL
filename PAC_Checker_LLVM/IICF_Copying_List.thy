@@ -1484,6 +1484,104 @@ lemma clt_to_cl_hnr[sepref_fr_rules]:
   \<open>(clt_to_cl, RETURN o op_clt_to_cl) \<in> (clt_assn' A)\<^sup>d \<rightarrow>\<^sub>a cl_assn' A\<close>
   by (sepref_to_hoare; vcg)
 
+subsubsection \<open>Appending a @{term cl_assn} list (O(1))\<close>
+
+text \<open>Destructively links the last node of the tail-pointer list to the head of an
+  ordinary copying list. Like @{term clt_concat} this needs no traversal; unlike it,
+  the second operand carries no tail pointer, so the result is only a @{term cl_assn}
+  list.\<close>
+
+definition clt_cl_append :: \<open>'a::llvm_rep clt_list \<Rightarrow> 'a cl_list \<Rightarrow> 'a cl_list llM\<close>
+  where [llvm_code]:
+  \<open>clt_cl_append \<equiv> \<lambda>(p, q) r.
+    if p = null then Mreturn r
+    else doM {
+      n \<leftarrow> ll_load q;
+      ll_store (Node (node.val n) r) q;
+      Mreturn p
+    }\<close>
+
+lemma cl_assn_olseg: \<open>cl_assn' A xs p = olseg A xs p null\<close>
+  unfolding cl_assn'_def cl_assn_def by simp
+
+context begin
+
+private lemma clt_cl_append_step:
+  assumes \<open>xs \<noteq> []\<close> and \<open>p \<noteq> null\<close>
+  shows \<open>ENTAILS
+    (\<upharpoonleft>ll_bpto (Node c r) q ** A (last xs) c ** cl_assn' A ys r ** olseg A (butlast xs) p q)
+    (cl_assn' A (xs @ ys) p)\<close>
+proof -
+  have E: \<open>butlast xs @ [last xs] = xs\<close> using assms by simp
+  have H1: \<open>olseg A (butlast xs) p q ** \<upharpoonleft>ll_bpto (Node c r) q ** A (last xs) c
+      \<turnstile> olseg A xs p r\<close>
+    using olseg_snoc[of A \<open>butlast xs\<close> p q c r \<open>last xs\<close>] unfolding E .
+  have R: \<open>(\<upharpoonleft>ll_bpto (Node c r) q ** A (last xs) c ** olseg A ys r null
+      ** olseg A (butlast xs) p q)
+    = ((olseg A (butlast xs) p q ** \<upharpoonleft>ll_bpto (Node c r) q ** A (last xs) c)
+      ** olseg A ys r null)\<close>
+    by (simp add: sep_conj_aci)
+  show ?thesis
+    unfolding ENTAILS_def cl_assn_olseg
+    unfolding R
+    by (rule entails_trans[OF conj_entails_mono[OF H1 entails_refl] olseg_append])
+qed
+
+lemma clt_cl_append_rule[vcg_rules]:
+  \<open>llvm_htriple (clt_assn' A xs pq ** cl_assn' A ys ri)
+    (clt_cl_append pq ri)
+    (\<lambda>r. cl_assn' A (xs @ ys) r)\<close>
+  unfolding clt_cl_append_def
+  supply [simp] = clt_assn_conv olseg_nil sep_conj_exists
+  apply (cases pq; cases \<open>xs = []\<close>; simp)
+  subgoal by vcg
+  subgoal
+    apply vcg
+    apply (rule clt_cl_append_step; assumption)
+    done
+  done
+
+definition op_clt_cl_append :: \<open>'a list \<Rightarrow> 'a list \<Rightarrow> 'a list\<close> where [simp]:
+  \<open>op_clt_cl_append xs ys = xs @ ys\<close>
+sepref_register op_clt_cl_append
+
+lemma clt_cl_append_hnr[sepref_fr_rules]:
+  \<open>(uncurry clt_cl_append, uncurry (RETURN oo op_clt_cl_append))
+    \<in> (clt_assn' A)\<^sup>d *\<^sub>a (cl_assn' A)\<^sup>d \<rightarrow>\<^sub>a cl_assn' A\<close>
+  by (sepref_to_hoare; vcg)
+
+end
+
+subsubsection \<open>Concatenation when one operand is empty (O(1))\<close>
+
+text \<open>Guarded variant of @{term op_list_concat}: if one of the two lists is known to
+  be empty, the concatenation is just a pointer choice and needs no traversal
+  (@{term cl_concat} walks its first argument). The guard must be established by an
+  @{term ASSERT} at the call site.\<close>
+
+definition cl_concat0 :: \<open>'a::llvm_rep cl_list \<Rightarrow> 'a cl_list \<Rightarrow> 'a cl_list llM\<close>
+  where [llvm_code, llvm_inline]:
+  \<open>cl_concat0 \<equiv> \<lambda>p q. if p = null then Mreturn q else Mreturn p\<close>
+
+definition op_cl_concat0 :: \<open>'a list \<Rightarrow> 'a list \<Rightarrow> 'a list\<close> where [simp]:
+  \<open>op_cl_concat0 xs ys = xs @ ys\<close>
+sepref_register op_cl_concat0
+
+lemma cl_concat0_rule[vcg_rules]:
+  \<open>llvm_htriple (cl_assn' A xs p ** cl_assn' A ys q ** \<up>(xs = [] \<or> ys = []))
+    (cl_concat0 p q)
+    (\<lambda>r. cl_assn' A (xs @ ys) r)\<close>
+  unfolding cl_concat0_def
+  supply [simp] = cl_assn_simps
+  apply (cases \<open>xs = []\<close>; cases \<open>p = null\<close>; simp)
+  apply (all \<open>vcg\<close>)
+  done
+
+lemma cl_concat0_hnr[sepref_fr_rules]:
+  \<open>(uncurry cl_concat0, uncurry (RETURN oo op_cl_concat0))
+    \<in> [\<lambda>(xs, ys). xs = [] \<or> ys = []]\<^sub>a (cl_assn' A)\<^sup>d *\<^sub>a (cl_assn' A)\<^sup>d \<rightarrow> cl_assn' A\<close>
+  by (sepref_to_hoare; vcg)
+
 subsubsection \<open>Free\<close>
 
 context freeable_assn

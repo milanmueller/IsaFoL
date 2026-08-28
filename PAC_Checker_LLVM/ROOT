@@ -17,6 +17,7 @@ session PAC_Checker_LLVM = "Isabelle_LLVM" +
     IICF_HashSet
     IICF_PartialMap
     LLVM_ASCII_String
+    LLVM_List_Sorting
     LLVM_Polynomials
     LPAC_Checker_Specification
     LPAC_Checker
@@ -36,7 +37,6 @@ session PAC_Checker_LLVM = "Isabelle_LLVM" +
     PAC_Misc
     PAC_More_Poly
     PAC_Polynomials_Operations
-    PAC_Polynomials_Sort
     PAC_Polynomials_Term
     PAC_Polynomials
     PAC_Specification

@@ -1,6 +1,7 @@
 theory LPAC_Efficient_Checker_Synthesis
   imports LPAC_Efficient_Checker
     LPAC_Perfectly_Shared_Vars
+    LPAC_Efficient_Checker_Sorting
     PAC_Checker_Synthesis
 begin
 
@@ -514,6 +515,134 @@ proof -
       apply (auto simp: rel2p_def)
       done
 qed
+
+
+subsection \<open>Monadic mergesort: instantiation for the PAC term order\<close>
+
+text \<open>We instantiate @{locale mcmp_env} (from \<open>LPAC_Efficient_Checker_Sorting\<close>)
+  per fixed well-formed \<open>\<V>\<close>: the pure order \<open>term_cmp\<close> and the validity
+  predicate \<open>term_valid\<close> are the pullbacks of the abstract term order along the
+  nat \<rightarrow> string lookup of \<open>\<V>\<close>; the monadic comparison is the shared-vars
+  implementation above. The interpretation lives in a context assuming
+  \<open>(\<V>, \<V>\<D>) \<in> perfectly_shared_vars_rel\<close>, so it exists exactly for well-formed
+  \<open>\<V>\<close> (well-formedness is needed e.g. for totality: injectivity of the lookup
+  on its domain). All constants and lemmas are exported with \<open>\<V>\<close> as an
+  additional argument / \<open>V_rel\<close> as a premise.\<close>
+
+context
+  fixes \<V> :: \<open>(nat, string) shared_vars\<close> and \<V>\<D> :: \<open>(nat, string) vars\<close>
+  assumes V_rel: \<open>(\<V>, \<V>\<D>) \<in> perfectly_shared_vars_rel\<close>
+begin
+
+definition monom_abs :: \<open>nat list \<Rightarrow> string list\<close> where
+  \<open>monom_abs m = map (the o fmlookup (fst (snd \<V>))) m\<close>
+
+definition term_cmp :: \<open>nat list \<times> int \<Rightarrow> nat list \<times> int \<Rightarrow> bool\<close> where
+  \<open>term_cmp x y \<equiv> (monom_abs (fst x), monom_abs (fst y)) \<in> Id \<union> term_order_rel\<close>
+
+definition term_valid :: \<open>nat list \<times> int \<Rightarrow> bool\<close> where
+  \<open>term_valid x \<equiv> (\<forall>a\<in>set (fst x). a \<in># dom_m (fst (snd \<V>)))\<close>
+
+definition term_mcmp :: \<open>nat list \<times> int \<Rightarrow> nat list \<times> int \<Rightarrow> bool nres\<close> where
+  \<open>term_mcmp x y = do {
+    a \<leftarrow> perfect_shared_term_order_rel_s \<V> (fst x) (fst y);
+    RETURN (a \<noteq> GREATER)
+  }\<close>
+
+text \<open>Bridge: a valid monom is related to its lookup image.\<close>
+lemma term_valid_monom_rel:
+  assumes \<open>term_valid x\<close>
+  shows \<open>(fst x, monom_abs (fst x)) \<in> perfectly_shared_monom \<V>\<close>
+    and \<open>set (monom_abs (fst x)) \<subseteq> set_mset \<V>\<D>\<close>
+proof -
+  show \<open>(fst x, monom_abs (fst x)) \<in> perfectly_shared_monom \<V>\<close>
+    using assms
+    unfolding monom_abs_def term_valid_def perfectly_shared_var_rel_def
+      list_rel_def
+    by (auto simp: in_br_conv list.rel_map(2) list_all2_same
+    prod.split_sel_asm)
+next
+  show \<open>set (monom_abs (fst x)) \<subseteq> set_mset \<V>\<D>\<close>
+    using assms V_rel
+    unfolding monom_abs_def term_valid_def
+      perfectly_shared_vars_rel_def perfectly_shared_vars_def
+    by (cases \<open>\<V>\<close>; auto simp: in_dom_m_lookup_iff)
+qed
+
+lemma term_mcmp_spec:
+  assumes \<open>term_valid x\<close> \<open>term_valid y\<close>
+  shows \<open>term_mcmp x y \<le> SPEC (\<lambda>b. b \<longleftrightarrow> term_cmp x y)\<close>
+  unfolding term_mcmp_def
+  apply (refine_vcg
+    perfect_shared_term_order_rel_s_perfect_shared_term_order_rel[OF V_rel
+      term_valid_monom_rel(1)[OF assms(1)]
+      term_valid_monom_rel(1)[OF assms(2)],
+      THEN order_trans]
+  )
+  unfolding conc_Id id_apply
+  apply (rule perfect_shared_term_order_rel_spec[unfolded conc_Id id_apply,
+    THEN order_trans])
+  apply (rule term_valid_monom_rel(2)[OF assms(1)])
+  apply (rule term_valid_monom_rel(2)[OF assms(2)])
+  apply (rule SPEC_rule)
+  apply (rename_tac b, case_tac b)
+  by (auto simp: term_cmp_def pw_le_iff refine_pw_simps)
+    (meson lexord_irreflexive term_order_rel_trans var_order_rel_antisym)+
+
+interpretation term_sort: mcmp_env term_cmp term_valid term_mcmp
+  apply unfold_locales
+  subgoal for x y using term_mcmp_spec by blast
+  subgoal for x y z
+    by (metis Un_iff pair_in_Id_conv term_cmp_def term_order_rel_trans)
+  subgoal for x y
+    by (metis Un_iff lexord_linear pair_in_Id_conv term_cmp_def
+    var_roder_rel_total)
+  done
+
+definition msort_monoms :: \<open>(nat list \<times> int) list \<Rightarrow> (nat list \<times> int) list nres\<close> where
+  \<open>msort_monoms xs = term_sort.msort xs\<close>
+
+text \<open>Replacement for @{thm sort_poly_spec_s_sort_poly_spec} and thereby for
+  \<open>msortR\<close>. NB: requires \<open>msort_spec\<close> in @{locale mcmp_env} to carry the
+  precondition \<open>\<forall>a\<in>set xs. valid a\<close> (validity threading).\<close>
+lemma msort_monoms_sort_poly_spec:
+  assumes \<open>(xs, xs') \<in> perfectly_shared_polynom \<V>\<close>
+    and \<open>vars_llist xs' \<subseteq> set_mset \<V>\<D>\<close>
+  shows \<open>msort_monoms xs \<le> \<Down>(perfectly_shared_polynom \<V>) (sort_poly_spec xs')\<close>
+proof -
+  have valid: \<open>\<forall>a\<in>set xs. term_valid a\<close>
+    (* the unary form of subgoal 1 of sort_poly_spec_s_sort_poly_spec *)
+    sorry
+  show ?thesis
+    unfolding msort_monoms_def
+    apply (rule term_sort.msort_spec[THEN order_trans])
+    (* SPEC (\<lambda>r. mset xs = mset r \<and> sorted_wrt term_cmp r \<and> \<dots>) \<le> \<Down>\<dots>:
+       for an arbitrary sorted result r, witness r' = map (abstraction) r;
+       mset r' = mset xs' since the element relation is single-valued
+       (perfectly_shared_var_rel is a br); sortedness of r' from
+       sorted_wrt term_cmp r. Cf. the final block of
+       sort_poly_spec_s_sort_poly_spec, which used the fixed witness
+       msort f' xs' instead. *)
+    sorry
+qed
+
+end
+
+text \<open>The coefficient-sort instance (replacing \<open>msort_coeff_s\<close>) is analogous:
+  \<open>valid = (\<lambda>a. a \<in># dom_m (fst (snd \<V>)))\<close>,
+  \<open>cmp = (\<lambda>a b. a = b \<or> var_order (fst (snd \<V>) \<propto> a) (fst (snd \<V>) \<propto> b))\<close>,
+  \<open>mcmp\<close> via \<open>get_var_nameS\<close>; totality additionally needs injectivity of the
+  lookup (perfectly_shared_var_rel_unique_right), which \<open>V_rel\<close> provides.
+
+  Synthesis is per instance with \<open>\<V>\<close> explicit (no @{locale mcmp_env_impl}
+  interpretation \<midarrow> the comparison impl needs heap ownership of \<open>\<V>\<close>, which a
+  binary \<open>A\<^sup>k *\<^sub>a A\<^sup>k\<close> rule cannot capture): unfold \<open>msort_monoms_def\<close> together
+  with \<open>mcmp_env.msort_def\<close>, \<open>mcmp_env.run_passes_def\<close>, \<open>mcmp_env.pass_def\<close>,
+  \<open>mcmp_env.merge_while_def\<close>, \<open>mcmp_env.merge_while_inner_def\<close> and
+  \<open>term_mcmp_def\<close>; the comparison then appears as
+  \<open>perfect_shared_term_order_rel_s \<V> \<dots>\<close> with \<open>\<V>\<close> a real argument, so the
+  existing impl rule (perfect_shared_term_order_rel_s_impl) applies.\<close>
+
 
 definition msort_coeff_s :: \<open>(nat,string)shared_vars \<Rightarrow> nat list \<Rightarrow> nat list nres\<close> where
   \<open>msort_coeff_s \<V> xs = msortR (\<lambda>a b. a \<in> set xs \<and> b \<in> set xs)
@@ -1065,43 +1194,182 @@ sepref_definition add_poly_l_prep_impl
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a (poly_s_assn \<times>\<^sub>a poly_s_assn)\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
   supply [[goals_limit=1]]
   unfolding add_poly_l_s_alt_def
-    term_order_rel'_def[symmetric]
-    term_order_rel'_alt_def
+    ls_emp ls_emp'
     fold_ordered_discriminators
   by sepref
+
+text \<open>Pop-front form of the monomial product; the keep-mode signature is obtained by
+  copying both monomials at entry.\<close>
+
+lemma mult_monoms_s_alt_def:
+  \<open>mult_monoms_s \<D> xs ys = do { xs \<leftarrow> RETURN (COPY xs); ys \<leftarrow> RETURN (COPY ys); REC\<^sub>T (\<lambda>f (xs, ys).
+ do {
+    if xs = [] then RETURN ys
+    else if ys = [] then RETURN xs
+    else do {
+      ASSERT(xs \<noteq> [] \<and> ys \<noteq> []);
+      (x, xs) \<leftarrow> mop_list_pop_hd xs;
+      (y, ys) \<leftarrow> mop_list_pop_hd ys;
+      comp \<leftarrow> perfect_shared_var_order_s \<D> x y;
+      if comp = EQUAL then do {
+        pq \<leftarrow> f (xs, ys);
+        RETURN (x # pq)
+      }
+      else if comp = LESS then do {
+        pq \<leftarrow> f (xs, y # ys);
+        RETURN (x # pq)
+      }
+      else do {
+        pq \<leftarrow> f (x # xs, ys);
+        RETURN (y # pq)
+      }
+   }
+ }) (xs, ys)}\<close>
+proof -
+  have 1: \<open>(\<lambda>f (xs, ys).
+ do {
+    if xs = [] then RETURN ys
+    else if ys = [] then RETURN xs
+    else do {
+      ASSERT(xs \<noteq> [] \<and> ys \<noteq> []);
+      (x, xs) \<leftarrow> mop_list_pop_hd xs;
+      (y, ys) \<leftarrow> mop_list_pop_hd ys;
+      comp \<leftarrow> perfect_shared_var_order_s \<D> x y;
+      if comp = EQUAL then do {
+        pq \<leftarrow> f (xs, ys);
+        RETURN (x # pq)
+      }
+      else if comp = LESS then do {
+        pq \<leftarrow> f (xs, y # ys);
+        RETURN (x # pq)
+      }
+      else do {
+        pq \<leftarrow> f (x # xs, ys);
+        RETURN (y # pq)
+      }
+   }
+ }) = (\<lambda>f (xs, ys).
+ do {
+    if xs = [] then RETURN ys
+    else if ys = [] then RETURN xs
+    else do {
+      ASSERT(xs \<noteq> [] \<and> ys \<noteq> []);
+      comp \<leftarrow> perfect_shared_var_order_s \<D> (hd xs) (hd ys);
+      if comp = EQUAL then do {
+        pq \<leftarrow> f (tl xs, tl ys);
+        RETURN (hd xs # pq)
+      }
+      else if comp = LESS then do {
+        pq \<leftarrow> f (tl xs, ys);
+        RETURN (hd xs # pq)
+      }
+      else do {
+        pq \<leftarrow> f (xs, tl ys);
+        RETURN (hd ys # pq)
+      }
+   }
+ })\<close>
+    by (intro ext)
+      (auto simp: mop_list_pop_hd_def pw_eq_iff refine_pw_simps
+        split: prod.splits list.splits)
+  show ?thesis
+    unfolding COPY_def nres_monad1 1 mult_monoms_s_def ..
+qed
 
 sepref_definition mult_monoms_s_impl
   is \<open>uncurry2 mult_monoms_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a monom_s_assn\<^sup>k *\<^sub>a monom_s_assn\<^sup>k \<rightarrow>\<^sub>a monom_s_assn\<close>
-  unfolding mult_monoms_s_def conv_to_is_Nil
-  unfolding
-    term_order_rel'_def[symmetric]
-    term_order_rel'_alt_def
-  apply sepref_dbg_keep
+  supply [[goals_limit=1]]
+  unfolding mult_monoms_s_alt_def
+    ls_emp ls_emp' fold_ordered_discriminators
+  by sepref
 
 lemmas [sepref_fr_rules] =
   mult_monoms_s_impl.refine
 
+sepref_register mult_monoms_s mult_term_s
+
+text \<open>The folds over polynomials are rephrased as pop-front recursions over a copy
+  (the monadic loop bodies rule out the read-only \<open>cl_fold\<close> combinator).\<close>
+
+lemma nfoldli_to_pop_RECT:
+  fixes body :: \<open>'a \<Rightarrow> 'b \<Rightarrow> 'b nres\<close>
+  shows \<open>nfoldli qs (\<lambda>_. True) body b = REC\<^sub>T (\<lambda>f (qs, b).
+     if qs = [] then RETURN b
+     else do {
+       (x, qs) \<leftarrow> mop_list_pop_hd qs;
+       b \<leftarrow> body x b;
+       f (qs, b)
+     }) (qs, b)\<close>
+proof (induction qs arbitrary: b)
+  case Nil
+  show ?case
+    by (subst RECT_unfold, refine_mono) auto
+next
+  case (Cons x qs)
+  show ?case
+    apply (subst RECT_unfold, refine_mono)
+    apply (simp add: mop_list_pop_hd_def nfoldli_simps Cons.IH[symmetric]
+      pw_eq_iff refine_pw_simps)
+    done
+qed
+
+lemma mult_term_s_alt_def:
+  \<open>mult_term_s = (\<lambda>\<V> qs (p, m) b. do {
+     qs \<leftarrow> RETURN (COPY qs);
+     REC\<^sub>T (\<lambda>f (qs, b).
+       if qs = [] then RETURN b
+       else do {
+         ((q, n), qs) \<leftarrow> mop_list_pop_hd qs;
+         pq \<leftarrow> mult_monoms_s \<V> p q;
+         f (qs, ((pq, m * n) # b))
+       }) (qs, b)})\<close>
+proof -
+  show ?thesis
+    unfolding mult_term_s_def COPY_def nres_monad1
+    apply (intro ext)
+    subgoal for \<V> qs pm b
+      apply (cases pm)
+      apply (simp only: prod.case)
+      apply (subst nfoldli_to_pop_RECT)
+      apply (rule arg_cong2[where f = \<open>REC\<^sub>T\<close>])
+      apply (auto simp: mop_list_pop_hd_def pw_eq_iff refine_pw_simps
+          intro!: ext split: prod.splits)
+      apply blast
+      by blast
+    done
+qed
+
 sepref_definition mult_term_s_impl
   is \<open>uncurry3 mult_term_s\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a (monom_s_assn \<times>\<^sub>a int_assn)\<^sup>k *\<^sub>a poly_s_assn\<^sup>k\<rightarrow>\<^sub>a poly_s_assn\<close>
-  unfolding mult_term_s_def conv_to_is_Nil
-  unfolding
-    HOL_list.fold_custom_empty
-    term_order_rel'_def[symmetric]
-    term_order_rel'_alt_def
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a (monom_s_assn \<times>\<^sub>a sbi_assn)\<^sup>k *\<^sub>a poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
+  supply [[goals_limit=1]]
+  unfolding mult_term_s_alt_def
+    ls_emp ls_emp'
   by sepref
 
 lemmas [sepref_fr_rules] =
   mult_term_s_impl.refine
 
+lemma mult_poly_s_alt_def:
+  \<open>mult_poly_s \<V> p q = do {
+     p \<leftarrow> RETURN (COPY p);
+     REC\<^sub>T (\<lambda>f (p, b).
+       if p = [] then RETURN b
+       else do {
+         (pm, p) \<leftarrow> mop_list_pop_hd p;
+         b \<leftarrow> mult_term_s \<V> q pm b;
+         f (p, b)
+       }) (p, [])}\<close>
+  unfolding mult_poly_s_def COPY_def nres_monad1
+  by (subst nfoldli_to_pop_RECT) (rule refl)
 
 sepref_definition mult_poly_s_impl
   is \<open>uncurry2 mult_poly_s\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k\<rightarrow>\<^sub>a poly_s_assn\<close>
-  unfolding mult_poly_s_def conv_to_is_Nil
-  unfolding
-    HOL_list.fold_custom_empty
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a poly_s_assn\<close>
+  supply [[goals_limit=1]]
+  unfolding mult_poly_s_alt_def
+    ls_emp ls_emp'
   by sepref
 
 lemmas [sepref_fr_rules] =
