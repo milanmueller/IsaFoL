@@ -6,7 +6,101 @@ text \<open>A manual refinement of the mergesort algorithm defined in
   "LLVM_List_Sorting", since we can not directly instantiate @{term cmp_env_impl}
   as the comparison relys on the nat \<rightarrow> string mapping.
   The comparison function is in nres, so we need to reimplement mergesort
-  using a monadic comparison function\<close>
+  using a monadic comparison function.
+
+  The programs are defined outside the \<open>mcmp_env\<close> locale (with the comparison
+  environment as explicit arguments): the locale predicate is needed only for
+  the correctness lemmas, and keeping the programs unconditional allows
+  per-instance \<open>sepref\<close> synthesis by plain unfolding (the locale-exported
+  definitions are guarded by the locale predicate, which does not hold for
+  arbitrary instances).\<close>
+
+definition mcmp_merge_while_inner ::
+  \<open>('a \<Rightarrow> 'a \<Rightarrow> bool) \<Rightarrow> ('a \<Rightarrow> bool) \<Rightarrow> ('a \<Rightarrow> 'a \<Rightarrow> bool nres) \<Rightarrow>
+   'a list \<Rightarrow> 'a list \<Rightarrow> 'a list \<Rightarrow> ('a list \<times> 'a list \<times> 'a list) nres\<close> where
+  \<open>mcmp_merge_while_inner cmp vld mcmp \<equiv> \<lambda>xs\<^sub>0 ys\<^sub>0 r\<^sub>0. WHILEIT
+    (\<lambda>(r,xs,ys).
+      sorted_wrt cmp xs \<and> sorted_wrt cmp ys \<and> sorted_wrt cmp r \<and>
+      (\<forall>a\<in>set r. \<forall>b\<in>set xs \<union> set ys. cmp a b) \<and> (\<forall>a \<in> set r \<union> set xs \<union> set ys. vld a) \<and>
+      mset r + mset xs + mset ys = mset r\<^sub>0 + mset xs\<^sub>0 + mset ys\<^sub>0)
+    (\<lambda>(r,xs,ys). xs\<noteq>[] \<and> ys\<noteq>[])
+    (\<lambda>(r,xs,ys). doN {
+      (x,xs) \<leftarrow> mop_list_pop_hd xs;
+      (y,ys) \<leftarrow> mop_list_pop_hd ys;
+      c \<leftarrow> mcmp x y;
+      if c then RETURN (r@[x],xs,y#ys)
+      else RETURN (r@[y],x#xs,ys)
+    }) (r\<^sub>0,xs\<^sub>0,ys\<^sub>0)\<close>
+
+definition mcmp_merge_while ::
+  \<open>('a \<Rightarrow> 'a \<Rightarrow> bool) \<Rightarrow> ('a \<Rightarrow> bool) \<Rightarrow> ('a \<Rightarrow> 'a \<Rightarrow> bool nres) \<Rightarrow>
+   'a list \<Rightarrow> 'a list \<Rightarrow> 'a list nres\<close> where
+  \<open>mcmp_merge_while cmp vld mcmp \<equiv> \<lambda>xs ys. doN{
+    (r, xs, ys) \<leftarrow> mcmp_merge_while_inner cmp vld mcmp xs ys op_clt_empty;
+    ASSERT (xs = [] \<or> ys = []);
+    RETURN (op_clt_cl_append r (op_cl_concat0 xs ys))
+  }\<close>
+
+definition mcmp_pass ::
+  \<open>('a \<Rightarrow> 'a \<Rightarrow> bool) \<Rightarrow> ('a \<Rightarrow> bool) \<Rightarrow> ('a \<Rightarrow> 'a \<Rightarrow> bool nres) \<Rightarrow>
+   'a list list \<Rightarrow> 'a list list nres\<close> where
+  \<open>mcmp_pass cmp vld mcmp xss\<^sub>0 \<equiv> doN {
+    (r, _) \<leftarrow> WHILEIT
+      (\<lambda>(r,xss).
+        (\<forall>xs\<in>set r \<union> set xss. sorted_wrt cmp xs) \<and>
+        (\<forall>xs\<in>set r \<union> set xss. \<forall>x\<in>set xs. vld x) \<and>
+        mset (concat r) + mset (concat xss) = mset (concat xss\<^sub>0) \<and>
+        2 * length r + length xss \<le> length xss\<^sub>0 + (if xss = [] then 1 else 0) \<and>
+        (r = [] \<longrightarrow> xss = xss\<^sub>0))
+      (\<lambda>(r,xss). xss\<noteq>[])
+      (\<lambda>(r,xss). doN{
+        (xs,xss) \<leftarrow> mop_list_pop_hd xss;
+        if xss=[] then RETURN (xs#r,xss)
+        else doN {
+          (ys,xss) \<leftarrow> mop_list_pop_hd xss;
+          ms \<leftarrow> mcmp_merge_while cmp vld mcmp xs ys;
+          RETURN (ms#r, xss)
+        }
+      }) ([], xss\<^sub>0);
+    RETURN r
+  }\<close>
+
+definition mcmp_run_passes ::
+  \<open>('a \<Rightarrow> 'a \<Rightarrow> bool) \<Rightarrow> ('a \<Rightarrow> bool) \<Rightarrow> ('a \<Rightarrow> 'a \<Rightarrow> bool nres) \<Rightarrow>
+   'a list list \<Rightarrow> 'a list list nres\<close> where
+  \<open>mcmp_run_passes cmp vld mcmp xss\<^sub>0 \<equiv> doN {
+    ASSERT (xss\<^sub>0\<noteq>[]);
+    (xss, _) \<leftarrow> WHILEIT
+      (\<lambda>(xss,done).
+        (\<forall>xs\<in>set xss. sorted_wrt cmp xs) \<and>
+        (\<forall>xs\<in>set xss. \<forall>x\<in>set xs. vld x) \<and>
+        mset (concat xss) = mset (concat xss\<^sub>0) \<and>
+        xss \<noteq> [] \<and>
+        (done \<longrightarrow> length xss = 1))
+      (\<lambda>(xss,done). \<not>done)
+      (\<lambda>(xss,done). doN {
+        (xs,xss) \<leftarrow> mop_list_pop_hd xss;
+        if xss = [] then RETURN (xs#xss,True)
+        else doN {
+          xss' \<leftarrow> mcmp_pass cmp vld mcmp (xs#xss);
+          RETURN (xss',False)
+        }
+      }) (xss\<^sub>0, False);
+    RETURN xss
+  }\<close>
+
+definition mcmp_msort ::
+  \<open>('a \<Rightarrow> 'a \<Rightarrow> bool) \<Rightarrow> ('a \<Rightarrow> bool) \<Rightarrow> ('a \<Rightarrow> 'a \<Rightarrow> bool nres) \<Rightarrow>
+   'a list \<Rightarrow> 'a list nres\<close> where
+  \<open>mcmp_msort cmp vld mcmp xs \<equiv> doN {
+    if xs = [] then RETURN xs
+    else doN {
+      xss \<leftarrow> explode_while xs;
+      xss' \<leftarrow> mcmp_run_passes cmp vld mcmp xss;
+      xs \<leftarrow> mop_list_hd xss';
+      RETURN (xs)
+    }
+  }\<close>
 
 locale mcmp_env =
   fixes cmp :: \<open>'a \<Rightarrow> 'a \<Rightarrow> bool\<close>
@@ -26,19 +120,9 @@ lemma cmp_total_notD: \<open>valid x \<Longrightarrow> valid y \<Longrightarrow>
 lemma no_consD: \<open>\<forall>y ys. l \<noteq> y # ys \<Longrightarrow> l = []\<close>
   by (cases l) auto
 
-definition \<open>merge_while_inner \<equiv> \<lambda>xs\<^sub>0 ys\<^sub>0 r\<^sub>0. WHILEIT
-    (\<lambda>(r,xs,ys).
-      sorted_wrt cmp xs \<and> sorted_wrt cmp ys \<and> sorted_wrt cmp r \<and>
-      (\<forall>a\<in>set r. \<forall>b\<in>set xs \<union> set ys. cmp a b) \<and> (\<forall>a \<in> set r \<union> set xs \<union> set ys. valid a) \<and>
-      mset r + mset xs + mset ys = mset r\<^sub>0 + mset xs\<^sub>0 + mset ys\<^sub>0)
-    (\<lambda>(r,xs,ys). xs\<noteq>[] \<and> ys\<noteq>[])
-    (\<lambda>(r,xs,ys). doN {
-      (x,xs) \<leftarrow> mop_list_pop_hd xs;
-      (y,ys) \<leftarrow> mop_list_pop_hd ys;
-      c \<leftarrow> mcmp x y;
-      if c then RETURN (r@[x],xs,y#ys)
-      else RETURN (r@[y],x#xs,ys)
-    }) (r\<^sub>0,xs\<^sub>0,ys\<^sub>0)\<close>
+abbreviation merge_while_inner where
+  \<open>merge_while_inner \<equiv> mcmp_merge_while_inner cmp valid mcmp\<close>
+lemmas merge_while_inner_def = mcmp_merge_while_inner_def
 
 lemma merge_while_inner_spec:
   assumes \<open>sorted_wrt cmp xs\<^sub>0\<close> \<open>sorted_wrt cmp ys\<^sub>0\<close>
@@ -50,50 +134,30 @@ lemma merge_while_inner_spec:
       sorted_wrt cmp (r @ xs @ ys) \<and> (\<forall>a \<in> set r \<union> set xs \<union> set ys. valid a) \<and>
       mset r + mset xs + mset ys = mset r\<^sub>0 + mset xs\<^sub>0 + mset ys\<^sub>0)\<close>
   unfolding merge_while_inner_def
-  apply (refine_vcg WHILEIT_rule[where R=\<open>measure (\<lambda>(_,xs,ys). length xs + length ys)\<close>] 
+  apply (refine_vcg WHILEIT_rule[where R=\<open>measure (\<lambda>(_,xs,ys). length xs + length ys)\<close>]
           cmp_spec[THEN order_trans])
   using assms
   apply (auto simp: sorted_wrt_append neq_Nil_conv add_mset_commute
               dest!: no_consD dest: cmp_transD cmp_total_notD)
   apply (metis Un_iff cmp_trans)
   by (meson UnCI cmp_total_notD cmp_trans)
-  
 
-definition \<open>merge_while \<equiv> \<lambda>xs ys. doN{
-    (r, xs, ys) \<leftarrow> merge_while_inner xs ys op_clt_empty;
-    ASSERT (xs = [] \<or> ys = []);
-    RETURN (op_clt_cl_append r (op_cl_concat0 xs ys))
-  }\<close>
+
+abbreviation merge_while where
+  \<open>merge_while \<equiv> mcmp_merge_while cmp valid mcmp\<close>
+lemmas merge_while_def = mcmp_merge_while_def
 
 lemma merge_while_spec:
-  assumes \<open>sorted_wrt cmp xs\<close> \<open>sorted_wrt cmp ys\<close> 
+  assumes \<open>sorted_wrt cmp xs\<close> \<open>sorted_wrt cmp ys\<close>
     and \<open>\<forall>a \<in> set xs \<union> set ys. valid a\<close>
   shows \<open>merge_while xs ys \<le>
     SPEC (\<lambda>r. sorted_wrt cmp r \<and> mset r = mset xs + mset ys \<and> (\<forall>a \<in> set r. valid a))\<close>
   unfolding merge_while_def
   by (refine_vcg merge_while_inner_spec; auto simp: assms)
 
-definition pass :: \<open>'a list list \<Rightarrow> 'a list list nres\<close> where
-  \<open>pass xss\<^sub>0 \<equiv> doN {
-    (r, _) \<leftarrow> WHILEIT
-      (\<lambda>(r,xss).
-        (\<forall>xs\<in>set r \<union> set xss. sorted_wrt cmp xs) \<and>
-        (\<forall>xs\<in>set r \<union> set xss. \<forall>x\<in>set xs. valid x) \<and>
-        mset (concat r) + mset (concat xss) = mset (concat xss\<^sub>0) \<and>
-        2 * length r + length xss \<le> length xss\<^sub>0 + (if xss = [] then 1 else 0) \<and>
-        (r = [] \<longrightarrow> xss = xss\<^sub>0))
-      (\<lambda>(r,xss). xss\<noteq>[])
-      (\<lambda>(r,xss). doN{
-        (xs,xss) \<leftarrow> mop_list_pop_hd xss;
-        if xss=[] then RETURN (xs#r,xss)
-        else doN {
-          (ys,xss) \<leftarrow> mop_list_pop_hd xss;
-          ms \<leftarrow> merge_while xs ys;
-          RETURN (ms#r, xss)
-        }
-      }) ([], xss\<^sub>0);
-    RETURN r
-  }\<close>
+abbreviation pass :: \<open>'a list list \<Rightarrow> 'a list list nres\<close> where
+  \<open>pass \<equiv> mcmp_pass cmp valid mcmp\<close>
+lemmas pass_def = mcmp_pass_def
 
 lemma pass_spec:
   assumes \<open>\<forall>xs\<in>set xss\<^sub>0. sorted_wrt cmp xs\<close>
@@ -108,30 +172,12 @@ lemma pass_spec:
   apply (refine_vcg WHILEIT_rule[where R=\<open>measure (\<lambda>(_,xss). length xss)\<close>] merge_while_spec)
   using assms
   apply (auto simp: neq_Nil_conv ac_simps split: if_splits)
-  subgoal for r by (cases r; auto) 
+  subgoal for r by (cases r; auto)
   done
 
-definition run_passes :: \<open>'a list list \<Rightarrow> 'a list list nres\<close> where
-  \<open>run_passes xss\<^sub>0 \<equiv> doN {
-    ASSERT (xss\<^sub>0\<noteq>[]);
-    (xss, _) \<leftarrow> WHILEIT
-      (\<lambda>(xss,done).
-        (\<forall>xs\<in>set xss. sorted_wrt cmp xs) \<and>
-        (\<forall>xs\<in>set xss. \<forall>x\<in>set xs. valid x) \<and>
-        mset (concat xss) = mset (concat xss\<^sub>0) \<and>
-        xss \<noteq> [] \<and>
-        (done \<longrightarrow> length xss = 1))
-      (\<lambda>(xss,done). \<not>done)
-      (\<lambda>(xss,done). doN {
-        (xs,xss) \<leftarrow> mop_list_pop_hd xss;
-        if xss = [] then RETURN (xs#xss,True)
-        else doN {
-          xss' \<leftarrow> pass (xs#xss);
-          RETURN (xss',False)
-        }
-      }) (xss\<^sub>0, False);
-    RETURN xss
-  }\<close>
+abbreviation run_passes :: \<open>'a list list \<Rightarrow> 'a list list nres\<close> where
+  \<open>run_passes \<equiv> mcmp_run_passes cmp valid mcmp\<close>
+lemmas run_passes_def = mcmp_run_passes_def
 
 lemma run_passes_spec:
   assumes \<open>\<forall>xs\<in>set xss\<^sub>0. sorted_wrt cmp xs\<close>
@@ -146,28 +192,21 @@ lemma run_passes_spec:
   apply (auto simp: neq_Nil_conv length_Suc_conv dest!: no_consD split: if_splits)
   done
 
-definition msort :: \<open>'a list \<Rightarrow> 'a list nres\<close> where
-  \<open>msort xs \<equiv> doN {
-    if xs = [] then RETURN xs
-    else doN {
-      xss \<leftarrow> explode_while xs;
-      xss' \<leftarrow> run_passes xss;
-      xs \<leftarrow> mop_list_hd xss';
-      RETURN (xs)
-    }
-  }\<close>
+abbreviation msort :: \<open>'a list \<Rightarrow> 'a list nres\<close> where
+  \<open>msort \<equiv> mcmp_msort cmp valid mcmp\<close>
+lemmas msort_def = mcmp_msort_def
 
-lemma msort_spec: 
+lemma msort_spec:
   assumes \<open>\<forall>x\<in>set xs. valid x\<close>
   shows \<open>msort xs \<le> SPEC (\<lambda>r. mset xs = mset r \<and> sorted_wrt cmp r \<and> (\<forall>x\<in>set r. valid x))\<close>
   unfolding msort_def
   apply (refine_vcg explode_while_spec run_passes_spec)
   apply simp_all
-  subgoal using assms by blast 
+  subgoal using assms by blast
   subgoal by blast
   subgoal by (auto simp: rev_map)
   subgoal by fastforce
-  subgoal using list.set_sel(1) by blast 
+  subgoal using list.set_sel(1) by blast
   done
 
 end

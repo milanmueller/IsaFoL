@@ -3,45 +3,20 @@ theory LPAC_Efficient_Checker_Synthesis
     LPAC_Perfectly_Shared_Vars
     LPAC_Efficient_Checker_Sorting
     PAC_Checker_Synthesis
+    LPAC_Error
 begin
 
-(* originally in PAC_Checker_Init, not present there anymore *)
-fun merge :: "_ \<Rightarrow>  'a list \<Rightarrow> 'a list \<Rightarrow> 'a list"
-where
-  "merge f (x#xs) (y#ys) =
-         (if f x y then x # merge f xs (y#ys) else y # merge f (x#xs) ys)"
-| "merge f xs [] = xs"
-| "merge f [] ys = ys"
+(* Overwrite the refinement target of check_linear_combi_l_pre_err *)
+lemma check_linear_combi_l_pre_err_s_fref:
+  \<open>(uncurry3 (RETURN oooo check_linear_combi_l_pre_err_imp_s),
+    uncurry3 (check_linear_combi_l_pre_err)) 
+   \<in> Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  apply (intro frefI nres_relI)
+  unfolding check_linear_combi_l_pre_err_impl_def check_linear_combi_l_pre_err_def
+  by auto
 
-fun msort :: "('a \<Rightarrow> 'a \<Rightarrow> bool) \<Rightarrow> 'a list \<Rightarrow> 'a list"
-where
-  "msort f [] = []"
-| "msort f [x] = [x]"
-| "msort f xs = merge f
-                      (msort f (take (size xs div 2) xs))
-                      (msort f (drop (size xs div 2) xs))"
-
-lemma mset_merge [simp]:
-  "mset (merge f xs ys) = mset xs + mset ys"
-  by (induct f xs ys rule: merge.induct) (simp_all add: ac_simps)
-
-lemma set_merge [simp]:
-  "set (merge f xs ys) = set xs \<union> set ys"
-  by (induct f xs ys rule: merge.induct) auto
-
-lemma sorted_merge:
-  "transp f \<Longrightarrow> (\<And>x y. f x y \<or> f y x) \<Longrightarrow>
-   sorted_wrt f (merge f xs ys) \<longleftrightarrow> sorted_wrt f xs \<and> sorted_wrt f ys"
-  apply (induct f xs ys rule: merge.induct)
-  apply (auto simp add: ball_Un not_le less_le dest: transpD)
-  apply blast
-  apply (blast dest: transpD)
-  done
-
-lemma sorted_msort:
-  "transp f \<Longrightarrow> (\<And>x y. f x y \<or> f y x) \<Longrightarrow>
-   sorted_wrt f (msort f xs)"
-  by (induct f xs rule: msort.induct) (simp_all add: sorted_merge)
+lemmas check_linear_combi_l_pre_err_s_hnr[sepref_fr_rules] =
+  check_linear_combi_l_pre_err_s_impl.refine[FCOMP check_linear_combi_l_pre_err_s_fref]
 
 lemma term_order_rel_trans:
   \<open>(a, aa) \<in> term_order_rel \<Longrightarrow>
@@ -68,7 +43,6 @@ next
     apply (use Cons.prems in \<open>auto\<close>)+
     done
 qed
-
 (* Original File from here *)
 
 lemma in_set_rel_inD: \<open>(x,y) \<in>\<langle>R\<rangle>list_rel \<Longrightarrow> a \<in> set x \<Longrightarrow> \<exists>b \<in> set y. (a,b)\<in> R\<close>
@@ -113,7 +87,8 @@ definition (in -)perfect_shared_var_order_s :: \<open>(nat, string)shared_vars \
       y \<leftarrow> get_var_nameS \<D> y;
       if (x, y) \<in> var_order_rel then RETURN (LESS)
       else RETURN (GREATER)
-        }}\<close>
+    }
+  }\<close>
 
 lemma perfect_shared_var_order_s_perfect_shared_var_order:
   assumes \<open>(\<V>, \<V>\<D>) \<in> perfectly_shared_vars_rel\<close> and
@@ -230,339 +205,45 @@ lemma perfect_shared_term_order_rel_s_perfect_shared_term_order_rel:
   subgoal by (auto simp: neq_Nil_conv)
   done
 
-fun mergeR :: "_ \<Rightarrow> _ \<Rightarrow>  'a list \<Rightarrow> 'a list \<Rightarrow> 'a list nres"
-where
-  "mergeR  \<Phi> f (x#xs) (y#ys) = do {
-         ASSERT(\<Phi> x y);
-         b \<leftarrow> f x y;
-         if b then do {zs \<leftarrow> mergeR \<Phi> f xs (y#ys); RETURN (x # zs)}
-         else do {zs \<leftarrow> mergeR \<Phi> f (x#xs) ys; RETURN (y # zs)}
-       }"
-| "mergeR  \<Phi> f xs [] = RETURN xs"
-| "mergeR \<Phi> f [] ys = RETURN ys"
-
-lemma mergeR_merge:
-  assumes \<open>\<And>x y. x\<in>set xs \<union> set ys \<Longrightarrow> y\<in>set xs \<union> set ys \<Longrightarrow>\<Phi> x y\<close> and
-    \<open>\<And>x y. x\<in>set xs \<union> set ys \<Longrightarrow> y\<in>set xs \<union> set ys \<Longrightarrow> f x y \<le> \<Down>Id (RETURN (f' x y))\<close> and
-    \<open>(xs,xs')\<in>Id\<close>and
-    \<open>(ys,ys')\<in>Id\<close>
-  shows
-    \<open>mergeR \<Phi> f xs ys \<le> \<Down>Id (RETURN (merge f' xs' ys'))\<close>
-proof -
-  have xs: \<open>xs' = xs\<close> \<open>ys' = ys\<close>
-    using assms
-    by auto
-  show ?thesis
-    using assms(1,2) unfolding xs
-    apply (induction f' xs ys arbitrary: xs' ys' rule: merge.induct)
-    subgoal for f' x xs y ys
-      unfolding mergeR.simps merge.simps
-      apply (refine_rcg)
-      subgoal by simp
-      subgoal premises p
-        using p(1,2,3,4,5) p(4)[of x y, simplified]
-        apply auto
-        apply (smt RES_sng_eq_RETURN insert_compr ireturn_rule nres_order_simps(20) specify_left)
-        apply (smt RES_sng_eq_RETURN insert_compr ireturn_rule nres_order_simps(20) specify_left)
-        done
-      done
-    subgoal by auto
-    subgoal by auto
-    done
-qed
-
-lemma merge_alt:
-  "RETURN (merge f xs ys) = SPEC(\<lambda>zs. zs = merge f xs ys \<and> set zs = set xs \<union> set ys)"
-  apply (induction f xs ys rule: merge.induct)
-  apply (clarsimp_all simp: Collect_conv_if insert_commute)
-  done
-
-fun msortR :: "_ \<Rightarrow> _ \<Rightarrow> 'a list \<Rightarrow> 'a list nres"
-where
-  "msortR \<Phi> f [] = RETURN []"
-| "msortR \<Phi> f [x] = RETURN [x]"
-| "msortR \<Phi> f xs = do {
-    as \<leftarrow> msortR \<Phi> f (take (size xs div 2) xs);
-    bs \<leftarrow> msortR \<Phi> f (drop (size xs div 2) xs);
-   mergeR \<Phi> f as bs
-  }"
-
-
-lemma mset_msort[simp]:
-  "mset (msort f xs) = mset xs"
-  apply (induction f xs rule: msort.induct)
-  apply (simp_all add: union_code)
-  done
-
-lemma set_msort[simp]: \<open>set (msort f xs) = set xs\<close>
-  apply auto
-  subgoal by (metis mset_msort perm_set_eq)
-  subgoal by (metis mset_msort perm_setP)
-  done
-
-lemma msortR_msort:
-  assumes \<open>\<And>x y. x\<in>set xs \<Longrightarrow> y\<in>set xs \<Longrightarrow>\<Phi> x y\<close> and
-    \<open>\<And>x y. x\<in>set xs \<Longrightarrow> y\<in>set xs \<Longrightarrow> f x y \<le> \<Down>Id (RETURN (f' x y))\<close>
-  shows
-    \<open>msortR \<Phi> f xs \<le> \<Down>Id (RETURN (msort f' xs))\<close>
-proof -
-  have a: \<open>set (take (length xs div 2) (y # xs)) \<subseteq> insert x (insert y (set xs))\<close>
-    \<open>set (drop (length xs div 2) (y # xs)) \<subseteq> insert x (insert y (set xs))\<close>
-    for x y xs
-    by (auto dest: in_set_takeD in_set_dropD)
-  have H: \<open>RETURN (msort f' (x#y#xs)) = do {
-    let as = msort f' (take (size (x#y#xs) div 2) (x#y#xs));
-    let bs = msort f' (drop (size (x#y#xs) div 2) (x#y#xs));
-    ASSERT(set (as) \<subseteq> set (x#y#xs));
-    ASSERT(set (bs) \<subseteq> set (x#y#xs));
-    RETURN (merge f' as bs)}\<close> for x y xs f'
-    unfolding Let_def
-    by (auto simp: a)
-  show ?thesis
-    supply RETURN_as_SPEC_refine[refine2 del]
-  using assms
-  apply (induction f' xs rule: msort.induct)
-  subgoal by auto
-  subgoal by auto
-  subgoal premises p for f' x y xs
-    using p
-    unfolding msortR.simps H
-    apply (refine_vcg mergeR_merge p)
-    subgoal by (auto dest!: in_set_takeD)
-    subgoal by (auto dest!: in_set_takeD)
-    subgoal by (auto dest!: in_set_takeD)
-    subgoal by (auto dest!: in_set_takeD)
-    subgoal by (auto dest!: in_set_dropD)
-    subgoal by (auto dest!: in_set_dropD)
-    subgoal by (auto dest!: in_set_dropD)
-    subgoal by (auto dest!: in_set_dropD)
-    subgoal by auto
-    subgoal by auto
-    subgoal by auto
-    subgoal by auto
-    done
-  done
-qed
-
-lemma merge_list_rel:
-  assumes \<open>\<And>x y x' y'. x\<in>set xs \<Longrightarrow> y\<in>set ys \<Longrightarrow> x'\<in>set xs' \<Longrightarrow> y'\<in>set ys' \<Longrightarrow> (x,x')\<in>R \<Longrightarrow> (y,y')\<in>R \<Longrightarrow> f x y = f' x' y'\<close> and
-    \<open>(xs,xs') \<in> \<langle>R\<rangle>list_rel\<close> and
-    \<open>(ys,ys') \<in> \<langle>R\<rangle>list_rel\<close>
-  shows \<open>(merge f xs ys, merge f' xs' ys') \<in> \<langle>R\<rangle>list_rel\<close>
-proof -
-  show ?thesis
-    using assms
-  proof (induction f' xs' ys' arbitrary: f xs ys rule: merge.induct)
-    case (1 f' x' xs' y' y's)
-    have \<open>f' x' y' \<Longrightarrow>
-      (merge f (tl xs) ys, merge f' xs' (y' # y's)) \<in> \<langle>R\<rangle>list_rel\<close>
-      apply (rule 1)
-      apply assumption
-      apply (rule 1(3); auto dest: in_set_tlD)
-      using 1(4-5) apply (auto simp: list_rel_split_left_iff)
-      done
-    moreover have \<open>\<not>f' x' y' \<Longrightarrow>
-      (merge f ( xs) (tl ys), merge f' (x' # xs') (y's)) \<in> \<langle>R\<rangle>list_rel\<close>
-      apply (rule 1)
-      apply assumption
-      apply (rule 1(3); auto dest: in_set_tlD)
-      using 1(4-5) apply (auto simp: list_rel_split_left_iff)
-      done
-    ultimately show ?case
-      using 1(1,4-5) 1(3)[of \<open>hd xs\<close> \<open>hd ys\<close> x' y']
-      by (auto simp: list_rel_split_left_iff)
-  qed  (auto simp: list_rel_split_left_iff)
-
-qed
-
-lemma msort_list_rel:
-  assumes  \<open>\<And>x y x' y'. x\<in>set xs \<Longrightarrow> y\<in>set xs \<Longrightarrow> x'\<in>set xs' \<Longrightarrow> y'\<in>set xs' \<Longrightarrow> (x,x')\<in>R \<Longrightarrow> (y,y')\<in>R \<Longrightarrow> f x y = f' x' y'\<close> and
-    \<open>(xs,xs') \<in> \<langle>R\<rangle>list_rel\<close>
-  shows \<open>(msort f xs, msort f' xs') \<in> \<langle>R\<rangle>list_rel\<close>
-proof -
-  show ?thesis
-    using assms
-  proof (induction f' xs' arbitrary: xs f rule: msort.induct)
-    case (3 f'' v vb vc)
-    have xs: \<open>
-      (msort f (take (length xs div 2) xs), msort f'' (take (length (v # vb # vc) div 2) (v # vb # vc))) \<in> \<langle>R\<rangle>list_rel\<close>
-      \<open>(msort f (drop (length xs div 2) xs), msort f'' (drop (length (v # vb # vc) div 2) (v # vb # vc))) \<in> \<langle>R\<rangle>list_rel\<close>
-      subgoal
-        apply (rule 3)
-        using 3(3-) apply (force dest!:  in_set_dropD in_set_takeD list_rel_imp_same_length)
-        using 3(4) apply (auto simp: list_rel_imp_same_length)
-        by (metis list_rel_take take_Suc_Cons)
-      subgoal
-        apply (rule 3)
-        using 3(3-) apply (force dest!:  in_set_dropD in_set_takeD list_rel_imp_same_length
-          dest: )
-        using 3(4) apply (auto simp: list_rel_imp_same_length)
-        by (metis drop_Suc_Cons list_rel_drop)
-      done
-    have H: \<open>(merge f (msort f (x # take (length xsaa div 2) (xa # xsaa)))
-      (msort f (drop (length xsaa div 2) (xa # xsaa))),
-      merge f''  (msort f'' (v # take (length vc div 2) (vb # vc)))
-      (msort f'' (drop (length vc div 2) (vb # vc))))
-      \<in> \<langle>R\<rangle>list_rel\<close>
-      if \<open>xs = x # xa # xsaa\<close> and
-        \<open> (x, v) \<in> R\<close> and
-        \<open>(xa, vb) \<in> R\<close> and
-        \<open> (xa, vb) \<in> R\<close>
-      for x xa xsaa
-      apply (rule merge_list_rel)
-      subgoal for xb y x' y'
-        by (rule 3(3))
-          (use that in \<open>auto dest: in_set_takeD in_set_dropD\<close>)
-      subgoal
-        by (use xs(1) 3(4) that in auto)
-      subgoal
-        by (use xs(2) 3(4) that in auto)
-      done
-    show ?case
-      using 3(3-) H by (auto simp: list_rel_split_left_iff)
-  qed (auto simp: list_rel_split_left_iff intro!: )
-qed
-
-lemma msortR_alt_def:
-  \<open>(msortR \<Phi> f xs) = REC\<^sub>T(\<lambda>msortR' xs.
-  if length xs \<le> 1 then RETURN xs else do {
-    let xs1 = (take ((size xs) div 2) xs);
-    let xs2 = (drop ((size xs) div 2) xs);
-    as \<leftarrow> msortR' xs1;
-    bs \<leftarrow> msortR' xs2;
-    (mergeR \<Phi> f as bs)
-  }) xs
-      \<close>
- apply (induction \<Phi> f xs rule: msortR.induct)
- subgoal
-   by (subst RECT_unfold, refine_mono) auto
- subgoal
-   by (subst RECT_unfold, refine_mono) auto
- subgoal
-   by (subst RECT_unfold, refine_mono) auto
- done
-
-definition sort_poly_spec_s where
-  \<open>sort_poly_spec_s \<V> xs = msortR (\<lambda>xs ys. (\<forall>a\<in>set (fst xs). a \<in># dom_m (fst (snd \<V>))) \<and>  (\<forall>a\<in>set(fst ys). a \<in># dom_m (fst (snd \<V>))))
-     (\<lambda>xs ys. do {a \<leftarrow> perfect_shared_term_order_rel_s \<V> (fst xs) (fst ys); RETURN (a \<noteq> GREATER)}) xs\<close>
-
-lemma sort_poly_spec_s_sort_poly_spec:
-  assumes \<open>(\<V>, \<V>\<D>) \<in> perfectly_shared_vars_rel\<close> and
-    \<open>(xs, xs') \<in> perfectly_shared_polynom \<V>\<close> and
-    \<open>vars_llist xs' \<subseteq> set_mset \<V>\<D>\<close>
- shows
-  \<open>sort_poly_spec_s \<V> xs
-  \<le>\<Down>(perfectly_shared_polynom \<V>)
-  (sort_poly_spec xs')
-   \<close>
-proof -
-  have [iff]: \<open>sorted_wrt (rel2p (Id \<union> term_order_rel)) (map fst (msort (\<lambda>xs ys. rel2p (Id \<union> term_order_rel) (fst xs) (fst ys)) xs'))\<close>
-    unfolding sorted_wrt_map
-    apply (rule sorted_msort)
-    apply (smt Un_iff pair_in_Id_conv rel2p_def term_order_rel_trans transp_def)
-    apply (auto simp: rel2p_def)
-    using total_on_lexord_less_than_char_linear var_order_rel_def by auto
-  have [iff]:
-    \<open>(a,b)\<in> \<langle>\<langle>(perfectly_shared_var_rel \<V>)\<inverse>\<rangle>list_rel \<times>\<^sub>r int_rel\<rangle>list_rel \<longleftrightarrow> (b,a)\<in>perfectly_shared_polynom \<V>\<close> for a b
-    by (metis converse_Id converse_iff inv_list_rel_eq inv_prod_rel_eq)
-
-  show ?thesis
-    unfolding sort_poly_spec_s_def
-    apply (rule order_trans[OF msortR_msort[where
-      f'=\<open> \<lambda>xs ys. (map (the o fmlookup (fst (snd \<V>))) (fst xs), map (the o fmlookup (fst (snd \<V>))) (fst ys)) \<in> Id \<union> term_order_rel\<close>]])
-    subgoal for x y
-      apply (cases x, cases y)
-      using assms by (auto simp: list_rel_append1 list_rel_split_right_iff perfectly_shared_var_rel_def br_def
-        perfectly_shared_vars_rel_def append_eq_append_conv2 append_eq_Cons_conv Cons_eq_append_conv
-        dest!: split_list split: prod.splits)
-      subgoal for x y
-        using assms(2,3) apply -
-        apply (frule in_set_rel_inD)
-        apply assumption
-        apply (frule in_set_rel_inD[of _ _ _ y])
-        apply assumption
-        apply (elim bexE)+
-        subgoal for x' y'
-          apply (refine_vcg perfect_shared_term_order_rel_s_perfect_shared_term_order_rel[OF assms(1), THEN order_trans,
-            of _ \<open>fst x'\<close> _ \<open>fst y'\<close>])
-          subgoal
-            by (cases x', cases x) auto
-          subgoal
-            by (cases y', cases y) auto
-          subgoal
-            using assms
-            apply (clarsimp dest!: split_list intro!: perfect_shared_term_order_rel_spec[THEN order_trans]
-              simp: append_eq_append_conv2 append_eq_Cons_conv Cons_eq_append_conv
-              vars_llist_def)
-            apply (rule perfect_shared_term_order_rel_spec[THEN order_trans])
-            apply auto[]
-            apply auto[]
-            apply simp
-            apply (clarsimp_all simp: perfectly_shared_monom_eqD)
-            apply (cases x, cases y, cases x', cases y')
-            apply (clarsimp_all simp flip: perfectly_shared_monom_eqD)
-            apply (case_tac xa)
-            apply (clarsimp_all simp flip: perfectly_shared_monom_eqD simp: lexord_irreflexive)
-            by (meson lexord_irreflexive term_order_rel_trans var_order_rel_antisym)
-          done
-        done
-      unfolding sort_poly_spec_def conc_fun_RES
-      apply auto
-      apply (subst Image_iff)
-      apply (rule_tac x= \<open>msort (\<lambda>xs ys.  rel2p (Id \<union> term_order_rel) (fst xs) (fst ys)) (xs')\<close> in bexI)
-      apply (auto intro!: msort_list_rel simp flip: perfectly_shared_monom_eqD
-          simp: assms)
-      apply (auto simp: rel2p_def)
-      done
-qed
-
-
 subsection \<open>Monadic mergesort: instantiation for the PAC term order\<close>
 
-text \<open>We instantiate @{locale mcmp_env} (from \<open>LPAC_Efficient_Checker_Sorting\<close>)
-  per fixed well-formed \<open>\<V>\<close>: the pure order \<open>term_cmp\<close> and the validity
-  predicate \<open>term_valid\<close> are the pullbacks of the abstract term order along the
-  nat \<rightarrow> string lookup of \<open>\<V>\<close>; the monadic comparison is the shared-vars
-  implementation above. The interpretation lives in a context assuming
-  \<open>(\<V>, \<V>\<D>) \<in> perfectly_shared_vars_rel\<close>, so it exists exactly for well-formed
-  \<open>\<V>\<close> (well-formedness is needed e.g. for totality: injectivity of the lookup
-  on its domain). All constants and lemmas are exported with \<open>\<V>\<close> as an
-  additional argument / \<open>V_rel\<close> as a premise.\<close>
+definition monom_abs :: \<open>(nat, string) shared_vars \<Rightarrow> nat list \<Rightarrow> string list\<close> where
+  \<open>monom_abs \<V> m = map (the o fmlookup (fst (snd \<V>))) m\<close>
+
+definition term_cmp :: \<open>(nat, string) shared_vars \<Rightarrow> nat list \<times> int \<Rightarrow> nat list \<times> int \<Rightarrow> bool\<close> where
+  \<open>term_cmp \<V> x y \<equiv> (monom_abs \<V> (fst x), monom_abs \<V> (fst y)) \<in> Id \<union> term_order_rel\<close>
+
+definition term_valid :: \<open>(nat, string) shared_vars \<Rightarrow> nat list \<times> int \<Rightarrow> bool\<close> where
+  \<open>term_valid \<V> x \<equiv> (\<forall>a\<in>set (fst x). a \<in># dom_m (fst (snd \<V>)))\<close>
+
+definition term_mcmp :: \<open>(nat, string) shared_vars \<Rightarrow> nat list \<times> int \<Rightarrow> nat list \<times> int \<Rightarrow> bool nres\<close> where
+  \<open>term_mcmp \<V> x y = do {
+    a \<leftarrow> perfect_shared_term_order_rel_s \<V> (fst x) (fst y);
+    RETURN (a \<noteq> GREATER)
+  }\<close>
+
+definition msort_monoms :: \<open>(nat, string) shared_vars \<Rightarrow> (nat list \<times> int) list \<Rightarrow> (nat list \<times> int) list nres\<close> where
+  \<open>msort_monoms \<V> xs = mcmp_msort (term_cmp \<V>) (term_valid \<V>) (term_mcmp \<V>) xs\<close>
 
 context
   fixes \<V> :: \<open>(nat, string) shared_vars\<close> and \<V>\<D> :: \<open>(nat, string) vars\<close>
   assumes V_rel: \<open>(\<V>, \<V>\<D>) \<in> perfectly_shared_vars_rel\<close>
 begin
 
-definition monom_abs :: \<open>nat list \<Rightarrow> string list\<close> where
-  \<open>monom_abs m = map (the o fmlookup (fst (snd \<V>))) m\<close>
-
-definition term_cmp :: \<open>nat list \<times> int \<Rightarrow> nat list \<times> int \<Rightarrow> bool\<close> where
-  \<open>term_cmp x y \<equiv> (monom_abs (fst x), monom_abs (fst y)) \<in> Id \<union> term_order_rel\<close>
-
-definition term_valid :: \<open>nat list \<times> int \<Rightarrow> bool\<close> where
-  \<open>term_valid x \<equiv> (\<forall>a\<in>set (fst x). a \<in># dom_m (fst (snd \<V>)))\<close>
-
-definition term_mcmp :: \<open>nat list \<times> int \<Rightarrow> nat list \<times> int \<Rightarrow> bool nres\<close> where
-  \<open>term_mcmp x y = do {
-    a \<leftarrow> perfect_shared_term_order_rel_s \<V> (fst x) (fst y);
-    RETURN (a \<noteq> GREATER)
-  }\<close>
-
 text \<open>Bridge: a valid monom is related to its lookup image.\<close>
 lemma term_valid_monom_rel:
-  assumes \<open>term_valid x\<close>
-  shows \<open>(fst x, monom_abs (fst x)) \<in> perfectly_shared_monom \<V>\<close>
-    and \<open>set (monom_abs (fst x)) \<subseteq> set_mset \<V>\<D>\<close>
+  assumes \<open>term_valid \<V> x\<close>
+  shows \<open>(fst x, monom_abs \<V> (fst x)) \<in> perfectly_shared_monom \<V>\<close>
+    and \<open>set (monom_abs \<V> (fst x)) \<subseteq> set_mset \<V>\<D>\<close>
 proof -
-  show \<open>(fst x, monom_abs (fst x)) \<in> perfectly_shared_monom \<V>\<close>
+  show \<open>(fst x, monom_abs \<V> (fst x)) \<in> perfectly_shared_monom \<V>\<close>
     using assms
     unfolding monom_abs_def term_valid_def perfectly_shared_var_rel_def
       list_rel_def
     by (auto simp: in_br_conv list.rel_map(2) list_all2_same
     prod.split_sel_asm)
 next
-  show \<open>set (monom_abs (fst x)) \<subseteq> set_mset \<V>\<D>\<close>
+  show \<open>set (monom_abs \<V> (fst x)) \<subseteq> set_mset \<V>\<D>\<close>
     using assms V_rel
     unfolding monom_abs_def term_valid_def
       perfectly_shared_vars_rel_def perfectly_shared_vars_def
@@ -570,8 +251,8 @@ next
 qed
 
 lemma term_mcmp_spec:
-  assumes \<open>term_valid x\<close> \<open>term_valid y\<close>
-  shows \<open>term_mcmp x y \<le> SPEC (\<lambda>b. b \<longleftrightarrow> term_cmp x y)\<close>
+  assumes \<open>term_valid \<V> x\<close> \<open>term_valid \<V> y\<close>
+  shows \<open>term_mcmp \<V> x y \<le> SPEC (\<lambda>b. b \<longleftrightarrow> term_cmp \<V> x y)\<close>
   unfolding term_mcmp_def
   apply (refine_vcg
     perfect_shared_term_order_rel_s_perfect_shared_term_order_rel[OF V_rel
@@ -589,7 +270,7 @@ lemma term_mcmp_spec:
   by (auto simp: term_cmp_def pw_le_iff refine_pw_simps)
     (meson lexord_irreflexive term_order_rel_trans var_order_rel_antisym)+
 
-interpretation term_sort: mcmp_env term_cmp term_valid term_mcmp
+interpretation term_sort: mcmp_env \<open>term_cmp \<V>\<close> \<open>term_valid \<V>\<close> \<open>term_mcmp \<V>\<close>
   apply unfold_locales
   subgoal for x y using term_mcmp_spec by blast
   subgoal for x y z
@@ -599,31 +280,59 @@ interpretation term_sort: mcmp_env term_cmp term_valid term_mcmp
     var_roder_rel_total)
   done
 
-definition msort_monoms :: \<open>(nat list \<times> int) list \<Rightarrow> (nat list \<times> int) list nres\<close> where
-  \<open>msort_monoms xs = term_sort.msort xs\<close>
-
-text \<open>Replacement for @{thm sort_poly_spec_s_sort_poly_spec} and thereby for
-  \<open>msortR\<close>. NB: requires \<open>msort_spec\<close> in @{locale mcmp_env} to carry the
-  precondition \<open>\<forall>a\<in>set xs. valid a\<close> (validity threading).\<close>
 lemma msort_monoms_sort_poly_spec:
   assumes \<open>(xs, xs') \<in> perfectly_shared_polynom \<V>\<close>
     and \<open>vars_llist xs' \<subseteq> set_mset \<V>\<D>\<close>
-  shows \<open>msort_monoms xs \<le> \<Down>(perfectly_shared_polynom \<V>) (sort_poly_spec xs')\<close>
+  shows \<open>msort_monoms \<V> xs \<le> \<Down>(perfectly_shared_polynom \<V>) (sort_poly_spec xs')\<close>
 proof -
-  have valid: \<open>\<forall>a\<in>set xs. term_valid a\<close>
-    (* the unary form of subgoal 1 of sort_poly_spec_s_sort_poly_spec *)
-    sorry
+  have valid: \<open>\<forall>a\<in>set xs. term_valid \<V> a\<close>
+  proof (intro ballI)
+    fix a assume \<open>a \<in> set xs\<close>
+    then obtain a' where a': \<open>(a, a') \<in> perfectly_shared_monom \<V> \<times>\<^sub>r int_rel\<close>
+      using in_set_rel_inD[OF assms(1)] by blast
+    show \<open>term_valid \<V> a\<close>
+      unfolding term_valid_def
+    proof (intro ballI)
+      fix v assume \<open>v \<in> set (fst a)\<close>
+      moreover have \<open>(fst a, fst a') \<in> perfectly_shared_monom \<V>\<close>
+        using a' by (cases a; cases a') (auto simp: prod_rel_def)
+      ultimately obtain v' where \<open>(v, v') \<in> perfectly_shared_var_rel \<V>\<close>
+        by (auto dest: in_set_rel_inD)
+      then show \<open>v \<in># dom_m (fst (snd \<V>))\<close>
+        by (cases \<V>) (auto simp: perfectly_shared_var_rel_def br_def)
+    qed
+  qed
+  have poly_eq: \<open>xs' = map (\<lambda>x. (monom_abs \<V> (fst x), snd x)) xs\<close>
+    using assms(1)
+    apply (induction xs arbitrary: xs'; auto simp: list_rel_split_left_iff prod_rel_def monom_abs_def comp_def
+        dest!: perfectly_shared_monom_eqD)
+    by (smt (verit, del_insts) case_prod_conv fun_comp_eq_conv list_relE(3)
+    mem_Collect_eq perfectly_shared_monom_eqD surj_pair)
+  have rel: \<open>(r, map (\<lambda>x. (monom_abs \<V> (fst x), snd x)) r) \<in> perfectly_shared_polynom \<V>\<close>
+    if \<open>\<forall>x\<in>set r. term_valid \<V> x\<close> for r
+    using that
+    by (induction r)
+      (auto simp: list_rel_split_left_iff prod_rel_def case_prod_beta
+        intro!: term_valid_monom_rel(1))
+  have sorted_abs: \<open>sorted_wrt (rel2p (Id \<union> term_order_rel))
+      (map fst (map (\<lambda>x. (monom_abs \<V> (fst x), snd x)) r))\<close>
+    if sorted: \<open>sorted_wrt (term_cmp \<V>) r\<close> for r
+  proof -
+    have \<open>sorted_wrt
+        (\<lambda>x y. rel2p (Id \<union> term_order_rel) (monom_abs \<V> (fst x)) (monom_abs \<V> (fst y))) r\<close>
+      by (rule sorted_wrt_mono_rel[OF _ sorted]) (auto simp: term_cmp_def rel2p_def)
+    then show ?thesis
+      by (simp add: sorted_wrt_map comp_def)
+  qed
   show ?thesis
     unfolding msort_monoms_def
-    apply (rule term_sort.msort_spec[THEN order_trans])
-    (* SPEC (\<lambda>r. mset xs = mset r \<and> sorted_wrt term_cmp r \<and> \<dots>) \<le> \<Down>\<dots>:
-       for an arbitrary sorted result r, witness r' = map (abstraction) r;
-       mset r' = mset xs' since the element relation is single-valued
-       (perfectly_shared_var_rel is a br); sortedness of r' from
-       sorted_wrt term_cmp r. Cf. the final block of
-       sort_poly_spec_s_sort_poly_spec, which used the fixed witness
-       msort f' xs' instead. *)
-    sorry
+    apply (rule term_sort.msort_spec[OF valid, THEN order_trans])
+    unfolding sort_poly_spec_def
+    apply (clarsimp simp: pw_le_iff refine_pw_simps)
+    subgoal for r
+      by (rule exI[of _ \<open>map (\<lambda>x. (monom_abs \<V> (fst x), snd x)) r\<close>])
+        (use rel[of r] sorted_abs[of r] in \<open>auto simp: poly_eq\<close>)
+    done
 qed
 
 end
@@ -637,20 +346,14 @@ text \<open>The coefficient-sort instance (replacing \<open>msort_coeff_s\<close
   Synthesis is per instance with \<open>\<V>\<close> explicit (no @{locale mcmp_env_impl}
   interpretation \<midarrow> the comparison impl needs heap ownership of \<open>\<V>\<close>, which a
   binary \<open>A\<^sup>k *\<^sub>a A\<^sup>k\<close> rule cannot capture): unfold \<open>msort_monoms_def\<close> together
-  with \<open>mcmp_env.msort_def\<close>, \<open>mcmp_env.run_passes_def\<close>, \<open>mcmp_env.pass_def\<close>,
-  \<open>mcmp_env.merge_while_def\<close>, \<open>mcmp_env.merge_while_inner_def\<close> and
-  \<open>term_mcmp_def\<close>; the comparison then appears as
+  with the global program definitions \<open>mcmp_msort_def\<close>, \<open>mcmp_run_passes_def\<close>,
+  \<open>mcmp_pass_def\<close>, \<open>mcmp_merge_while_def\<close>, \<open>mcmp_merge_while_inner_def\<close>
+  (the locale-exported \<open>mcmp_env.msort_def\<close> etc. are unusable for unfolding:
+  they are guarded by the locale predicate, which does not hold for arbitrary
+  \<open>\<V>\<close>) and \<open>term_mcmp_def\<close>; the comparison then appears as
   \<open>perfect_shared_term_order_rel_s \<V> \<dots>\<close> with \<open>\<V>\<close> a real argument, so the
-  existing impl rule (perfect_shared_term_order_rel_s_impl) applies.\<close>
-
-
-definition msort_coeff_s :: \<open>(nat,string)shared_vars \<Rightarrow> nat list \<Rightarrow> nat list nres\<close> where
-  \<open>msort_coeff_s \<V> xs = msortR (\<lambda>a b. a \<in> set xs \<and> b \<in> set xs)
-  (\<lambda>a b. do {
-    x \<leftarrow> get_var_nameS \<V> a;
-  y \<leftarrow> get_var_nameS \<V> b;
-    RETURN(a = b \<or> var_order x y)
-  }) xs\<close>
+  existing impl rule (perfect_shared_term_order_rel_s_impl) applies.
+  See the \<open>msort_coeffs\<close> synthesis chain below for a worked instance.\<close>
 
 
 lemma perfectly_shared_var_rel_unique_left:
@@ -662,62 +365,115 @@ lemma perfectly_shared_var_rel_unique_right:
   using perfectly_shared_monom_unique_right[of \<V> \<D>\<V> \<open>[x]\<close>  \<open>[y]\<close>  \<open>[x']\<close>]
   by auto
 
-lemma msort_coeff_s_sort_coeff:
-  fixes xs' :: \<open>string list\<close> and
-    \<V> :: \<open>(nat,string)shared_vars\<close>
-  assumes
-    \<open>(xs, xs') \<in> perfectly_shared_monom \<V>\<close> and
-    \<open>(\<V>, \<D>\<V>) \<in> perfectly_shared_vars_rel\<close> and
-    \<open>set xs' \<subseteq> set_mset \<D>\<V>\<close>
-  shows \<open>msort_coeff_s \<V> xs \<le> \<Down>(perfectly_shared_monom \<V>) (sort_coeff xs')\<close>
+text \<open>The definitions are made outside the \<open>V_rel\<close> context: a definition made
+  inside a context with assumptions exports its \<open>_def\<close> fact guarded by those
+  assumptions, which makes it unusable for \<open>unfolding\<close> in the \<open>sepref\<close>
+  syntheses below.\<close>
+
+definition coeff_cmp :: \<open>(nat, string) shared_vars \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> bool\<close> where
+  \<open>coeff_cmp \<V> a b \<equiv> a = b \<or> var_order (fst (snd \<V>) \<propto> a) (fst (snd \<V>) \<propto> b)\<close>
+
+definition coeff_valid :: \<open>(nat, string) shared_vars \<Rightarrow> nat \<Rightarrow> bool\<close> where
+  \<open>coeff_valid \<V> a \<equiv> a \<in># dom_m (fst (snd \<V>))\<close>
+
+definition coeff_mcmp :: \<open>(nat, string) shared_vars \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> bool nres\<close> where
+  \<open>coeff_mcmp \<V> a b = do {
+    x \<leftarrow> get_var_nameS \<V> a;
+    y \<leftarrow> get_var_nameS \<V> b;
+    RETURN (a = b \<or> var_order x y)
+  }\<close>
+
+definition msort_coeffs :: \<open>(nat, string) shared_vars \<Rightarrow> nat list \<Rightarrow> nat list nres\<close> where
+  \<open>msort_coeffs \<V> xs = mcmp_msort (coeff_cmp \<V>) (coeff_valid \<V>) (coeff_mcmp \<V>) xs\<close>
+
+context
+  fixes \<V> :: \<open>(nat, string) shared_vars\<close> and \<V>\<D> :: \<open>(nat, string) vars\<close>
+  assumes V_rel: \<open>(\<V>, \<V>\<D>) \<in> perfectly_shared_vars_rel\<close>
+begin
+
+lemma coeff_valid_var_rel:
+  \<open>coeff_valid \<V> a \<Longrightarrow> (a, fst (snd \<V>) \<propto> a) \<in> perfectly_shared_var_rel \<V>\<close>
+  by (cases \<V>; auto simp: coeff_valid_def perfectly_shared_var_rel_def br_def)
+
+lemma coeff_mcmp_spec:
+  assumes \<open>coeff_valid \<V> x\<close> \<open>coeff_valid \<V> y\<close>
+  shows \<open>coeff_mcmp \<V> x y \<le> SPEC (\<lambda>b. b \<longleftrightarrow> coeff_cmp \<V> x y)\<close>
+  using assms
+  unfolding coeff_mcmp_def get_var_nameS_def coeff_valid_def coeff_cmp_def
+  by refine_vcg auto
+
+lemma coeff_cmp_trans:
+  assumes \<open>coeff_cmp \<V> x y\<close> \<open>coeff_cmp \<V> y z\<close>
+  shows \<open>coeff_cmp \<V> x z\<close>
+  using assms unfolding coeff_cmp_def rel2p_def
+  by (metis transD trans_var_order_rel)
+
+lemma coeff_cmp_total:
+  assumes \<open>coeff_valid \<V> x\<close> \<open>coeff_valid \<V> y\<close>
+  shows \<open>coeff_cmp \<V> x y \<or> coeff_cmp \<V> y x\<close>
 proof -
-  have H: \<open>x \<in> set xs \<Longrightarrow> \<exists>x' \<in> set xs'. (x,x') \<in> perfectly_shared_var_rel \<V> \<and> x' \<in># \<D>\<V>\<close> for x
-    using assms(1,3) by (auto dest: in_set_rel_inD)
-  define f where
-    \<open>f x y \<longleftrightarrow> x = y \<or> var_order (fst (snd \<V>) \<propto> x) (fst (snd \<V>) \<propto> y)\<close> for x y
-  have [simp]: \<open>x \<in> set xs \<Longrightarrow> x' \<in> set xs' \<Longrightarrow> (x, x') \<in> perfectly_shared_var_rel \<V> \<Longrightarrow>
-    fst (snd \<V>) \<propto> x = x'\<close> for x x'
-    using assms(2)
-    by (auto simp: perfectly_shared_vars_rel_def perfectly_shared_var_rel_def br_def)
-  have [intro]: \<open>transp (\<lambda>x y. x = y \<or> (x, y) \<in> var_order_rel)\<close>
-    by (smt transE trans_var_order_rel transp_def)
-  have [intro]: \<open>sorted_wrt (rel2p (Id \<union> var_order_rel))  (msort (\<lambda>a b. a = b \<or> var_order a b) xs')\<close>
-    using var_roder_rel_total by (auto intro!: sorted_msort simp: rel2p_def[abs_def])
+  have \<open>fst (snd \<V>) \<propto> x = fst (snd \<V>) \<propto> y \<Longrightarrow> x = y\<close>
+    using perfectly_shared_var_rel_unique_right[OF V_rel]
+      coeff_valid_var_rel[OF assms(1)] coeff_valid_var_rel[OF assms(2)]
+    by metis
+  then show ?thesis
+    unfolding coeff_cmp_def
+    using var_roder_rel_total[of \<open>fst (snd \<V>) \<propto> x\<close> \<open>fst (snd \<V>) \<propto> y\<close>]
+    by (auto simp: rel2p_def)
+qed
+
+interpretation coeff_sort: mcmp_env \<open>coeff_cmp \<V>\<close> \<open>coeff_valid \<V>\<close> \<open>coeff_mcmp \<V>\<close>
+  apply unfold_locales
+  subgoal for x y using coeff_mcmp_spec by blast
+  subgoal for x y z using coeff_cmp_trans by blast
+  subgoal for x y using coeff_cmp_total by blast
+  done
+
+lemma msort_coeffs_sort_coeff:
+  assumes \<open>(xs, xs') \<in> perfectly_shared_monom \<V>\<close>
+    and \<open>set xs' \<subseteq> set_mset \<V>\<D>\<close>
+  shows \<open>msort_coeffs \<V> xs \<le> \<Down>(perfectly_shared_monom \<V>) (sort_coeff xs')\<close>
+proof -
+  have valid: \<open>\<forall>v\<in>set xs. coeff_valid \<V> v\<close>
+  proof (intro ballI)
+    fix v assume \<open>v \<in> set xs\<close>
+    then obtain v' where \<open>(v, v') \<in> perfectly_shared_var_rel \<V>\<close>
+      using in_set_rel_inD[OF assms(1)] by blast
+    then show \<open>coeff_valid \<V> v\<close>
+      by (cases \<V>; auto simp: coeff_valid_def perfectly_shared_var_rel_def br_def)
+  qed
+  have monom_eq: \<open>xs' = map (\<lambda>v. fst (snd \<V>) \<propto> v) xs\<close>
+    using perfectly_shared_monom_eqD[OF assms(1)] by (simp add: comp_def)
+  have rel: \<open>(r, map (\<lambda>v. fst (snd \<V>) \<propto> v) r) \<in> perfectly_shared_monom \<V>\<close>
+    if \<open>\<forall>v\<in>set r. coeff_valid \<V> v\<close> for r
+    using that
+    by (induction r) (auto simp: list_rel_split_left_iff intro!: coeff_valid_var_rel)
+  have sorted_abs: \<open>sorted_wrt (rel2p (Id \<union> var_order_rel)) (map (\<lambda>v. fst (snd \<V>) \<propto> v) r)\<close>
+    if sorted: \<open>sorted_wrt (coeff_cmp \<V>) r\<close> for r
+  proof -
+    have \<open>sorted_wrt
+        (\<lambda>v w. rel2p (Id \<union> var_order_rel) (fst (snd \<V>) \<propto> v) (fst (snd \<V>) \<propto> w)) r\<close>
+      by (rule sorted_wrt_mono_rel[OF _ sorted]) (auto simp: coeff_cmp_def rel2p_def)
+    then show ?thesis
+      by (simp add: sorted_wrt_map)
+  qed
   show ?thesis
-    unfolding msort_coeff_s_def
-    apply (rule msortR_msort[of _ _ _ f, THEN order_trans])
-    subgoal by auto
-    subgoal for x y
-      unfolding f_def
-      apply (frule H[of x])
-      apply (frule H[of y])
-      apply (elim bexE)
-      apply (refine_vcg get_var_nameS_spec2[THEN order_trans] assms)
-      apply (solves auto)
-      apply (solves auto)
-      apply (subst Down_id_eq)
-      apply (refine_vcg get_var_nameS_spec2[THEN order_trans] assms)
-      apply (solves auto)
-      apply (solves auto)
-      apply (auto simp: perfectly_shared_var_rel_def br_def)
-      done
-    subgoal
-      apply (subst Down_id_eq)
-      apply (auto simp: sort_coeff_def intro!: RETURN_RES_refine)
-      apply (rule_tac x = \<open>msort (\<lambda>a b. a = b \<or> var_order a b) xs'\<close> in exI)
-      apply (force intro!: msort_list_rel assms simp: f_def
-        dest: perfectly_shared_var_rel_unique_left
-        perfectly_shared_var_rel_unique_right[OF assms(2)])
-      done
+    unfolding msort_coeffs_def
+    apply (rule coeff_sort.msort_spec[OF valid, THEN order_trans])
+    unfolding sort_coeff_def
+    apply (clarsimp simp: pw_le_iff refine_pw_simps)
+    subgoal for r
+      by (rule exI[of _ \<open>map (\<lambda>v. fst (snd \<V>) \<propto> v) r\<close>])
+        (use rel[of r] sorted_abs[of r] in \<open>auto simp: monom_eq\<close>)
     done
 qed
 
-type_synonym sllist_polynomial = \<open>(nat list \<times> int) list\<close>
+end
 
 definition sort_all_coeffs_s :: \<open>(nat,string)shared_vars \<Rightarrow> sllist_polynomial \<Rightarrow> sllist_polynomial nres\<close> where
-\<open>sort_all_coeffs_s \<V> xs = monadic_nfoldli xs (\<lambda>_. RETURN True) (\<lambda>(a, n) b. do {ASSERT((a,n)\<in>set xs);a \<leftarrow> msort_coeff_s \<V> a; RETURN ((a, n) # b)}) []\<close>
+\<open>sort_all_coeffs_s \<V> xs = monadic_nfoldli xs (\<lambda>_. RETURN True) (\<lambda>(a, n) b. do {ASSERT((a,n)\<in>set xs);a \<leftarrow> msort_coeffs \<V> a; RETURN ((a, n) # b)}) []\<close>
 
- fun merge_coeffs0_s :: \<open>sllist_polynomial \<Rightarrow> sllist_polynomial\<close> where
+fun merge_coeffs0_s :: \<open>sllist_polynomial \<Rightarrow> sllist_polynomial\<close> where
   \<open>merge_coeffs0_s[] = []\<close> |
   \<open>merge_coeffs0_s [(xs, n)] = (if n = 0 then [] else [(xs, n)])\<close> |
   \<open>merge_coeffs0_s ((xs, n) # (ys, m) # p) =
@@ -756,7 +512,7 @@ lemma list_rel_mono_strong: \<open>A \<in> \<langle>R\<rangle>list_rel \<Longrig
 definition full_normalize_poly_s where
   \<open>full_normalize_poly_s \<V> p = do {
      p \<leftarrow> sort_all_coeffs_s \<V> p;
-     p \<leftarrow> sort_poly_spec_s \<V> p;
+     p \<leftarrow> msort_monoms \<V> p;
     RETURN (merge_coeffs0_s p)
   }\<close>
 
@@ -775,7 +531,7 @@ proof -
 
   show ?thesis
     unfolding sort_all_coeffs_s_def sort_all_coeffs_def
-    apply (refine_vcg \<V> msort_coeff_s_sort_coeff)
+    apply (refine_vcg \<V> msort_coeffs_sort_coeff[OF \<V>])
     apply (use assms in \<open>(force simp: vars_llist_def dest!: split_list)\<close>)+
     done
 qed
@@ -1028,14 +784,6 @@ proof -
      auto
 qed
 
-abbreviation monom_s_rel where
-  \<open>monom_s_rel \<equiv> \<langle>nat_rel\<rangle>list_rel\<close>
-
-abbreviation monom_s_assn where
-  \<open>monom_s_assn \<equiv> cl_assn' si64_assn\<close>
-
-abbreviation poly_s_assn where
-  \<open>poly_s_assn \<equiv> cl_assn' (monom_s_assn \<times>\<^sub>a sbi_assn)\<close>
 lemmas [safe_constraint_rules] =
   CN_FALSEI[of is_pure monom_s_assn]
   CN_FALSEI[of is_pure poly_s_assn]
@@ -1167,8 +915,8 @@ lemma var_order_rel'':
   \<open>(x,y) \<in> var_order_rel \<longleftrightarrow> x < y\<close>
   by (metis leD less_than_char_linear lexord_linear neq_iff var_order_rel' var_order_rel_antisym
       var_order_rel_def)
-
-sepref_definition perfect_shared_var_order_s_impl
+term get_var_name_c_impl 
+sepref_def perfect_shared_var_order_s_impl
   is \<open>uncurry2 perfect_shared_var_order_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k \<rightarrow>\<^sub>a ordered_assn\<close>
   unfolding perfect_shared_var_order_s_def perfectly_shared_strings_equal_l_def
@@ -1177,10 +925,9 @@ sepref_definition perfect_shared_var_order_s_impl
     var_order_rel''
   by sepref
 
-
 lemmas [sepref_fr_rules] = perfect_shared_var_order_s_impl.refine
 
-sepref_definition perfect_shared_term_order_rel_s_impl
+sepref_def perfect_shared_term_order_rel_s_impl
   is \<open>uncurry2 perfect_shared_term_order_rel_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a monom_s_assn\<^sup>d *\<^sub>a monom_s_assn\<^sup>d \<rightarrow>\<^sub>a ordered_assn\<close>
   unfolding perfect_shared_term_order_rel_s_alt_def
@@ -1189,7 +936,7 @@ sepref_definition perfect_shared_term_order_rel_s_impl
 
 lemmas [sepref_fr_rules] = perfect_shared_term_order_rel_s_impl.refine
 
-sepref_definition add_poly_l_prep_impl
+sepref_def add_poly_l_prep_impl
   is \<open>uncurry add_poly_l_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a (poly_s_assn \<times>\<^sub>a poly_s_assn)\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
   supply [[goals_limit=1]]
@@ -1276,7 +1023,7 @@ proof -
     unfolding COPY_def nres_monad1 1 mult_monoms_s_def ..
 qed
 
-sepref_definition mult_monoms_s_impl
+sepref_def mult_monoms_s_impl
   is \<open>uncurry2 mult_monoms_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a monom_s_assn\<^sup>k *\<^sub>a monom_s_assn\<^sup>k \<rightarrow>\<^sub>a monom_s_assn\<close>
   supply [[goals_limit=1]]
@@ -1288,9 +1035,6 @@ lemmas [sepref_fr_rules] =
   mult_monoms_s_impl.refine
 
 sepref_register mult_monoms_s mult_term_s
-
-text \<open>The folds over polynomials are rephrased as pop-front recursions over a copy
-  (the monadic loop bodies rule out the read-only \<open>cl_fold\<close> combinator).\<close>
 
 lemma nfoldli_to_pop_RECT:
   fixes body :: \<open>'a \<Rightarrow> 'b \<Rightarrow> 'b nres\<close>
@@ -1340,7 +1084,7 @@ proof -
     done
 qed
 
-sepref_definition mult_term_s_impl
+sepref_def mult_term_s_impl
   is \<open>uncurry3 mult_term_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a (monom_s_assn \<times>\<^sub>a sbi_assn)\<^sup>k *\<^sub>a poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
   supply [[goals_limit=1]]
@@ -1364,7 +1108,7 @@ lemma mult_poly_s_alt_def:
   unfolding mult_poly_s_def COPY_def nres_monad1
   by (subst nfoldli_to_pop_RECT) (rule refl)
 
-sepref_definition mult_poly_s_impl
+sepref_def mult_poly_s_impl
   is \<open>uncurry2 mult_poly_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a poly_s_assn\<close>
   supply [[goals_limit=1]]
@@ -1375,86 +1119,8 @@ sepref_definition mult_poly_s_impl
 lemmas [sepref_fr_rules] =
   mult_poly_s_impl.refine
 
-sepref_register take drop
-lemma [sepref_fr_rules]:
-  assumes \<open>CONSTRAINT is_pure R\<close>
-  shows \<open>(uncurry (return oo take), uncurry (RETURN oo take)) \<in> nat_assn\<^sup>k *\<^sub>a (list_assn R)\<^sup>k \<rightarrow>\<^sub>a list_assn R\<close>
-  apply sepref_to_hoare
-  using assms unfolding is_pure_conv CONSTRAINT_def
-  apply (sep_auto simp add: list_assn_pure_conv)
-  apply (sep_auto simp: pure_def list_rel_takeD)
-  done
+section \<open>Refinement of Sorting  Implementation\<close>
 
-lemma [sepref_fr_rules]:
-  assumes \<open>CONSTRAINT is_pure R\<close>
-  shows \<open>(uncurry (return oo drop), uncurry (RETURN oo drop)) \<in> nat_assn\<^sup>k *\<^sub>a (list_assn R)\<^sup>k \<rightarrow>\<^sub>a list_assn R\<close>
-  apply sepref_to_hoare
-  using assms unfolding is_pure_conv CONSTRAINT_def
-  apply (sep_auto simp add: list_assn_pure_conv)
-  apply (sep_auto simp: pure_def list_rel_dropD)
-  done
-
-definition mergeR_vars :: \<open>(nat, string) shared_vars \<Rightarrow> sllist_polynomial \<Rightarrow> sllist_polynomial \<Rightarrow> sllist_polynomial nres\<close> where
-  \<open>mergeR_vars \<V> = mergeR
-   (\<lambda>xs ys. (\<forall>a\<in>set (fst xs). a \<in># dom_m (fst (snd \<V>))) \<and>  (\<forall>a\<in>set(fst ys). a \<in># dom_m (fst (snd \<V>))))
-     (\<lambda>xs ys. do {a \<leftarrow> perfect_shared_term_order_rel_s \<V> (fst xs) (fst ys); RETURN (a \<noteq> GREATER)})\<close>
-lemma mergeR_alt_def:
-  \<open>(mergeR \<Phi> f xs ys) = REC\<^sub>T(\<lambda>mergeR xs.
-  case xs of
-    ([], ys) \<Rightarrow> RETURN ys
-  | (xs, []) \<Rightarrow> RETURN xs
-  | (x # xs, y # ys) \<Rightarrow> do {
-    ASSERT(\<Phi> x y);
-     b \<leftarrow> f x y;
-    if b then do {
-       zs \<leftarrow> mergeR (xs, y # ys);
-       RETURN (x # zs)
-    }
-    else do {
-     zs \<leftarrow> mergeR (x # xs, ys);
-     RETURN (y # zs)
-    }
-  })
-  (xs, ys)\<close>
- apply (induction \<Phi> f xs ys rule: mergeR.induct)
- subgoal
-   apply (subst RECT_unfold, refine_mono)
-   apply (simp add:)
-   apply (rule bind_cong[OF refl])+
-   apply auto
-   done
- subgoal
-   by (subst RECT_unfold, refine_mono)
-    (simp split: list.splits)
- subgoal
-   by (subst RECT_unfold, refine_mono) auto
- done
-
-sepref_definition mergeR_vars_impl
-  is \<open>uncurry2 mergeR_vars\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a poly_s_assn\<close>
-  supply [[goals_limit = 1]]
-  unfolding mergeR_vars_def mergeR_alt_def
-  by sepref
-
-lemmas [sepref_fr_rules] =
-  mergeR_vars_impl.refine
-
-abbreviation msortR_vars where
-  \<open>msortR_vars \<equiv> sort_poly_spec_s\<close>
-lemmas msortR_vars_def = sort_poly_spec_s_def
-
-sepref_register mergeR_vars msortR_vars
-
-sepref_definition msortR_vars_impl
-  is \<open>uncurry msortR_vars\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a poly_s_assn\<close>
-  supply [[goals_limit = 1]]
-  unfolding msortR_vars_def msortR_alt_def  mergeR_vars_def[symmetric]
-  by sepref
-
-lemmas [sepref_fr_rules] =
-  msortR_vars_impl.refine
 
 fun merge_coeffs_s :: \<open>sllist_polynomial \<Rightarrow> sllist_polynomial\<close> where
   \<open>merge_coeffs_s [] = []\<close> |
@@ -1482,7 +1148,7 @@ lemma perfectly_shared_merge_coeffs_merge_coeffs:
 
 definition normalize_poly_s :: \<open>_\<close> where
   \<open>normalize_poly_s \<V> p =  do {
-  p \<leftarrow> msortR_vars \<V> p;
+  p \<leftarrow> msort_monoms \<V> p;
   RETURN (merge_coeffs_s p)
   }\<close>
 
@@ -1493,11 +1159,8 @@ lemma normalize_poly_s_normalize_poly_s:
     \<open>vars_llist xs' \<subseteq> set_mset \<D>\<V>\<close>
   shows \<open>normalize_poly_s \<V> xs \<le> \<Down> (perfectly_shared_polynom \<V>) (normalize_poly xs')\<close>
   unfolding normalize_poly_s_def normalize_poly_def
-  by (refine_rcg sort_poly_spec_s_sort_poly_spec[unfolded msortR_vars_def[symmetric]] assms
+  by (refine_rcg msort_monoms_sort_poly_spec assms
     perfectly_shared_merge_coeffs_merge_coeffs)
-
-definition check_linear_combi_l_s_dom_err :: \<open>sllist_polynomial \<Rightarrow> nat \<Rightarrow> string nres\<close> where
-  \<open>check_linear_combi_l_s_dom_err p r = SPEC (\<lambda>_. True)\<close>
 
 definition mult_poly_full_s :: \<open>_\<close> where
   \<open>mult_poly_full_s \<V> p q = do {
@@ -1738,7 +1401,7 @@ where
           RETURN (error_msg i c, [], \<V>, v')
         }
       }
-     }
+    }
   }
  }\<close>
 lemma list_rel_tlD: \<open>(a, b) \<in> \<langle>R\<rangle>list_rel \<Longrightarrow> (tl a, tl b) \<in> \<langle>R\<rangle>list_rel\<close>
@@ -1853,7 +1516,6 @@ lemma perfectly_shared_var_rel_perfectly_shared_polynom_mono:
     apply auto
     done
 
-
 lemma check_extension_l2_s_check_extension_l2:
   assumes
     \<open>(\<V>, \<D>\<V>) \<in> perfectly_shared_vars_rel\<close>
@@ -1888,12 +1550,12 @@ proof -
       is_new_variable_spec)
     subgoal using assms by auto
     subgoal using assms by (auto simp add: perfectly_shared_vars_rel_def perfectly_shared_vars_def)
+    subgoal using assms by (auto simp: error_msg_def)
     subgoal using assms by (auto)
-    subgoal using assms by (auto)
+    subgoal using assms by (auto simp: error_msg_def)
     subgoal using assms by (auto)
     subgoal using assms by auto
-    subgoal by auto
-    subgoal using assms by auto
+    subgoal using assms by (auto simp: error_msg_def)
     subgoal using assms by auto
     subgoal using assms by auto
     subgoal using assms by auto
@@ -1909,7 +1571,7 @@ proof -
     subgoal by auto
     subgoal by auto
     subgoal using assms by auto
-    apply (solves auto) (*one goal with unifucation*)
+    apply (solves auto) (*one goal with unification*)
     done
 qed
 
@@ -2085,7 +1747,8 @@ definition (in -) remap_polys_s_with_err :: \<open>llist_polynomial \<Rightarrow
           } else RETURN (err, \<V>, A'))
        (CSUCCESS, \<V>, fmempty);
      RETURN (err, \<V>, A, spec)
-                }})\<close>
+   }
+  })\<close>
 
 lemma full_normalize_poly_alt_def:
   \<open>full_normalize_poly p0 = do {
@@ -2154,7 +1817,7 @@ proof -
   show ?thesis
     unfolding full_normalize_poly_s_def full_normalize_poly_alt_def full_normalize_poly'_def
     apply (refine_rcg sort_all_coeffs_s_sort_all_coeffs assms
-      sort_poly_spec_s_sort_poly_spec merge_coeffs0_s_merge_coeffs0)
+      msort_monoms_sort_poly_spec merge_coeffs0_s_merge_coeffs0)
     subgoal using assms by auto
     done
 qed
@@ -2244,7 +1907,7 @@ proof -
     subgoal by (auto intro!: RETURN_RES_refine)
     subgoal by auto
     subgoal by auto
-    subgoal by (clarsimp intro!: RETURN_RES_refine)
+    subgoal by (clarsimp simp: error_msg_def intro!:RETURN_RES_refine)
     subgoal by auto
     subgoal by auto
     subgoal by auto
@@ -2381,290 +2044,613 @@ lemma full_checker_l_s_full_checker_l_prep':
   \<langle>{((err, _), (err', _)). (err, err') \<in> Id}\<rangle>nres_rel\<close>
   by (auto intro!: frefI nres_relI full_checker_l_s_full_checker_l_prep[THEN order_trans])
 
-definition merge_coeff_s :: \<open>(nat,string)shared_vars \<Rightarrow> nat list \<Rightarrow> nat list \<Rightarrow> nat list \<Rightarrow> nat list nres\<close> where
-  \<open>merge_coeff_s \<V> xs = mergeR (\<lambda>a b. a \<in> set xs \<and> b \<in> set xs)
-  (\<lambda>a b. do {
-    x \<leftarrow> get_var_nameS \<V> a;
-  y \<leftarrow> get_var_nameS \<V> b;
-    RETURN(a = b \<or> var_order x y)
+lemma sort_all_coeffs_s_RECT_aux:
+  \<open>set ys \<subseteq> set xs \<Longrightarrow>
+   monadic_nfoldli ys (\<lambda>_. RETURN True)
+     (\<lambda>(a, n) b. do {ASSERT((a,n)\<in>set xs); a \<leftarrow> msort_coeffs \<V> a; RETURN ((a, n) # b)}) b
+   = REC\<^sub>T (\<lambda>f (ys, b).
+       if ys = [] then RETURN b
+       else do {
+         ((a, n), ys) \<leftarrow> mop_list_pop_hd ys;
+         a \<leftarrow> msort_coeffs \<V> a;
+         f (ys, ((a, n) # b))
+       }) (ys, b)\<close>
+proof (induction ys arbitrary: b)
+  case Nil
+  show ?case
+    by (subst RECT_unfold, refine_mono) auto
+next
+  case (Cons x ys)
+  obtain a n where x: \<open>x = (a, n)\<close> by (cases x)
+  show ?case
+    apply (subst RECT_unfold, refine_mono)
+    using Cons.prems
+    by (auto simp: x mop_list_pop_hd_def Cons.IH[symmetric] pw_eq_iff
+      refine_pw_simps)
+qed
+
+lemma sort_all_coeffs_s_alt_def:
+  \<open>sort_all_coeffs_s \<V> xs = REC\<^sub>T (\<lambda>f (ys, b).
+       if ys = [] then RETURN b
+       else do {
+         ((a, n), ys) \<leftarrow> mop_list_pop_hd ys;
+         a \<leftarrow> msort_coeffs \<V> a;
+         f (ys, ((a, n) # b))
+       }) (xs, [])\<close>
+  unfolding sort_all_coeffs_s_def
+  by (rule sort_all_coeffs_s_RECT_aux) auto
+
+lemma cl_assn_free_comp[sepref_frame_free_rules]:
+  \<open>MK_FREE A f \<Longrightarrow> MK_FREE (cl_assn' A) (freeable_assn.cl_free f)\<close>
+  by (intro freeable_assn.cl_assn_free freeable_assn.intro)
+
+interpretation monom_fa: freeable_assn monom_s_assn snhm.val.cl_free
+  by unfold_locales (rule snhm.val.cl_assn_free)
+
+sepref_register coeff_mcmp
+sepref_def coeff_mcmp_impl is \<open>uncurry2 coeff_mcmp\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding coeff_mcmp_def rel2p_def var_order_rel''
+  by sepref
+
+sepref_register explode_while
+sepref_def coeff_explode_impl is \<open>explode_while\<close>
+  :: \<open>monom_s_assn\<^sup>d \<rightarrow>\<^sub>a cl_assn' monom_s_assn\<close>
+  unfolding explode_while_def ls_emp
+  by sepref
+
+definition coeff_merge_while :: \<open>(nat,string)shared_vars \<Rightarrow> nat list \<Rightarrow> nat list \<Rightarrow> nat list nres\<close> where
+  \<open>coeff_merge_while \<V> = mcmp_merge_while (coeff_cmp \<V>) (coeff_valid \<V>) (coeff_mcmp \<V>)\<close>
+
+sepref_register coeff_merge_while
+sepref_def coeff_merge_while_impl is \<open>uncurry2 coeff_merge_while\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a monom_s_assn\<^sup>d *\<^sub>a monom_s_assn\<^sup>d \<rightarrow>\<^sub>a monom_s_assn\<close>
+  unfolding coeff_merge_while_def mcmp_merge_while_def mcmp_merge_while_inner_def
+    ls_emp
+  by sepref
+
+definition coeff_pass :: \<open>(nat,string)shared_vars \<Rightarrow> nat list list \<Rightarrow> nat list list nres\<close> where
+  \<open>coeff_pass \<V> = mcmp_pass (coeff_cmp \<V>) (coeff_valid \<V>) (coeff_mcmp \<V>)\<close>
+
+sepref_register coeff_pass
+sepref_def coeff_pass_impl is \<open>uncurry coeff_pass\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a (cl_assn' monom_s_assn)\<^sup>d \<rightarrow>\<^sub>a cl_assn' monom_s_assn\<close>
+  unfolding coeff_pass_def mcmp_pass_def coeff_merge_while_def[symmetric]
+    ls_emp ls_emp'
+  by sepref
+
+definition coeff_run_passes :: \<open>(nat,string)shared_vars \<Rightarrow> nat list list \<Rightarrow> nat list list nres\<close> where
+  \<open>coeff_run_passes \<V> = mcmp_run_passes (coeff_cmp \<V>) (coeff_valid \<V>) (coeff_mcmp \<V>)\<close>
+
+sepref_register coeff_run_passes
+sepref_def coeff_run_passes_impl is \<open>uncurry coeff_run_passes\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a (cl_assn' monom_s_assn)\<^sup>d \<rightarrow>\<^sub>a cl_assn' monom_s_assn\<close>
+  unfolding coeff_run_passes_def mcmp_run_passes_def coeff_pass_def[symmetric]
+    ls_emp ls_emp'
+  by sepref
+
+sepref_register msort_coeffs
+sepref_def msort_coeffs_impl is \<open>uncurry msort_coeffs\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a monom_s_assn\<^sup>d \<rightarrow>\<^sub>a monom_s_assn\<close>
+  unfolding msort_coeffs_def mcmp_msort_def coeff_run_passes_def[symmetric]
+    ls_emp ls_emp'
+  by sepref
+
+lemma term_mcmp_alt_def:
+  \<open>term_mcmp \<V> = (\<lambda>(xs, n) (ys, m). doN {
+    a \<leftarrow> perfect_shared_term_order_rel_s \<V> (COPY xs) (COPY ys);
+    RETURN (a \<noteq> GREATER)
   })\<close>
+  unfolding term_mcmp_def COPY_def
+  by (auto intro!: ext split: prod.splits)
 
-term get_var_nameS
-sepref_definition merge_coeff_s_impl
-  is \<open>uncurry3 merge_coeff_s\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a (monom_s_assn)\<^sup>k *\<^sub>a (monom_s_assn)\<^sup>k *\<^sub>a (monom_s_assn)\<^sup>k \<rightarrow>\<^sub>a monom_s_assn\<close>
-  supply [[goals_limit=1]]
-  unfolding merge_coeff_s_def mergeR_alt_def var_order'_def[symmetric]
+sepref_register term_mcmp
+sepref_def term_mcmp_impl
+  is \<open>uncurry2 term_mcmp\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a (monom_s_assn \<times>\<^sub>a sbi_assn)\<^sup>k *\<^sub>a (monom_s_assn \<times>\<^sub>a sbi_assn)\<^sup>k
+     \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding term_mcmp_alt_def fold_ordered_discriminators
   by sepref
 
-sepref_register merge_coeff_s msort_coeff_s sort_all_coeffs_s
-lemmas [sepref_fr_rules] = merge_coeff_s_impl.refine
-
-lemma msort_coeff_s_alt_def:
-  \<open>msort_coeff_s \<V> xs = do {
-    let zs = COPY xs;
-    REC\<^sub>T
-     (\<lambda>msortR' xsa. if length xsa \<le> 1 then RETURN (ASSN_ANNOT monom_s_assn xsa) else do {
-      let xs1 = ASSN_ANNOT monom_s_assn (take (length xsa div 2) xsa);
-      let xs2 = ASSN_ANNOT monom_s_assn (drop (length xsa div 2) xsa);
-      as \<leftarrow> msortR' xs1;
-      let as = ASSN_ANNOT monom_s_assn as;
-      bs \<leftarrow> msortR' xs2;
-      let bs = ASSN_ANNOT monom_s_assn bs;
-      merge_coeff_s \<V> zs as bs
-    })
-        xs}\<close>
-  unfolding msort_coeff_s_def merge_coeff_s_def[symmetric]
-  msortR_alt_def ASSN_ANNOT_def Let_def COPY_def
-  by auto
-
-sepref_definition msort_coeff_s_impl
-  is \<open>uncurry msort_coeff_s\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a (monom_s_assn)\<^sup>k \<rightarrow>\<^sub>a monom_s_assn\<close>
-  supply [[goals_limit=1]]
-  unfolding msort_coeff_s_alt_def
-  unfolding var_order'_def[symmetric]
+sepref_def term_explode_impl
+  is \<open>explode_while\<close>
+  :: \<open>poly_s_assn\<^sup>d \<rightarrow>\<^sub>a cl_assn' poly_s_assn\<close>
+  unfolding explode_while_def ls_emp
   by sepref
 
-lemmas [sepref_fr_rules] = msort_coeff_s_impl.refine
+definition term_merge_while :: \<open>(nat,string)shared_vars \<Rightarrow> sllist_polynomial \<Rightarrow> sllist_polynomial \<Rightarrow> sllist_polynomial nres\<close> where
+  \<open>term_merge_while \<V> = mcmp_merge_while (term_cmp \<V>) (term_valid \<V>) (term_mcmp \<V>)\<close>
 
-sepref_definition sort_all_coeffs_s'_impl
-  is \<open>uncurry sort_all_coeffs_s\<close>
+sepref_register term_merge_while
+sepref_def term_merge_while_impl
+  is \<open>uncurry2 term_merge_while\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>d *\<^sub>a poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
+  unfolding term_merge_while_def mcmp_merge_while_def mcmp_merge_while_inner_def
+    ls_emp
+  by sepref
+
+definition term_pass :: \<open>(nat,string)shared_vars \<Rightarrow> sllist_polynomial list \<Rightarrow> sllist_polynomial list nres\<close> where
+  \<open>term_pass \<V> = mcmp_pass (term_cmp \<V>) (term_valid \<V>) (term_mcmp \<V>)\<close>
+
+sepref_register term_pass
+sepref_def term_pass_impl
+  is \<open>uncurry term_pass\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a (cl_assn' poly_s_assn)\<^sup>d \<rightarrow>\<^sub>a cl_assn' poly_s_assn\<close>
+  unfolding term_pass_def mcmp_pass_def term_merge_while_def[symmetric]
+    ls_emp ls_emp'
+  by sepref
+
+definition term_run_passes :: \<open>(nat,string)shared_vars \<Rightarrow> sllist_polynomial list \<Rightarrow> sllist_polynomial list nres\<close> where
+  \<open>term_run_passes \<V> = mcmp_run_passes (term_cmp \<V>) (term_valid \<V>) (term_mcmp \<V>)\<close>
+
+sepref_register term_run_passes
+sepref_def term_run_passes_impl
+  is \<open>uncurry term_run_passes\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a (cl_assn' poly_s_assn)\<^sup>d \<rightarrow>\<^sub>a cl_assn' poly_s_assn\<close>
+  unfolding term_run_passes_def mcmp_run_passes_def term_pass_def[symmetric]
+    ls_emp ls_emp'
+  by sepref
+
+interpretation poly_fa: freeable_assn poly_s_assn poly_s.cl_free
+  by unfold_locales (rule poly_s.cl_assn_free)
+
+sepref_register msort_monoms
+sepref_def msort_monoms_impl
+  is \<open>uncurry msort_monoms\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
-  unfolding sort_all_coeffs_s_def HOL_list.fold_custom_empty
+  unfolding msort_monoms_def mcmp_msort_def term_run_passes_def[symmetric]
+    ls_emp ls_emp'
+  by sepref
+
+lemmas [sepref_fr_rules] = msort_monoms_impl.refine
+
+sepref_register sort_all_coeffs_s
+sepref_def sort_all_coeffs_s'_impl is \<open>uncurry sort_all_coeffs_s\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
+  supply [[goals_limit=1]]
+  unfolding sort_all_coeffs_s_alt_def
+    ls_emp ls_emp'
   by sepref
 
 lemmas [sepref_fr_rules] = sort_all_coeffs_s'_impl.refine
 
-(*let's pray that the most stupid compiler on earth, MLton, recognizes that the copy is useless*)
-lemma merge_coeffs0_s_alt_def:
-  \<open>(RETURN o merge_coeffs0_s) p =
-   REC\<^sub>T(\<lambda>f p.
-     (case p of
-       [] \<Rightarrow> RETURN []
-     | [p] => if snd (COPY p)= 0 then RETURN [] else RETURN [p]
-     | (a # b # p) \<Rightarrow>
-  (let (xs, n) = COPY a; (ys, m) = COPY b in
-  if xs = ys
-       then if n + m \<noteq> 0 then f ((xs, n + m) # (COPY p)) else f p
-       else if n = 0 then
-          do {p \<leftarrow> f (b # (COPY p));
-            RETURN p}
-       else do {p \<leftarrow> f (b # (COPY p));
-            RETURN (a # p)})))
-         p\<close>
-  unfolding COPY_def Let_def
-  apply (subst eq_commute)
-  apply (induction p rule: merge_coeffs0_s.induct)
-  subgoal by (subst RECT_unfold, refine_mono) auto
-  subgoal by (subst RECT_unfold, refine_mono) auto
-  subgoal by (subst RECT_unfold, refine_mono) (auto simp: let_to_bind_conv)
+definition mc_body_s :: \<open>sllist_polynomial \<times> sllist_polynomial \<Rightarrow>
+  (sllist_polynomial \<times> sllist_polynomial) nres\<close> where
+  \<open>mc_body_s = (\<lambda>(r, p). doN {
+        ((xs, n), p) \<leftarrow> mop_list_pop_hd p;
+        if p = [] then
+          if n = 0 then
+            RETURN (r, p)
+          else
+            RETURN ((xs, n) # r, p)
+        else doN {
+          ((ys, m), p) \<leftarrow> mop_list_pop_hd p;
+          if xs = ys then doN {
+            let s = n + m;
+            if s = 0 then
+              RETURN (r, p)
+            else
+              RETURN (r, (xs, s) # p)
+          } else
+            if n = 0 then
+              RETURN (r, (ys, m) # p)
+            else
+              RETURN ((xs, n) # r, (ys, m) # p)
+        }
+      })\<close>
+
+definition merge_coeffs1_s :: \<open>sllist_polynomial \<Rightarrow> sllist_polynomial nres\<close> where
+  \<open>merge_coeffs1_s p \<equiv> doN {
+    (r, _) \<leftarrow> WHILE\<^sub>T (\<lambda>(_, p). p \<noteq> []) mc_body_s ([], p);
+    RETURN (rev r)
+  }\<close>
+
+lemma merge_coeffs1_s_loop:
+  \<open>WHILE\<^sub>T (\<lambda>(_, p). p \<noteq> []) mc_body_s (r, p) = RETURN (rev (merge_coeffs0_s p) @ r, [])\<close>
+  apply (induction p arbitrary: r rule: merge_coeffs0_s.induct)
+  subgoal by (simp add: WHILET_exit)
+  subgoal by (subst WHILET_unfold) (auto simp: mc_body_s_def WHILET_exit)
+  subgoal by (subst WHILET_unfold) (auto simp: mc_body_s_def WHILET_exit)
   done
 
-lemma [sepref_import_param]: \<open>(((=)), ((=))) \<in> \<langle>uint64_nat_rel\<rangle> list_rel \<rightarrow> \<langle>uint64_nat_rel\<rangle> list_rel \<rightarrow> bool_rel\<close>
-proof -
-  have \<open>IS_LEFT_UNIQUE (\<langle>uint64_nat_rel\<rangle> list_rel)\<close>
-    by (intro safe_constraint_rules)
-  moreover have \<open>IS_RIGHT_UNIQUE (\<langle>uint64_nat_rel\<rangle> list_rel)\<close>
-    by (intro safe_constraint_rules)
-  ultimately show ?thesis
-    by (sep_auto simp: IS_LEFT_UNIQUE_def single_valued_def
-      simp flip: inv_list_rel_eq)
-qed
+lemma merge_coeffs1_s_correct:
+  \<open>merge_coeffs1_s = (RETURN o merge_coeffs0_s)\<close>
+  by (intro ext) (simp add: merge_coeffs1_s_def merge_coeffs1_s_loop)
 
-lemma is_pure_monom_s_assn: \<open>is_pure monom_s_assn\<close>
-  \<open>is_pure (monom_s_assn \<times>\<^sub>a int_assn)\<close>
-  by (auto simp add: list_assn_pure_conv)
+interpretation si64: eq_assn si64_assn ll_icmp_eq
+  by unfold_locales (rule hn_snat_ops(7))
 
-sepref_definition merge_coeffs0_s_impl
+sepref_register \<open>(=) :: nat list \<Rightarrow> nat list \<Rightarrow> bool\<close>
+sepref_def merge_coeffs0_s_impl
   is \<open>RETURN o merge_coeffs0_s\<close>
-  :: \<open>poly_s_assn\<^sup>k \<rightarrow>\<^sub>a poly_s_assn\<close>
-  unfolding merge_coeffs0_s_alt_def HOL_list.fold_custom_empty
+  :: \<open>poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
+  unfolding merge_coeffs1_s_correct[symmetric]
+  unfolding merge_coeffs1_s_def mc_body_s_def ls_emp ls_emp'
   by sepref
-
-lemmas [sepref_fr_rules] = merge_coeffs0_s_impl.refine
-
-
-sepref_definition full_normalize_poly'_impl
+  
+sepref_def full_normalize_poly'_impl
   is \<open>uncurry full_normalize_poly_s\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a poly_s_assn\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
   unfolding full_normalize_poly_s_def
   by sepref
+
+text \<open>Structural equality on shared polynomials: monoms compare via \<open>si64.cl_eq\<close>,
+  coefficients via \<open>signed_big_int_eq_impl\<close>; the \<open>eq_assn\<close> interpretation lifts
+  the pair equality to \<open>poly_s_assn\<close> (cf. \<open>mnml_eq_impl'\<close> in \<open>LLVM_Polynomials\<close>).\<close>
+
+definition mnml_s_eq_impl' where [llvm_code]:
+  \<open>mnml_s_eq_impl' \<equiv> \<lambda>(pm,pn) (qm,qn). doM {
+    r \<leftarrow> si64.cl_eq pm qm;
+    llc_if r (signed_big_int_eq_impl pn qn) (Mreturn 0)
+  }\<close>
+
+context begin
+interpretation llvm_prim_ctrl_setup .
+
+lemma mnml_s_eq_hnr[sepref_fr_rules]:
+  \<open>(uncurry mnml_s_eq_impl', uncurry (RETURN oo (=)))
+  \<in> (monom_s_assn \<times>\<^sub>a sbi_assn)\<^sup>k *\<^sub>a (monom_s_assn \<times>\<^sub>a sbi_assn)\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding mnml_s_eq_impl'_def
+  supply [vcg_rules] = hfref_htriple_k2[OF signed_big_int_eq_impl_hnr]
+  supply [simp] = pure_def bool1_rel_def bool.rel_def in_br_conv
+  by (sepref_to_hoare; vcg)
+
+end
+
+interpretation poly_s: eq_assn \<open>monom_s_assn \<times>\<^sub>a sbi_assn\<close> mnml_s_eq_impl'
+  by unfold_locales (rule mnml_s_eq_hnr)
+
+sepref_register poly_s_eq: \<open>(=) :: sllist_polynomial \<Rightarrow> sllist_polynomial \<Rightarrow> bool\<close>
 
 lemma weak_equality_l_s_alt_def:
   \<open>weak_equality_l_s = RETURN oo (\<lambda>p q. p = q)\<close>
   unfolding weak_equality_l_s_def weak_equality_l_s_def by (auto intro!: ext)
 
-
-lemma [sepref_import_param]
-  : \<open>(((=)), ((=))) \<in> \<langle>\<langle>uint64_nat_rel\<rangle> list_rel \<times>\<^sub>r int_rel\<rangle> list_rel \<rightarrow> \<langle>\<langle>uint64_nat_rel\<rangle> list_rel \<times>\<^sub>r int_rel\<rangle> list_rel \<rightarrow> bool_rel\<close>
-proof -
-  let ?A = \<open>\<langle>\<langle>uint64_nat_rel\<rangle> list_rel \<times>\<^sub>r int_rel\<rangle> list_rel\<close>
-  have \<open>IS_LEFT_UNIQUE (\<langle>uint64_nat_rel\<rangle> list_rel)\<close>
-    by (intro safe_constraint_rules)
-  then have \<open>IS_LEFT_UNIQUE (?A)\<close>
-    by (intro safe_constraint_rules)
-  moreover have \<open>IS_RIGHT_UNIQUE (\<langle>uint64_nat_rel\<rangle> list_rel)\<close>
-    by (intro safe_constraint_rules)
-  then have \<open>IS_RIGHT_UNIQUE (?A)\<close>
-    by (intro safe_constraint_rules)
-  ultimately show ?thesis
-    by (sep_auto simp: IS_LEFT_UNIQUE_def single_valued_def
-      simp flip: inv_list_rel_eq)
-qed
-
-sepref_definition weak_equality_l_s_impl
+sepref_def weak_equality_l_s_impl
   is \<open>uncurry weak_equality_l_s\<close>
-  :: \<open>poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
+  :: \<open>poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   unfolding weak_equality_l_s_alt_def
   by sepref
 
-code_printing constant arl_get_u' \<rightharpoonup> (SML) "(fn/ ()/ =>/ Array.sub/ ((fn/ (a,b)/ =>/ a) ((_)),/ Word32.toInt ((_))))"
+text \<open>The map from ids to shared polynomials, built exactly like \<open>polys_assn\<close>
+  in \<open>PAC_Checker_Synthesis\<close>: a boxed copying partial map with \<open>poly_s_assn\<close>
+  values, composed to the \<open>fmap\<close> interface. The generic \<open>fref\<close> lemmas
+  (\<open>fmempty_empty\<close>, \<open>map_upd_fmupd\<close>, \<dots>) are inherited from that theory.\<close>
+
+interpretation polys_s: boxed_copying_pmap
+  \<open>poly_s_assn\<close> \<open>poly_s.cl_free\<close> \<open>poly_s.cl_copy\<close>
+  apply unfold_locales
+  apply (rule poly_s.cl_assn_free poly_s.cl_copy_hnr)+
+  done
 
 abbreviation polys_s_assn where
-  \<open>polys_s_assn \<equiv> hm_fmap_assn uint64_nat_assn poly_s_assn\<close>
+  \<open>polys_s_assn \<equiv> hr_comp (hr_comp polys_s.bx.pmap_assn' opt_list_map_rel) map_fmap_rel\<close>
 
+lemma polys_s_assn_intf[intf_of_assn]:
+  \<open>intf_of_assn polys_s_assn TYPE((nat, (nat list \<times> int) list) f_map)\<close>
+  by simp
 
-sepref_definition import_monom_no_newS_impl
-  is \<open>uncurry (import_monom_no_newS :: (nat,string)shared_vars \<Rightarrow> _ \<Rightarrow>( bool \<times> _) nres)\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a (list_assn string_assn)\<^sup>k \<rightarrow>\<^sub>a bool_assn \<times>\<^sub>a list_assn uint64_nat_assn\<close>
-  unfolding import_monom_no_newS_def HOL_list.fold_custom_empty
-  by sepref
+lemmas fmap_s_empty_hnr[sepref_fr_rules] =
+  polys_s.bx.pmap_empty_hnr2[FCOMP fmempty_empty, unfolded op_fmap_empty_def[symmetric]]
+
+lemmas fmap_s_delete_hnr[sepref_fr_rules] =
+  polys_s.bx.pmap_delete_hnr2[FCOMP fmdrop_set_None]
+
+lemmas fmap_s_update_hnr[sepref_fr_rules] =
+  polys_s.bx.pmap_update_hnr2[FCOMP map_upd_fmupd]
+
+lemmas fmap_s_lookup_hnr[sepref_fr_rules] =
+  polys_s.bx.cpmap_lookup_hnr2[FCOMP op_map_lookup_fmlookup]
+
+lemmas fmap_s_contains_key_hnr[sepref_fr_rules] =
+  polys_s.bx.pmap_contains_key_hnr2[FCOMP map_fmap_contains_key]
+
+lemmas fmap_s_the_lookup_hnr[sepref_fr_rules] =
+  polys_s.bx.cpmap_the_lookup_hnr2[FCOMP op_the_lookup_refine]
+
+lemma polys_s_assn_free[sepref_frame_free_rules]:
+  \<open>MK_FREE polys_s_assn polys_s.bx.pmap_free\<close>
+  by (intro MK_FREE_hrcompI polys_s.bx.pmap_free_rule)
+
+text \<open>The abstract imports walk their input with \<open>hd\<close>/\<open>tl\<close>; on owned cl-lists
+  this becomes a destructive pop-walk (mode \<open>d\<close>), cf. the non-efficient checker.\<close>
+
+lemma import_monom_no_newS_alt_def:
+  \<open>(import_monom_no_newS :: (nat,string)shared_vars \<Rightarrow> _) \<A> xs = do {
+  (new, _, xs) \<leftarrow> WHILE\<^sub>T (\<lambda>(new, xs, _). \<not>new \<and> xs \<noteq> [])
+    (\<lambda>(_, xs, ys). do {
+      (x, xs) \<leftarrow> mop_list_pop_hd xs;
+      b \<leftarrow> is_new_variableS x \<A>;
+      if b
+      then RETURN (True, xs, ys)
+      else do {
+        x \<leftarrow> get_var_posS \<A> x;
+        RETURN (False, xs, x # ys)
+       }
+    })
+    (False, xs, []);
+  RETURN (new, rev xs)
+ }\<close>
+proof -
+  have body_eq: \<open>(\<lambda>(_, xs, ys). do {
+      ASSERT(xs \<noteq> []);
+      let x = hd xs;
+      b \<leftarrow> is_new_variableS x \<A>;
+      if b
+      then RETURN (True, tl xs, ys)
+      else do {
+        x \<leftarrow> get_var_posS \<A> x;
+        RETURN (False, tl xs, x # ys)
+       }
+    }) = (\<lambda>(_, xs, ys). do {
+      (x, xs) \<leftarrow> mop_list_pop_hd xs;
+      b \<leftarrow> is_new_variableS x \<A>;
+      if b
+      then RETURN (True, xs, ys)
+      else do {
+        x \<leftarrow> get_var_posS \<A> x;
+        RETURN (False, xs, x # ys)
+       }
+    })\<close> for \<A> :: \<open>(nat,string)shared_vars\<close>
+    by (intro ext)
+     (auto simp: mop_list_pop_hd_def pw_eq_iff refine_pw_simps Let_def split: prod.splits)
+  show ?thesis
+    unfolding import_monom_no_newS_def body_eq ..
+qed
+
 sepref_register import_monom_no_newS import_poly_no_newS check_linear_combi_l_pre_err
+
+sepref_def import_monom_no_newS_impl
+  is \<open>uncurry (import_monom_no_newS :: (nat,string)shared_vars \<Rightarrow> _ \<Rightarrow>( bool \<times> _) nres)\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a monom_assn\<^sup>d \<rightarrow>\<^sub>a bool1_assn \<times>\<^sub>a monom_s_assn\<close>
+  unfolding import_monom_no_newS_alt_def ls_emp ls_emp'
+  by sepref
+
 lemmas [sepref_fr_rules] =
   import_monom_no_newS_impl.refine weak_equality_l_s_impl.refine
 
-sepref_definition import_poly_no_newS_impl
+lemma import_poly_no_newS_alt_def:
+  \<open>(import_poly_no_newS :: (nat,string)shared_vars \<Rightarrow> llist_polynomial \<Rightarrow> _) \<A> xs = do {
+  (new, _, xs) \<leftarrow> WHILE\<^sub>T (\<lambda>(new, xs, _). \<not>new \<and> xs \<noteq> [])
+    (\<lambda>(_, xs, ys). do {
+      ((x, n), xs) \<leftarrow> mop_list_pop_hd xs;
+      (b, x) \<leftarrow> import_monom_no_newS \<A> x;
+      if b
+      then RETURN (True, xs, ys)
+      else do {
+        RETURN (False, xs, (x, n) # ys)
+       }
+    })
+    (False, xs, []);
+  RETURN (new, rev xs)
+ }\<close>
+proof -
+  have body_eq: \<open>(\<lambda>(_, xs, ys). do {
+      ASSERT(xs \<noteq> []);
+      let (x, n) = hd xs;
+      (b, x) \<leftarrow> import_monom_no_newS \<A> x;
+      if b
+      then RETURN (True, tl xs, ys)
+      else do {
+        RETURN (False, tl xs, (x, n) # ys)
+       }
+    }) = (\<lambda>(_, xs, ys). do {
+      ((x, n), xs) \<leftarrow> mop_list_pop_hd xs;
+      (b, x) \<leftarrow> import_monom_no_newS \<A> x;
+      if b
+      then RETURN (True, xs, ys)
+      else do {
+        RETURN (False, xs, (x, n) # ys)
+       }
+    })\<close> for \<A> :: \<open>(nat,string)shared_vars\<close>
+    by (intro ext)
+     (auto simp: mop_list_pop_hd_def pw_eq_iff refine_pw_simps Let_def split: prod.splits)
+  show ?thesis
+    unfolding import_poly_no_newS_def body_eq ..
+qed
+
+sepref_def import_poly_no_newS_impl
   is \<open>uncurry (import_poly_no_newS :: (nat,string)shared_vars \<Rightarrow> llist_polynomial \<Rightarrow>( bool \<times> sllist_polynomial) nres)\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a bool_assn \<times>\<^sub>a poly_s_assn\<close>
-  unfolding import_poly_no_newS_def HOL_list.fold_custom_empty
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>d \<rightarrow>\<^sub>a bool1_assn \<times>\<^sub>a poly_s_assn\<close>
+  unfolding import_poly_no_newS_alt_def ls_emp ls_emp'
   by sepref
 
 lemmas [sepref_fr_rules] =
   import_poly_no_newS_impl.refine
 
-definition check_linear_combi_l_pre_err_impl  where
-  \<open>check_linear_combi_l_pre_err_impl i pd p mem =
-    (if pd then ''The polynomial with id '' @ show (nat_of_uint64 i) @ '' was not found'' else '''') @
-    (if p then ''The co-factor from '' @ show (nat_of_uint64 i) @ '' was empty'' else '''')@
-    (if mem then ''Memory out or new variable'' else '''')\<close>
+text \<open>Read-only walk testing that all variables of a polynomial are known in
+  the shared table, mirroring \<open>vars_of_poly_in\<close> in \<open>PAC_Checker_Synthesis\<close>:
+  a \<open>cl_fold\<close> at the monom level (membership per variable) and another one at
+  the poly level.\<close>
 
-definition check_mult_l_mult_err_impl where
-  \<open>check_mult_l_mult_err_impl p q pq r =
-    ''Multiplying '' @ show p @ '' by '' @ show q @ '' gives '' @ show pq @ '' and not '' @ show r\<close>
+fun vars_of_monom_in_s :: \<open>string list \<Rightarrow> (nat, string) shared_vars \<Rightarrow> bool\<close> where
+  \<open>vars_of_monom_in_s [] _ = True\<close> |
+  \<open>vars_of_monom_in_s (x # xs) \<V> \<longleftrightarrow> x \<in># dom_m (snd (snd \<V>)) \<and> vars_of_monom_in_s xs \<V>\<close>
 
-lemma [sepref_fr_rules]:
-  \<open>(uncurry3 ((\<lambda>x y. return oo (check_linear_combi_l_pre_err_impl x y))),
-   uncurry3 (check_linear_combi_l_pre_err)) \<in> uint64_nat_assn\<^sup>k *\<^sub>a bool_assn\<^sup>k *\<^sub>a bool_assn\<^sup>k *\<^sub>a bool_assn\<^sup>k \<rightarrow>\<^sub>a raw_string_assn\<close>
-  unfolding check_linear_combi_l_pre_err_impl_def check_linear_combi_l_pre_err_def list_assn_pure_conv
-   apply sepref_to_hoare
-   apply sep_auto
-   done
+fun vars_of_poly_in_s :: \<open>llist_polynomial \<Rightarrow> (nat, string) shared_vars \<Rightarrow> bool\<close> where
+  \<open>vars_of_poly_in_s [] _ = True\<close> |
+  \<open>vars_of_poly_in_s ((xs, _) # p) \<V> \<longleftrightarrow> vars_of_monom_in_s xs \<V> \<and> vars_of_poly_in_s p \<V>\<close>
 
-lemma vars_llist_in_s_single: \<open>RETURN (vars_llist_in_s \<V> [(xs, a)]) =
-  REC\<^sub>T (\<lambda>f xs. case xs of
-    [] \<Rightarrow> RETURN True
-  | x # xs \<Rightarrow> do {
-  b \<leftarrow> is_new_variableS x \<V>;
-  if b then RETURN False
-  else f xs
-    }) (xs)\<close>
-  apply (subst eq_commute)
-  apply (cases \<V>)
-  apply (induction xs)
-  subgoal
-    by (subst RECT_unfold, refine_mono)
-     (auto simp: vars_llist_in_s_def)
-  subgoal
-    by (subst RECT_unfold, refine_mono)
-     (auto simp: vars_llist_in_s_def is_new_variableS_def)
+lemma vars_of_monom_in_s_alt_def:
+  \<open>vars_of_monom_in_s xs \<V> \<longleftrightarrow> set xs \<subseteq> set_mset (dom_m (snd (snd \<V>)))\<close>
+  by (induction xs) auto
+
+lemma vars_llist_in_s_alt_def:
+  \<open>vars_llist_in_s = (\<lambda>\<V> p. vars_of_poly_in_s p \<V>)\<close>
+proof (intro ext)
+  fix \<V> :: \<open>(nat, string) shared_vars\<close> and p
+  show \<open>vars_llist_in_s \<V> p = vars_of_poly_in_s p \<V>\<close>
+    by (cases \<V>)
+     (induction p;
+      auto simp: vars_llist_in_s_def vars_llist_def vars_of_monom_in_s_alt_def)
+qed
+
+definition s_fold_inner :: \<open>(nat, string) shared_vars \<Rightarrow> bool \<Rightarrow> string \<Rightarrow> bool\<close> where
+  \<open>s_fold_inner \<V> \<equiv> \<lambda>b x. b \<and> x \<in># dom_m (snd (snd \<V>))\<close>
+
+lemma s_fold_inner_alt:
+  \<open>(RETURN ooo s_fold_inner) \<V> b x = do { n \<leftarrow> is_new_variableS x \<V>; RETURN (b \<and> \<not>n) }\<close>
+  by (cases \<V>) (auto simp: s_fold_inner_def is_new_variableS_def)
+
+sepref_def s_fold_inner_impl is \<open>uncurry2 (RETURN ooo s_fold_inner)\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a strl_assn'\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding s_fold_inner_alt
+  by sepref
+
+definition \<open>vars_of_monom_in_s_impl xs \<V> \<equiv> cl_fold (s_fold_inner_impl \<V>) (xs, 1)\<close>
+
+lemma s_fold_inner_step_rule:
+  \<open>llvm_htriple
+    ((bool1_assn b bi ** shared_vars_assn \<V> vi) ** strl_assn' x xi)
+    (s_fold_inner_impl vi bi xi)
+    (\<lambda>r. (bool1_assn (s_fold_inner \<V> b x) r ** shared_vars_assn \<V> vi) ** strl_assn' x xi)\<close>
+  supply [vcg_rules] = hfref_htriple_k3[OF s_fold_inner_impl.refine]
+  apply vcg
+  unfolding ENTAILS_def
+  by (auto simp: entails_def pure_def sep_algebra_simps)
+
+lemmas vars_of_monom_in_s_walk_rule =
+  cl_fold_rule[where R = \<open>\<lambda>b r. bool1_assn b r ** shared_vars_assn \<V> vi\<close>
+    and fa = \<open>s_fold_inner \<V>\<close> and A = strl_assn' for \<V> vi,
+    OF s_fold_inner_step_rule]
+
+lemma vars_of_monom_in_s_foldl:
+  \<open>foldl (s_fold_inner \<V>) b xs = (b \<and> vars_of_monom_in_s xs \<V>)\<close>
+  by (induction xs arbitrary: b) (auto simp: s_fold_inner_def)
+
+lemma vars_of_monom_in_s_impl_hnr[sepref_fr_rules]:
+  \<open>(uncurry vars_of_monom_in_s_impl, uncurry (RETURN oo vars_of_monom_in_s))
+  \<in> monom_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding vars_of_monom_in_s_impl_def
+  apply sepref_to_hoare
+  supply [vcg_rules] = vars_of_monom_in_s_walk_rule
+  supply [simp] = vars_of_monom_in_s_foldl bool1_rel_def bool.rel_def in_br_conv
+    pure_def
+  by vcg
+
+sepref_register vars_of_monom_in_s
+
+definition s_poly_inner :: \<open>(nat, string) shared_vars \<Rightarrow> bool \<Rightarrow> string list \<times> int \<Rightarrow> bool\<close> where
+  \<open>s_poly_inner \<V> \<equiv> \<lambda>b (vs, _). b \<and> vars_of_monom_in_s vs \<V>\<close>
+
+sepref_def s_poly_inner_impl is \<open>uncurry2 (RETURN ooo s_poly_inner)\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a monomial_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding s_poly_inner_def
+  by sepref
+
+definition \<open>vars_of_poly_in_s_impl xs \<V> \<equiv> cl_fold (s_poly_inner_impl \<V>) (xs, 1)\<close>
+
+lemma s_poly_inner_step_rule:
+  \<open>llvm_htriple
+    ((bool1_assn b bi ** shared_vars_assn \<V> vi) ** monomial_assn x xi)
+    (s_poly_inner_impl vi bi xi)
+    (\<lambda>r. (bool1_assn (s_poly_inner \<V> b x) r ** shared_vars_assn \<V> vi) ** monomial_assn x xi)\<close>
+  supply [vcg_rules] = hfref_htriple_k3[OF s_poly_inner_impl.refine]
+  apply vcg
+  unfolding ENTAILS_def
+  by (auto simp: entails_def pure_def sep_algebra_simps)
+
+lemmas vars_of_poly_in_s_walk_rule =
+  cl_fold_rule[where R = \<open>\<lambda>b r. bool1_assn b r ** shared_vars_assn \<V> vi\<close>
+    and fa = \<open>s_poly_inner \<V>\<close> and A = monomial_assn for \<V> vi,
+    OF s_poly_inner_step_rule]
+
+lemma vars_of_poly_in_s_foldl:
+  \<open>foldl (s_poly_inner \<V>) b xs = (b \<and> vars_of_poly_in_s xs \<V>)\<close>
+  apply (induction xs arbitrary: b)
+  subgoal by simp
+  subgoal for p xs b by (cases p) (auto simp: s_poly_inner_def)
   done
 
-lemma vars_llist_in_s_alt_def: \<open>(RETURN oo vars_llist_in_s) \<V> xs =
-  REC\<^sub>T (\<lambda>f xs. case xs of
-    [] \<Rightarrow> RETURN True
-  | (x, a) # xs \<Rightarrow> do {
-  b \<leftarrow> RETURN (vars_llist_in_s \<V> [(x, a)]);
-  if \<not>b then RETURN False
-  else f xs
-    }) xs\<close>
-  apply (subst eq_commute)
-  apply (cases \<V>)
-  apply (induction xs)
-  subgoal
-    by (subst RECT_unfold, refine_mono)
-     (auto simp: vars_llist_in_s_def)
-  subgoal
-    by (subst RECT_unfold, refine_mono)
-     (auto simp: vars_llist_in_s_def is_new_variableS_def split: prod.splits)
-  done
+lemma vars_of_poly_in_s_impl_hnr[sepref_fr_rules]:
+  \<open>(uncurry vars_of_poly_in_s_impl, uncurry (RETURN oo vars_of_poly_in_s))
+  \<in> polynomial_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding vars_of_poly_in_s_impl_def
+  apply sepref_to_hoare
+  supply [vcg_rules] = vars_of_poly_in_s_walk_rule
+  supply [simp] = vars_of_poly_in_s_foldl bool1_rel_def bool.rel_def in_br_conv
+    pure_def
+  by vcg
 
-sepref_definition vars_llist_in_s_impl
+sepref_register vars_of_poly_in_s
+
+sepref_def vars_llist_in_s_impl
   is \<open>uncurry (RETURN oo vars_llist_in_s)\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   unfolding vars_llist_in_s_alt_def
-    vars_llist_in_s_single
   by sepref
 lemmas [sepref_fr_rules] = vars_llist_in_s_impl.refine
 
-definition check_linear_combi_l_s_dom_err_impl :: \<open>_ \<Rightarrow> uint64 \<Rightarrow> _\<close>  where
-  \<open>check_linear_combi_l_s_dom_err_impl x p =
-    ''Poly not found in CL from x '' @ show (nat_of_uint64 p)\<close>
 
-lemma [sepref_fr_rules]:
-  \<open>(uncurry (return oo (check_linear_combi_l_s_dom_err_impl)),
-    uncurry (check_linear_combi_l_s_dom_err)) \<in> poly_s_assn\<^sup>k *\<^sub>a uint64_nat_assn\<^sup>k \<rightarrow>\<^sub>a raw_string_assn\<close>
-   unfolding check_linear_combi_l_s_dom_err_def check_linear_combi_l_s_dom_err_impl_def list_assn_pure_conv
-   apply sepref_to_hoare
-   apply sep_auto
-   done
-sepref_register check_linear_combi_l_s_dom_err_impl mult_poly_s normalize_poly_s
 
-sepref_definition normalize_poly_sharedS_impl
+sepref_register mult_poly_s normalize_poly_s
+sepref_def normalize_poly_sharedS_impl
   is \<open>uncurry normalize_poly_sharedS\<close>
-  :: \<open> shared_vars_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a bool_assn \<times>\<^sub>a poly_s_assn\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>d \<rightarrow>\<^sub>a bool1_assn \<times>\<^sub>a poly_s_assn\<close>
   unfolding normalize_poly_sharedS_def
   by sepref
 
 lemmas [sepref_fr_rules] = normalize_poly_sharedS_impl.refine
   mult_poly_s_impl.refine
-lemma merge_coeffs_s_alt_def:
-  \<open>(RETURN o merge_coeffs_s) p =
-   REC\<^sub>T(\<lambda>f p.
-     (case p of
-       [] \<Rightarrow> RETURN []
-     | [_] => RETURN p
-     | ((xs, n) # (ys, m) # p) \<Rightarrow>
-      (if xs = ys
-       then if n + m \<noteq> 0 then f ((xs, n + m) # COPY p) else f p
-       else do {p \<leftarrow> f ((ys, m) # p); RETURN ((xs, n) # p)})))
-         p\<close>
-  apply (subst eq_commute)
-  apply (induction p rule: merge_coeffs_s.induct)
-  subgoal by (subst RECT_unfold, refine_mono) auto
-  subgoal by (subst RECT_unfold, refine_mono) auto
-  subgoal for x p y q
-    by (subst RECT_unfold, refine_mono) auto
+text \<open>Same accumulator-loop treatment as for \<open>merge_coeffs0_s\<close> above; the only
+  differences are that a trailing singleton is kept unconditionally and that
+  no zero-filtering happens in the \<open>\<noteq>\<close> branch.\<close>
+
+definition mc2_body_s :: \<open>sllist_polynomial \<times> sllist_polynomial \<Rightarrow>
+  (sllist_polynomial \<times> sllist_polynomial) nres\<close> where
+  \<open>mc2_body_s = (\<lambda>(r, p). doN {
+        ((xs, n), p) \<leftarrow> mop_list_pop_hd p;
+        if p = [] then
+          RETURN ((xs, n) # r, p)
+        else doN {
+          ((ys, m), p) \<leftarrow> mop_list_pop_hd p;
+          if xs = ys then doN {
+            let s = n + m;
+            if s = 0 then
+              RETURN (r, p)
+            else
+              RETURN (r, (xs, s) # p)
+          } else
+            RETURN ((xs, n) # r, (ys, m) # p)
+        }
+      })\<close>
+
+definition merge_coeffs2_s :: \<open>sllist_polynomial \<Rightarrow> sllist_polynomial nres\<close> where
+  \<open>merge_coeffs2_s p \<equiv> doN {
+    (r, _) \<leftarrow> WHILE\<^sub>T (\<lambda>(_, p). p \<noteq> []) mc2_body_s ([], p);
+    RETURN (rev r)
+  }\<close>
+
+lemma merge_coeffs2_s_loop:
+  \<open>WHILE\<^sub>T (\<lambda>(_, p). p \<noteq> []) mc2_body_s (r, p) = RETURN (rev (merge_coeffs_s p) @ r, [])\<close>
+  apply (induction p arbitrary: r rule: merge_coeffs_s.induct)
+  subgoal by (simp add: WHILET_exit)
+  subgoal by (subst WHILET_unfold) (auto simp: mc2_body_s_def WHILET_exit)
+  subgoal by (subst WHILET_unfold) (auto simp: mc2_body_s_def WHILET_exit)
   done
 
-sepref_definition merge_coeffs_s_impl
+lemma merge_coeffs2_s_correct:
+  \<open>merge_coeffs2_s = (RETURN o merge_coeffs_s)\<close>
+  by (intro ext) (simp add: merge_coeffs2_s_def merge_coeffs2_s_loop)
+
+sepref_def merge_coeffs_s_impl
   is \<open>(RETURN o merge_coeffs_s)\<close>
-  :: \<open>poly_s_assn\<^sup>k \<rightarrow>\<^sub>a poly_s_assn\<close>
-  unfolding merge_coeffs_s_alt_def
-    HOL_list.fold_custom_empty
+  :: \<open>poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
+  unfolding merge_coeffs2_s_correct[symmetric]
+  unfolding merge_coeffs2_s_def mc2_body_s_def ls_emp ls_emp'
   by sepref
 
 lemmas [sepref_fr_rules] = merge_coeffs_s_impl.refine
 
-sepref_definition normalize_poly_s_impl
+sepref_def normalize_poly_s_impl
   is \<open>uncurry normalize_poly_s\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a poly_s_assn\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
   unfolding normalize_poly_s_def
   by sepref
 
 lemmas [sepref_fr_rules] = normalize_poly_s_impl.refine
 
-sepref_definition mult_poly_full_s_impl
+sepref_def mult_poly_full_s_impl
   is \<open>uncurry2 mult_poly_full_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k*\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a poly_s_assn\<close>
   unfolding mult_poly_full_s_def
@@ -2675,52 +2661,301 @@ lemmas [sepref_fr_rules] = mult_poly_full_s_impl.refine
 
 sepref_register add_poly_l_s
 
-sepref_definition linear_combi_l_prep_s_impl
+text \<open>The \<open>hd\<close>/\<open>tl\<close> walk over the linear combination becomes a pop-walk that
+  re-prepends the pair in the error branch, exactly like \<open>linear_combi_alt\<close>
+  in \<open>LPAC_Checker_Synthesis\<close>.\<close>
+
+lemma linear_combi_l_prep_s_alt:
+  \<open>linear_combi_l_prep_s i A \<V> xs = do {
+  WHILE\<^sub>T
+    (\<lambda>(p, xs, err). xs \<noteq> [] \<and> \<not>is_cfailed err)
+    (\<lambda>(p, xs, _). do {
+      ((q :: llist_polynomial, i), xt) \<leftarrow> mop_list_pop_hd xs;
+      if (i \<notin># dom_m A \<or> \<not>(vars_llist_in_s \<V> q))
+      then do {
+        err \<leftarrow> check_linear_combi_l_s_dom_err p i;
+        RETURN (p, (q, i) # xt, error_msg i err)
+      } else do {
+        ASSERT(fmlookup A i \<noteq> None);
+        let r = the (fmlookup A i);
+        if q = [([], 1)]
+        then do {
+          pq \<leftarrow> add_poly_l_s \<V> (p, r);
+          RETURN (pq, xt, CSUCCESS)}
+        else do {
+          (no_new, q) \<leftarrow> normalize_poly_sharedS \<V> (q);
+          q \<leftarrow> mult_poly_full_s \<V> q r;
+          pq \<leftarrow> add_poly_l_s \<V> (p, q);
+          RETURN (pq, xt, CSUCCESS)
+        }
+        }
+        })
+        ([], xs, CSUCCESS)
+          }\<close>
+proof -
+  have H: \<open>(q\<^sub>0, ia) # tl ys = ys\<close> if \<open>hd ys = (q\<^sub>0, ia)\<close> \<open>ys \<noteq> []\<close>
+    for q\<^sub>0 ia and ys :: \<open>(llist_polynomial \<times> nat) list\<close>
+    using that by (cases ys) auto
+  show ?thesis
+    unfolding linear_combi_l_prep_s_def mop_list_pop_hd_def
+    apply (rule arg_cong2[where f = \<open>\<lambda>c b. WHILE\<^sub>T c b ([], xs, CSUCCESS)\<close>])
+    subgoal by (rule refl)
+    apply (intro ext)
+    apply (clarsimp split!: prod.splits list.splits simp: H)
+    apply (auto simp: H pw_eq_iff refine_pw_simps)
+    done
+qed
+
+sepref_def linear_combi_l_prep_s_impl
   is \<open>uncurry3 linear_combi_l_prep_s\<close>
-  :: \<open>uint64_nat_assn\<^sup>k *\<^sub>a polys_s_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k *\<^sub>a
-  (list_assn (poly_assn \<times>\<^sub>a uint64_nat_assn))\<^sup>d  \<rightarrow>\<^sub>a  poly_s_assn \<times>\<^sub>a (list_assn (poly_assn \<times>\<^sub>a uint64_nat_assn)) \<times>\<^sub>a status_assn raw_string_assn
+  :: \<open>si64_assn\<^sup>k *\<^sub>a polys_s_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k *\<^sub>a
+  (cl_assn' (polynomial_assn \<times>\<^sub>a si64_assn))\<^sup>d  \<rightarrow>\<^sub>a
+  poly_s_assn \<times>\<^sub>a (cl_assn' (polynomial_assn \<times>\<^sub>a si64_assn)) \<times>\<^sub>a status_assn
   \<close>
   supply [[goals_limit=1]]
-  unfolding linear_combi_l_prep_s_def
-    in_dom_m_lookup_iff
-    fmlookup'_def[symmetric] conv_to_is_Nil
-  unfolding is_Nil_def
-    HOL_list.fold_custom_empty not_not
-  apply (rewrite in \<open>op_HOL_list_empty\<close> annotate_assn[where A=\<open>poly_s_assn\<close>])
+  unfolding linear_combi_l_prep_s_alt
+    fmlookup'_def[symmetric]
+    in_dom_by_contains
+    ls_emp ls_emp'
   by sepref
 
 lemmas [sepref_fr_rules] = linear_combi_l_prep_s_impl.refine
 
-definition check_linear_combi_l_s_mult_err_impl :: \<open>_ \<Rightarrow> _ \<Rightarrow> _\<close>  where
-  \<open>check_linear_combi_l_s_mult_err_impl x p =
-  ''Unequal polynom found in CL '' @ show (map (\<lambda>(a,b). (map nat_of_uint64 a, b)) p) @
-  '' but '' @ show (map (\<lambda>(a,b). (map nat_of_uint64 a, b)) x)\<close>
 
-lemma [sepref_fr_rules]:
-  \<open>(uncurry (return oo (check_linear_combi_l_s_mult_err_impl)),
-    uncurry (check_linear_combi_l_s_mult_err)) \<in> poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a raw_string_assn\<close>
-   unfolding check_linear_combi_l_s_mult_err_impl_def check_linear_combi_l_s_mult_err_def list_assn_pure_conv
-   apply sepref_to_hoare
-   apply sep_auto
-   done
+sepref_register linear_combi_l_prep_s ::
+  \<open>nat \<Rightarrow> (nat, sllist_polynomial) f_map \<Rightarrow> (nat, string) shared_vars \<Rightarrow>
+    (llist_polynomial \<times> nat) list \<Rightarrow>
+    (sllist_polynomial \<times> (llist_polynomial \<times> nat) list \<times> string code_status) nres\<close>
 
-sepref_definition check_linear_combi_l_s_impl
+section \<open>Printing of Shared Polynomials\<close>
+
+text \<open>Error messages print shared polynomials with their \<^emph>\<open>numeric\<close> variable
+  indices, as the original Pasteque did (\<open>show (map (\<lambda>(a,b). (map nat_of_uint64 a, b)) p)\<close>);
+  the construction mirrors \<open>print_monom\<close>/\<open>poly_print\<close> in \<open>LLVM_Polynomials\<close>.\<close>
+
+definition print_monom_s_inner :: \<open>char list \<Rightarrow> nat \<Rightarrow> char list\<close> where
+  \<open>print_monom_s_inner \<equiv> \<lambda>acc v. acc @ cl_to_clt '' x'' @ show_nat v\<close>
+
+sepref_def print_monom_s_inner_impl is \<open>uncurry (RETURN oo print_monom_s_inner)\<close>
+  :: \<open>strlt_assn\<^sup>d *\<^sub>a si64_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
+  unfolding print_monom_s_inner_def
+  by sepref
+
+definition print_monom_s :: \<open>nat list \<Rightarrow> char list\<close> where
+  \<open>print_monom_s \<equiv> foldl print_monom_s_inner []\<close>
+
+definition \<open>print_monom_s_impl \<equiv> \<lambda>m. doM {e \<leftarrow> clt_empty; cl_fold' print_monom_s_inner_impl e m}\<close>
+
+lemma print_monom_s_rule: \<open>llvm_htriple
+  (monom_s_assn m mi)
+  (print_monom_s_impl mi)
+  (\<lambda>r. monom_s_assn m mi ** strlt_assn (print_monom_s m) r)\<close>
+proof -
+  have INNER_vcg: \<open>llvm_htriple
+    (strlt_assn acc acci ** si64_assn t ti)
+    (print_monom_s_inner_impl acci ti)
+    (\<lambda>r. strlt_assn (print_monom_s_inner acc t) r ** si64_assn t ti)\<close> for acc acci t ti
+    apply (rule htriple_ent_post[OF _ hfref_htriple_d1_k2[OF print_monom_s_inner_impl.refine]])
+    by (simp add: sep_conj_aci)
+  show ?thesis
+    unfolding print_monom_s_impl_def
+    supply [vcg_rules] = cl_fold'_rule[where R="strlt_assn" and A="si64_assn"
+      and f=print_monom_s_inner_impl and fa=print_monom_s_inner,
+      OF INNER_vcg]
+    supply [simp] = print_monom_s_def
+    by vcg
+qed
+
+lemma print_monom_s_hnr[sepref_fr_rules]:
+  \<open>(print_monom_s_impl, (RETURN o print_monom_s))
+  \<in> monom_s_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
+  unfolding snat_rel_def snat.assn_is_rel[symmetric]
+  apply (sepref_to_hoare)
+  supply [vcg_rules] = print_monom_s_rule[unfolded snat_rel_def snat.assn_is_rel[symmetric]]
+  supply [simp] = pure_def
+  by vcg
+
+definition \<open>mnml_s_print \<equiv> \<lambda>(m,n). cl_to_clt (chars_of_int (COPY n)) @ print_monom_s m\<close>
+
+sepref_def mnml_s_print_impl is \<open>RETURN o mnml_s_print\<close>
+  :: \<open>(monom_s_assn \<times>\<^sub>a sbi_assn)\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
+  unfolding mnml_s_print_def
+  by sepref
+
+definition poly_s_print_inner :: \<open>char list \<Rightarrow> nat list \<times> int \<Rightarrow> char list\<close> where
+  \<open>poly_s_print_inner \<equiv> \<lambda>acc p. acc @ mnml_s_print p\<close>
+
+sepref_def poly_s_print_inner_impl is \<open>uncurry (RETURN oo poly_s_print_inner)\<close>
+  :: \<open>strlt_assn\<^sup>d *\<^sub>a (monom_s_assn \<times>\<^sub>a sbi_assn)\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
+  unfolding poly_s_print_inner_def
+  by sepref
+
+definition poly_s_print :: \<open>sllist_polynomial \<Rightarrow> string\<close> where
+  \<open>poly_s_print \<equiv> foldl poly_s_print_inner []\<close>
+
+definition \<open>poly_s_print_impl \<equiv> \<lambda>ps. doM {e \<leftarrow> clt_empty; cl_fold' poly_s_print_inner_impl e ps}\<close>
+
+lemma poly_s_print_rule: \<open>llvm_htriple
+  (poly_s_assn ps psi)
+  (poly_s_print_impl psi)
+  (\<lambda>r. poly_s_assn ps psi ** strlt_assn (poly_s_print ps) r)\<close>
+proof -
+  have INNER_vcg: \<open>llvm_htriple
+    (strlt_assn acc acci ** (monom_s_assn \<times>\<^sub>a sbi_assn) p pi)
+    (poly_s_print_inner_impl acci pi)
+    (\<lambda>r. strlt_assn (poly_s_print_inner acc p) r ** (monom_s_assn \<times>\<^sub>a sbi_assn) p pi)\<close> for acc acci p pi
+    apply (rule htriple_ent_post[OF _ hfref_htriple_d1_k2[OF poly_s_print_inner_impl.refine]])
+    by (simp add: sep_conj_aci)
+  show ?thesis
+    unfolding poly_s_print_impl_def
+    supply [vcg_rules] = cl_fold'_rule[where R="strlt_assn" and A="monom_s_assn \<times>\<^sub>a sbi_assn"
+      and f=poly_s_print_inner_impl and fa=poly_s_print_inner,
+      OF INNER_vcg]
+    supply [simp] = poly_s_print_def
+    by vcg
+qed
+
+lemma poly_s_print_hnr[sepref_fr_rules]:
+  \<open>(poly_s_print_impl, (RETURN o poly_s_print))
+  \<in> poly_s_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
+  unfolding snat_rel_def snat.assn_is_rel[symmetric]
+  apply (sepref_to_hoare)
+  supply [vcg_rules] = poly_s_print_rule[unfolded snat_rel_def snat.assn_is_rel[symmetric]]
+  supply [simp] = pure_def
+  by vcg
+
+section \<open>Error Messages for Shared Polynomials\<close>
+
+definition check_linear_combi_l_s_mult_err_imp :: \<open>sllist_polynomial \<Rightarrow> sllist_polynomial \<Rightarrow> string\<close> where
+  \<open>check_linear_combi_l_s_mult_err_imp xs ys =
+  cl_to_clt ''Unequal polynom found in CL '' @ poly_s_print xs @
+  cl_to_clt '' but '' @ poly_s_print ys\<close>
+
+sepref_def check_linear_combi_l_s_mult_err_impl is
+  \<open>uncurry (RETURN oo check_linear_combi_l_s_mult_err_imp)\<close>
+  :: \<open>poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
+  unfolding check_linear_combi_l_s_mult_err_imp_def
+  by sepref
+
+lemma check_linear_combi_l_s_mult_err_fref:
+  \<open>(uncurry (RETURN oo check_linear_combi_l_s_mult_err_imp),
+    uncurry check_linear_combi_l_s_mult_err) \<in> Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  apply (intro frefI nres_relI)
+  unfolding check_linear_combi_l_s_mult_err_imp_def
+    check_linear_combi_l_s_mult_err_def
+  by auto
+
+lemmas check_linear_combi_l_s_mult_err_hnr[sepref_fr_rules] =
+  check_linear_combi_l_s_mult_err_impl.refine[FCOMP check_linear_combi_l_s_mult_err_fref]
+
+definition check_extension_l_s_new_var_multiple_err_imp :: \<open>string \<Rightarrow> sllist_polynomial \<Rightarrow> string\<close> where
+  \<open>check_extension_l_s_new_var_multiple_err_imp v p =
+  cl_to_clt ''Variable already defined '' @ cl_to_clt v @
+  cl_to_clt '' but '' @ poly_s_print p\<close>
+
+sepref_def check_extension_l_s_new_var_multiple_err_impl is
+  \<open>uncurry (RETURN oo check_extension_l_s_new_var_multiple_err_imp)\<close>
+  :: \<open>strl_assn'\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
+  unfolding check_extension_l_s_new_var_multiple_err_imp_def
+  by sepref
+
+lemma check_extension_l_s_new_var_multiple_err_fref:
+  \<open>(uncurry (RETURN oo check_extension_l_s_new_var_multiple_err_imp),
+    uncurry check_extension_l_s_new_var_multiple_err) \<in> Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  apply (intro frefI nres_relI)
+  unfolding check_extension_l_s_new_var_multiple_err_imp_def
+    check_extension_l_s_new_var_multiple_err_def
+  by auto
+
+lemmas check_extension_l_s_new_var_multiple_err_hnr[sepref_fr_rules] =
+  check_extension_l_s_new_var_multiple_err_impl.refine[FCOMP check_extension_l_s_new_var_multiple_err_fref]
+
+definition check_extension_l_s_side_cond_err_imp
+  :: \<open>string \<Rightarrow> sllist_polynomial \<Rightarrow> sllist_polynomial \<Rightarrow> sllist_polynomial \<Rightarrow> string\<close>
+where
+  \<open>check_extension_l_s_side_cond_err_imp v p p' q' =
+  cl_to_clt ''p^2- p != 0 '' @ cl_to_clt v @
+  cl_to_clt '' but '' @ poly_s_print p @
+  cl_to_clt '' and '' @ poly_s_print p' @
+  cl_to_clt '' and '' @ poly_s_print q'\<close>
+
+sepref_def check_extension_l_s_side_cond_err_impl is
+  \<open>uncurry3 (RETURN oooo check_extension_l_s_side_cond_err_imp)\<close>
+  :: \<open>strl_assn'\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
+  unfolding check_extension_l_s_side_cond_err_imp_def
+  by sepref
+
+lemma check_extension_l_s_side_cond_err_fref:
+  \<open>(uncurry3 (RETURN oooo check_extension_l_s_side_cond_err_imp),
+    uncurry3 check_extension_l_s_side_cond_err) \<in> Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  apply (intro frefI nres_relI)
+  unfolding check_extension_l_s_side_cond_err_imp_def
+    check_extension_l_s_side_cond_err_def
+  by auto
+
+lemmas check_extension_l_s_side_cond_err_hnr[sepref_fr_rules] =
+  check_extension_l_s_side_cond_err_impl.refine[FCOMP check_extension_l_s_side_cond_err_fref]
+
+sepref_def check_linear_combi_l_s_impl
   is \<open>uncurry5 check_linear_combi_l_s\<close>
-  :: \<open>poly_s_assn\<^sup>k *\<^sub>a polys_s_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k *\<^sub>a uint64_nat_assn\<^sup>k *\<^sub>a
-  (list_assn (poly_assn \<times>\<^sub>a uint64_nat_assn))\<^sup>d *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a status_assn raw_string_assn \<times>\<^sub>a poly_s_assn
+  :: \<open>poly_s_assn\<^sup>k *\<^sub>a polys_s_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k *\<^sub>a
+  (cl_assn' (polynomial_assn \<times>\<^sub>a si64_assn))\<^sup>d *\<^sub>a polynomial_assn\<^sup>d \<rightarrow>\<^sub>a status_assn \<times>\<^sub>a poly_s_assn
   \<close>
+  supply [[goals_limit=1]]
   unfolding check_linear_combi_l_s_def
-    in_dom_m_lookup_iff
-    fmlookup'_def[symmetric]
+    in_dom_by_contains
+    ls_emp ls_emp'
   by sepref
 
 sepref_register fmlookup'
+text \<open>Negation of a shared polynomial, mirroring \<open>uminus_poly\<close> in
+  \<open>PAC_Checker_Synthesis\<close>: a destructive pop-walk negating each coefficient.\<close>
+
+definition uminus_poly_s :: \<open>sllist_polynomial \<Rightarrow> sllist_polynomial\<close> where
+  \<open>uminus_poly_s p = map (\<lambda>(a,b). (a,-b)) p\<close>
+
+definition uminus_poly_s_nres :: \<open>sllist_polynomial \<Rightarrow> sllist_polynomial nres\<close> where
+  \<open>uminus_poly_s_nres = REC\<^sub>T (\<lambda>f p.
+    if p = [] then RETURN p
+    else do {
+      ((a,b), p) \<leftarrow> mop_list_pop_hd p;
+      r \<leftarrow> f p; RETURN ((a, -b) # r)
+    })\<close>
+
+lemma uminus_poly_s_nres_spec: \<open>uminus_poly_s_nres p = RETURN (uminus_poly_s p)\<close>
+  unfolding uminus_poly_s_nres_def uminus_poly_s_def
+proof (induction p)
+  case Nil
+  show ?case by (subst RECT_unfold, refine_mono) auto
+next
+  case (Cons x p)
+  show ?case
+    apply (subst RECT_unfold, refine_mono)
+    by (auto simp: Cons.IH split: prod.splits)
+qed
+
+sepref_register uminus_poly_s
+
+sepref_def uminus_poly_s_impl is \<open>uminus_poly_s_nres\<close>
+  :: \<open>poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
+  unfolding uminus_poly_s_nres_def ls_emp ls_emp'
+  by sepref
+
+lemma uminus_poly_s_fref:
+  \<open>(uminus_poly_s_nres, RETURN o uminus_poly_s) \<in> Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  by (intro frefI nres_relI) (auto simp: uminus_poly_s_nres_spec)
+
+lemmas uminus_poly_s_hnr[sepref_fr_rules] =
+  uminus_poly_s_impl.refine[FCOMP uminus_poly_s_fref]
+
+text \<open>The alt-def only inserts the \<open>COPY\<close>s that the ownership discipline needs:
+  \<open>p\<close> is still returned after being negated, and \<open>p''\<close> is consumed by
+  \<open>add_poly_l_s\<close> but also printed in the side-condition error.\<close>
+
 lemma check_extension_l2_s_alt_def:
   \<open>check_extension_l2_s spec A \<V> i v p = do {
   n \<leftarrow> is_new_variableS v \<V>;
-  let t = fmlookup' i A;
-  pre \<leftarrow> RETURN (t = None);
-  let pre = pre \<and> n;
+  let pre = i \<notin># dom_m A \<and> n;
   let nonew = vars_llist_in_s \<V> p;
   (mem, p, \<V>) \<leftarrow> import_polyS \<V> p;
   let pre = (pre \<and> \<not>alloc_failed mem);
@@ -2743,8 +2978,8 @@ lemma check_extension_l2_s_alt_def:
         } else
         do {
          p2 \<leftarrow> mult_poly_full_s \<V> p p;
-         let p'' = map (\<lambda>(a,b). (a, -b)) p;
-         q \<leftarrow> add_poly_l_s \<V> (p2, p'');
+         let p'' = uminus_poly_s (COPY p);
+         q \<leftarrow> add_poly_l_s \<V> (p2, COPY p'');
          eq \<leftarrow> weak_equality_l_s q [];
          if eq then do {
            RETURN (CSUCCESS, p, \<V>, v')
@@ -2756,113 +2991,160 @@ lemma check_extension_l2_s_alt_def:
      }
   }
   }\<close>
-  unfolding check_extension_l2_s_def fmlookup'_def[symmetric] Let_def
-     in_dom_m_lookup_iff
-   by (auto intro!: bind_cong[OF refl])
-
-definition uminus_poly :: \<open>_ \<Rightarrow> _\<close> where
-  \<open>uminus_poly p' = map (\<lambda>(a, b). (a, - b)) p'\<close>
-
-lemma [sepref_import_param]: \<open>(uminus_poly, uminus_poly) \<in> \<langle>monom_s_rel \<times>\<^sub>r int_rel\<rangle>list_rel \<rightarrow> \<langle>monom_s_rel \<times>\<^sub>r int_rel\<rangle>list_rel\<close>
-proof -
-  have \<open>(a, a') \<in> \<langle>monom_s_rel \<times>\<^sub>r int_rel\<rangle>list_rel \<Longrightarrow>
-    (LPAC_Efficient_Checker_Synthesis.uminus_poly a,
-     LPAC_Efficient_Checker_Synthesis.uminus_poly a')
-    \<in> \<langle>monom_s_rel \<times>\<^sub>r int_rel\<rangle>list_rel\<close> for a a'
-    apply (induction a arbitrary: a')
-    subgoal by (auto simp: uminus_poly_def)
-    subgoal for a as a'
-      by (cases a'; cases a)
-        (auto simp: uminus_poly_def)
-    done
-  then show ?thesis
-    by (auto intro!: frefI)
-qed
+  unfolding check_extension_l2_s_def uminus_poly_s_def COPY_def
+  by simp
 
 sepref_register import_monomS import_polyS
 
-sepref_definition import_monomS_impl
-  is \<open>uncurry import_monomS\<close>
+text \<open>\<open>import_monomS\<close>/\<open>import_polyS\<close> keep the unconsumed remainder of their input
+  in the loop state on allocation failure. The pop-walks below pop from a
+  \<open>COPY\<close> of the input (so the argument stays in keep mode) and re-prepend the
+  popped element on the failure path \<emdash> \<open>import_variableS\<close>/\<open>import_monomS\<close> keep
+  their argument, so it is still owned there. This gives literal body equality.\<close>
+
+lemma import_monomS_alt_def:
+  \<open>(import_monomS :: (nat, string) shared_vars \<Rightarrow> _) \<A> xs0 = do {
+     xs \<leftarrow> RETURN (COPY xs0);
+     (mem, _, ys, \<A>) \<leftarrow> WHILE\<^sub>T (\<lambda>(mem, xs, _, _). \<not>alloc_failed mem \<and> xs \<noteq> [])
+       (\<lambda>(_, xs, ys, \<A>). do {
+          (x, xs) \<leftarrow> mop_list_pop_hd xs;
+          b \<leftarrow> is_new_variableS x \<A>;
+          if b then do {
+            (mem, \<A>, x') \<leftarrow> import_variableS x \<A>;
+            if alloc_failed mem
+            then RETURN (mem, x # xs, ys, \<A>)
+            else RETURN (mem, xs, x' # ys, \<A>)
+          }
+          else do { x' \<leftarrow> get_var_posS \<A> x; RETURN (Allocated, xs, x' # ys, \<A>) }
+       }) (Allocated, xs, [], \<A>);
+     RETURN (mem, rev ys, \<A>)
+  }\<close>
+proof -
+  have H: \<open>hd ys # tl ys = ys\<close> if \<open>ys \<noteq> []\<close> for ys :: \<open>string list\<close>
+    using that by (cases ys) auto
+  have body_eq: \<open>(\<lambda>(_, xs, ys, \<A>). do {
+          ASSERT(xs \<noteq> []);
+          let x = hd xs;
+          b \<leftarrow> is_new_variableS x \<A>;
+          if b
+          then do {
+            (mem, \<A>, x) \<leftarrow> import_variableS x \<A>;
+            if alloc_failed mem
+            then RETURN (mem, xs, ys, \<A>)
+            else RETURN (mem, tl xs, x # ys, \<A>)
+          }
+          else do {
+            x \<leftarrow> get_var_posS \<A> x;
+            RETURN (Allocated, tl xs, x # ys, \<A>)
+           }
+        }) = (\<lambda>(_, xs, ys, \<A>). do {
+          (x, xs) \<leftarrow> mop_list_pop_hd xs;
+          b \<leftarrow> is_new_variableS x \<A>;
+          if b then do {
+            (mem, \<A>, x') \<leftarrow> import_variableS x \<A>;
+            if alloc_failed mem
+            then RETURN (mem, x # xs, ys, \<A>)
+            else RETURN (mem, xs, x' # ys, \<A>)
+          }
+          else do { x' \<leftarrow> get_var_posS \<A> x; RETURN (Allocated, xs, x' # ys, \<A>) }
+       })\<close> for \<A> :: \<open>(nat, string) shared_vars\<close>
+    by (intro ext)
+     (auto simp: mop_list_pop_hd_def Let_def H pw_eq_iff refine_pw_simps
+        split: prod.splits)
+  show ?thesis
+    unfolding import_monomS_def COPY_def nres_monad1 body_eq ..
+qed
+
+sepref_def import_monomS_impl
+  is \<open>uncurry (import_monomS :: (nat, string) shared_vars \<Rightarrow> _)\<close>
   :: \<open>shared_vars_assn\<^sup>d *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a monom_s_assn \<times>\<^sub>a shared_vars_assn\<close>
   supply [[goals_limit=1]]
-  unfolding import_monomS_def
-    HOL_list.fold_custom_empty
+  unfolding import_monomS_alt_def
+    ls_emp ls_emp'
   by sepref
 
-lemmas [sepref_fr_rules] =
-  import_monomS_impl.refine
+lemmas [sepref_fr_rules] = import_monomS_impl.refine
 
-sepref_definition import_polyS_impl
-  is \<open>uncurry import_polyS\<close>
-  :: \<open>shared_vars_assn\<^sup>d *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a poly_s_assn \<times>\<^sub>a shared_vars_assn\<close>
+text \<open>The monom-import inside the poly walk is the \<^emph>\<open>abstract\<close> \<open>import_monomS\<close>,
+  so its rule (keep mode on the monom) applies; the popped pair is re-prepended
+  on the failure path and freed on the success path.\<close>
+
+lemma import_polyS_alt_def:
+  \<open>(import_polyS :: (nat, string) shared_vars \<Rightarrow> llist_polynomial \<Rightarrow> _) \<A> xs0 = do {
+     xs \<leftarrow> RETURN (COPY xs0);
+     (mem, _, ys, \<A>) \<leftarrow> WHILE\<^sub>T (\<lambda>(mem, xs, _, _). \<not>alloc_failed mem \<and> xs \<noteq> [])
+       (\<lambda>(_, xs, ys, \<A>). do {
+          ((x, n), xs) \<leftarrow> mop_list_pop_hd xs;
+          (mem, x', \<A>) \<leftarrow> import_monomS \<A> x;
+          if alloc_failed mem
+          then RETURN (mem, (x, n) # xs, ys, \<A>)
+          else RETURN (mem, xs, (x', n) # ys, \<A>)
+       }) (Allocated, xs, [], \<A>);
+     RETURN (mem, rev ys, \<A>)
+  }\<close>
+proof -
+  have body_eq: \<open>(\<lambda>(mem, xs, ys, \<A>). do {
+      ASSERT(xs \<noteq> []);
+      let (x, n) = hd xs;
+      (mem, x, \<A>) \<leftarrow> import_monomS \<A> x;
+      if alloc_failed mem
+      then RETURN (mem, xs, ys, \<A>)
+      else do {
+       RETURN (mem, tl xs, (x, n) # ys, \<A>)
+      }
+    }) = (\<lambda>(_, xs, ys, \<A>). do {
+          ((x, n), xs) \<leftarrow> mop_list_pop_hd xs;
+          (mem, x', \<A>) \<leftarrow> import_monomS \<A> x;
+          if alloc_failed mem
+          then RETURN (mem, (x, n) # xs, ys, \<A>)
+          else RETURN (mem, xs, (x', n) # ys, \<A>)
+       })\<close> for \<A> :: \<open>(nat, string) shared_vars\<close>
+    by (intro ext)
+     (auto simp: mop_list_pop_hd_def Let_def pw_eq_iff refine_pw_simps
+        split: prod.splits; metis hd_Cons_tl)
+  show ?thesis
+    unfolding import_polyS_def COPY_def nres_monad1 body_eq ..
+qed
+
+sepref_def import_polyS_impl
+  is \<open>uncurry (import_polyS :: (nat, string) shared_vars \<Rightarrow> llist_polynomial \<Rightarrow> _)\<close>
+  :: \<open>shared_vars_assn\<^sup>d *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a poly_s_assn \<times>\<^sub>a shared_vars_assn\<close>
   supply [[goals_limit=1]]
-  unfolding import_polyS_def
-    HOL_list.fold_custom_empty
+  unfolding import_polyS_alt_def
+    ls_emp ls_emp'
   by sepref
 
-lemmas [sepref_fr_rules] =
-  import_polyS_impl.refine
+lemmas [sepref_fr_rules] = import_polyS_impl.refine
 
-definition check_extension_l_s_new_var_multiple_err_impl :: \<open>String.literal \<Rightarrow> _ \<Rightarrow> _\<close>  where
-  \<open>check_extension_l_s_new_var_multiple_err_impl x p =
-  ''Variable already defined '' @ show x @
-  '' but '' @ show (map (\<lambda>(a,b). (map nat_of_uint64 a, b)) p)\<close>
+sepref_register mult_poly_full_s weak_equality_l_s check_extension_l_s_side_cond_err
+     is_cfailed check_del_l
 
-lemma [sepref_fr_rules]:
-  \<open>(uncurry (return oo (check_extension_l_s_new_var_multiple_err_impl)),
-    uncurry (check_extension_l_s_new_var_multiple_err)) \<in> string_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a raw_string_assn\<close>
-   unfolding check_extension_l_s_new_var_multiple_err_impl_def check_extension_l_s_new_var_multiple_err_def list_assn_pure_conv
-   apply sepref_to_hoare
-   apply sep_auto
-   done
+sepref_register check_extension_l2_s ::
+  \<open>'b \<Rightarrow> (nat, 'c) f_map \<Rightarrow> (nat, string) shared_vars \<Rightarrow> nat \<Rightarrow> string \<Rightarrow>
+    llist_polynomial \<Rightarrow>
+    (string code_status \<times> sllist_polynomial \<times> (nat, string) shared_vars \<times> nat) nres\<close>
 
-definition check_extension_l_s_side_cond_err_impl :: \<open>String.literal \<Rightarrow> _ \<Rightarrow> _\<close>  where
-  \<open>check_extension_l_s_side_cond_err_impl x p p' q' =
-  ''p^2- p != 0 '' @ show x @
-  '' but '' @ show (map (\<lambda>(a,b). (map nat_of_uint64 a, b)) p) @
-  '' and '' @ show (map (\<lambda>(a,b). (map nat_of_uint64 a, b)) p') @
-   '' and ''  @ show (map (\<lambda>(a,b). (map nat_of_uint64 a, b)) q')\<close>
+sepref_register check_linear_combi_l_s ::
+  \<open>sllist_polynomial \<Rightarrow> (nat, sllist_polynomial) f_map \<Rightarrow> (nat, string) shared_vars \<Rightarrow>
+    nat \<Rightarrow> (llist_polynomial \<times> nat) list \<Rightarrow> llist_polynomial \<Rightarrow>
+    (string code_status \<times> sllist_polynomial) nres\<close>
 
-abbreviation comp4 (infixl "oooo" 55) where "f oooo g \<equiv> \<lambda>x. f ooo (g x)"
-abbreviation comp5 (infixl "ooooo" 55) where "f ooooo g \<equiv> \<lambda>x. f oooo (g x)"
-
-lemma [sepref_fr_rules]:
-  \<open>(uncurry3 (return oooo (check_extension_l_s_side_cond_err_impl)),
-    uncurry3 (check_extension_l_s_side_cond_err)) \<in> string_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k*\<^sub>a poly_s_assn\<^sup>k*\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a raw_string_assn\<close>
-   unfolding check_extension_l_s_side_cond_err_impl_def check_extension_l_s_side_cond_err_def list_assn_pure_conv
-   apply sepref_to_hoare
-   apply sep_auto
-   done
-
-sepref_register mult_poly_full_s weak_equality_l_s check_extension_l_s_side_cond_err check_extension_l2_s
-     check_linear_combi_l_s is_cfailed check_del_l
-
-sepref_definition check_extension_l_impl
+sepref_def check_extension_l_impl
   is \<open>uncurry5 check_extension_l2_s\<close>
-    :: \<open>poly_s_assn\<^sup>k *\<^sub>a polys_s_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>d *\<^sub>a uint64_nat_assn\<^sup>k *\<^sub>a
-    string_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k \<rightarrow>\<^sub>a status_assn raw_string_assn \<times>\<^sub>a poly_s_assn \<times>\<^sub>a shared_vars_assn  \<times>\<^sub>a uint64_nat_assn
+    :: \<open>poly_s_assn\<^sup>k *\<^sub>a polys_s_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>d *\<^sub>a si64_assn\<^sup>k *\<^sub>a
+    strl_assn'\<^sup>k *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a status_assn \<times>\<^sub>a poly_s_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a si64_assn
   \<close>
   supply [[goals_limit=1]]
   unfolding check_extension_l2_s_alt_def
-    in_dom_m_lookup_iff
-    fmlookup'_def[symmetric]
-    not_not is_None_def
-    uminus_poly_def[symmetric]
-    HOL_list.fold_custom_empty
-    zero_uint64_nat_def[symmetric]
+    in_dom_by_contains
+    ls_emp ls_emp'
+  apply (annot_snat_const \<open>TYPE(64)\<close>)
   by sepref
 
 
-lemma [sepref_fr_rules]:
-  \<open>(return o is_cfailed, RETURN o is_cfailed) \<in> (status_assn raw_string_assn)\<^sup>k \<rightarrow>\<^sub>a bool_assn\<close>
-  apply sepref_to_hoare
-  apply (sep_auto)
-  apply (case_tac x; case_tac xi; sep_auto)+
-  done
-
-sepref_definition check_del_l_impl
+sepref_def check_del_l_impl
   is \<open>uncurry2 check_del_l\<close>
-  :: \<open>poly_s_assn\<^sup>k *\<^sub>apolys_s_assn\<^sup>k *\<^sub>a uint64_nat_assn\<^sup>k  \<rightarrow>\<^sub>a status_assn raw_string_assn\<close>
+  :: \<open>poly_s_assn\<^sup>k *\<^sub>a polys_s_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k \<rightarrow>\<^sub>a status_assn\<close>
   unfolding check_del_l_def
   by sepref
 
@@ -2872,122 +3154,199 @@ lemmas [sepref_fr_rules] =
   check_del_l_impl.refine
 
 
-lemma PAC_checker_l_step_s_alt_def:
-  \<open>PAC_checker_l_step_s = (\<lambda>spec (st', \<V>, A) st. do {
-    ASSERT (\<not>is_cfailed st');
-    case st of
-     CL _ _ _ \<Rightarrow>
-       do {
-        i \<leftarrow> RETURN (new_id st);
-        lincomb \<leftarrow> RETURN (pac_srcs st);
-        r \<leftarrow> RETURN (pac_res st);
-        r \<leftarrow> full_normalize_poly r;
-        (eq, r) \<leftarrow> check_linear_combi_l_s spec A \<V> i lincomb r;
-        let _ = eq;
-        if \<not>is_cfailed eq
-        then RETURN (merge_cstatus st' eq, \<V>, fmupd i r A)
-       else RETURN (eq, \<V>, A)
-     }
-    | Del _ \<Rightarrow>
-       do {
-        eq \<leftarrow> check_del_l spec A (pac_src1 st);
-        let _ = eq;
-        if \<not>is_cfailed eq
-        then RETURN (merge_cstatus st' eq, \<V>, fmdrop (pac_src1 st) A)
-        else RETURN (eq, \<V>, A)
-     }
-   | Extension _ _ _ \<Rightarrow>
-       do {
-         r \<leftarrow> full_normalize_poly (pac_res st);
-        (eq, r, \<V>, v) \<leftarrow> check_extension_l2_s spec A (\<V>) (new_id st) (new_var st) r;
-        if \<not>is_cfailed eq
-        then do {
-           r \<leftarrow> add_poly_l_s \<V> ([([v], -1)], r);
-          RETURN (st', \<V>, fmupd (new_id st) r A)
-        }
-        else RETURN (eq, \<V>, A)
-     }}
-          )\<close>
-  unfolding PAC_checker_l_step_s_def bind_to_let_conv Let_def by auto
+text \<open>The step function follows \<open>PAC_checker_l_step_alt\<close> from
+  \<open>LPAC_Checker_Synthesis\<close>: the \<open>pac_step\<close> datatype is destructed via the
+  tagged-tuple destructors of \<open>LPAC_Step_Assn\<close>, values stored in the map are
+  \<open>BOX\<close>ed, and the id bound is threaded through as an \<open>fref\<close> precondition.\<close>
 
-sepref_definition PAC_checker_l_step_s_impl
-  is \<open>uncurry2 PAC_checker_l_step_s\<close>
-  :: \<open>poly_s_assn\<^sup>k *\<^sub>a (status_assn raw_string_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a polys_s_assn)\<^sup>d *\<^sub>a
-         (pac_step_rel_assn (uint64_nat_assn) poly_assn string_assn)\<^sup>k \<rightarrow>\<^sub>a status_assn raw_string_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a polys_s_assn
-  \<close>
-  supply [[goals_limit = 1]]
-  supply [intro] = is_Mult_lastI
-  unfolding PAC_checker_l_step_s_alt_def Let_def[of _ \<open>\<lambda>_. If _ _ _\<close>]
-    pac_step.case_eq_if
-    HOL_list.fold_custom_empty
+lemma is_Mult_lastI:
+  \<open>\<not> is_CL b \<Longrightarrow> \<not>is_Extension b \<Longrightarrow> is_Del b\<close>
+  by (cases b) auto
+
+definition step_id_bounded :: \<open>lpac_step_hol \<Rightarrow> bool\<close> where
+  \<open>step_id_bounded st \<longleftrightarrow> (\<not>is_Del st \<longrightarrow> new_id st + 1 < max_snat 64)\<close>
+
+definition PAC_checker_l_step_s_alt where
+  \<open>PAC_checker_l_step_s_alt spec st' \<V> A st = (
+    if is_CL st then doN {
+      (srcs, ni, res) \<leftarrow> mop_dest_cl st;
+      ASSERT (ni + 1 < max_snat 64);
+      r \<leftarrow> full_normalize_poly res;
+      (eq, r) \<leftarrow> check_linear_combi_l_s spec A \<V> ni srcs r;
+      if \<not>is_cfailed eq then doN {
+        let st'' = merge_cstatus st' eq;
+        let A' = fmupd ni (BOX r) A;
+        RETURN (st'', \<V>, A')
+      }
+      else RETURN (eq, \<V>, A)
+    }
+    else if is_Del st then doN {
+      s1 \<leftarrow> mop_dest_ldel st;
+      eq \<leftarrow> check_del_l spec A s1;
+      if \<not>is_cfailed eq then doN {
+        let st'' = merge_cstatus st' eq;
+        let A' = fmdrop s1 A;
+        RETURN (st'', \<V>, A')
+      }
+      else RETURN (eq, \<V>, A)
+    }
+    else doN {
+      (ni, v, res) \<leftarrow> mop_dest_lextension st;
+      ASSERT (ni + 1 < max_snat 64);
+      r \<leftarrow> full_normalize_poly res;
+      (eq, r, \<V>, v') \<leftarrow> check_extension_l2_s spec A \<V> ni v r;
+      if \<not>is_cfailed eq then doN {
+        r \<leftarrow> add_poly_l_s \<V> ([([v'], -1)], r);
+        let A' = fmupd ni (BOX r) A;
+        RETURN (st', \<V>, A')
+      }
+      else RETURN (eq, \<V>, A)
+    })\<close>
+
+definition PAC_checker_l_step_s' where
+  \<open>PAC_checker_l_step_s' a b c d = PAC_checker_l_step_s a (b, c, d)\<close>
+
+lemma PAC_checker_l_step_s_alt_PAC_checker_l_step_s':
+  \<open>step_id_bounded st \<Longrightarrow>
+     PAC_checker_l_step_s_alt spec st' \<V> A st \<le> \<Down>Id (PAC_checker_l_step_s' spec st' \<V> A st)\<close>
+  unfolding PAC_checker_l_step_s_alt_def PAC_checker_l_step_s'_def PAC_checker_l_step_s_def
+    mop_dest_cl_def mop_dest_lextension_def mop_dest_ldel_def
+    step_id_bounded_def BOX_def COPY_def
+  apply (cases st)
+  apply (auto simp: dest_cl_def dest_lextension_def dest_ldel_def Let_def
+    pw_le_iff refine_pw_simps)
+  done
+
+lemma PAC_checker_l_step_s_fref:
+  \<open>(uncurry4 PAC_checker_l_step_s_alt, uncurry4 PAC_checker_l_step_s')
+    \<in> [\<lambda>((((_, _), _), _), st). step_id_bounded st]\<^sub>f Id \<rightarrow> \<langle>Id\<rangle>nres_rel\<close>
+  apply (intro frefI nres_relI)
+  using PAC_checker_l_step_s_alt_PAC_checker_l_step_s' by auto
+
+lemma PAC_checker_l_step_s_tuple:
+  \<open>PAC_checker_l_step_s a bcd e = (let (b, c, d) = bcd in PAC_checker_l_step_s' a b c d e)\<close>
+  unfolding PAC_checker_l_step_s'_def by (auto split: prod.splits)
+
+sepref_definition check_step_s_impl
+  is \<open>uncurry4 PAC_checker_l_step_s_alt\<close>
+  :: \<open>poly_s_assn\<^sup>k *\<^sub>a status_assn\<^sup>d *\<^sub>a shared_vars_assn\<^sup>d *\<^sub>a polys_s_assn\<^sup>d *\<^sub>a lpac_step_assn\<^sup>d \<rightarrow>\<^sub>a
+    status_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a polys_s_assn\<close>
+  supply [[goals_limit=1]] is_Mult_lastI[intro]
+  unfolding PAC_checker_l_step_s_alt_def Let_def
+    is_success_alt_def[symmetric]
+    ls_emp ls_emp'
   by sepref
 
-lemmas [sepref_fr_rules] = PAC_checker_l_step_s_impl.refine
+lemmas PAC_checker_l_step_s'_hnr[sepref_fr_rules] =
+  check_step_s_impl.refine[FCOMP PAC_checker_l_step_s_fref]
+
+sepref_register PAC_checker_l_step_s' ::
+  \<open>sllist_polynomial \<Rightarrow> string code_status \<Rightarrow> (nat, string) shared_vars \<Rightarrow>
+    (nat, sllist_polynomial) f_map \<Rightarrow> lpac_step_hol \<Rightarrow>
+    (string code_status \<times> (nat, string) shared_vars \<times> (nat, sllist_polynomial) f_map) nres\<close>
 
 fun vars_llist_s2 :: \<open>_ \<Rightarrow> _ list\<close> where
   \<open>vars_llist_s2 [] = []\<close> |
   \<open>vars_llist_s2 ((a,_) # xs) = a @ vars_llist_s2 xs\<close>
 
-lemma [sepref_import_param]:
-  \<open>(vars_llist_s2, vars_llist_s2) \<in> \<langle>\<langle>string_rel\<rangle>list_rel \<times>\<^sub>r int_rel\<rangle>list_rel \<rightarrow> \<langle>string_rel\<rangle>list_rel\<close>
-  apply (intro fun_relI)
-  subgoal for a b
-    apply (induction a arbitrary: b)
-    subgoal by auto
-    subgoal for a as b
-      by (cases a, cases b)
-       (force simp: list_rel_append1)+
-    done
-  done
-sepref_register PAC_checker_l_step_s
-lemma step_rewrite_pure:
-  fixes K :: \<open>('olbl \<times> 'lbl) set\<close>
-  shows
-    \<open>pure (p2rel (\<langle>K, V, R\<rangle>pac_step_rel_raw)) = pac_step_rel_assn (pure K) (pure V) (pure R)\<close>
-  apply (intro ext)
-  apply (case_tac x; case_tac xa)
-  apply simp_all
-  apply (simp_all add: relAPP_def p2rel_def pure_def)
-  unfolding pure_def[symmetric] list_assn_pure_conv
-  apply (auto simp: pure_def relAPP_def)
-  done
+text \<open>The checker loop pops the step list (mirroring \<open>PAC_checker_l_loop\<close> in
+  \<open>LPAC_Checker_Synthesis\<close>); the id bound of every step is carried as an
+  \<open>fref\<close> precondition.\<close>
 
-lemma safe_epac_step_rel_assn[safe_constraint_rules]:
-  \<open>CONSTRAINT is_pure K \<Longrightarrow> CONSTRAINT is_pure V \<Longrightarrow> CONSTRAINT is_pure R \<Longrightarrow>
-  CONSTRAINT is_pure (LPAC_Checker.pac_step_rel_assn K V R)\<close>
-  by (auto simp: step_rewrite_pure(1)[symmetric] is_pure_conv)
+definition PAC_checker_l_s' where
+  \<open>PAC_checker_l_s' p \<V> A status steps = PAC_checker_l_s p (\<V>, A) status steps\<close>
+
+lemma PAC_checker_l_s_alt_def:
+  \<open>PAC_checker_l_s p \<V>A status steps =
+    (let (\<V>, A) = \<V>A in PAC_checker_l_s' p \<V> A status steps)\<close>
+  unfolding PAC_checker_l_s'_def by auto
+
+definition PAC_checker_l_s_loop
+  :: \<open>sllist_polynomial \<Rightarrow> _ \<Rightarrow> _ \<Rightarrow> string code_status \<Rightarrow> lpac_step_hol list \<Rightarrow> _\<close>
+  where \<open>PAC_checker_l_s_loop spec \<V> A b st = do {
+    (S, _) \<leftarrow> WHILE\<^sub>T
+       (\<lambda>((b, _), n). \<not>is_cfailed b \<and> n \<noteq> [])
+       (\<lambda>((bA), n). do {
+          ASSERT(n \<noteq> []);
+          (nh, nt) \<leftarrow> mop_list_pop_hd n;
+          ASSERT(step_id_bounded nh);
+          S \<leftarrow> PAC_checker_l_step_s spec bA nh;
+          RETURN (S, nt)
+        })
+      ((b, (\<V>, A)), st);
+    RETURN S
+  }\<close>
+
+lemma PAC_checker_l_step_s_rel_id:
+  \<open>(bA, bA') \<in> Id \<Longrightarrow> (st, st') \<in> Id \<Longrightarrow>
+     PAC_checker_l_step_s spec bA st \<le> \<Down>Id (PAC_checker_l_step_s spec bA' st')\<close>
+  by auto
+
+lemma PAC_checker_l_s_loop_PAC_checker_l_s':
+  assumes \<open>list_all step_id_bounded st\<close>
+  shows \<open>PAC_checker_l_s_loop spec \<V> A b st \<le> \<Down>Id (PAC_checker_l_s' spec \<V> A b st)\<close>
+  unfolding PAC_checker_l_s_loop_def PAC_checker_l_s'_def PAC_checker_l_s_def
+    mop_list_pop_hd_def
+  apply (simp add: ASSERT_dup)
+  apply (rule refine_IdD)
+  apply (refine_rcg
+      WHILET_refine[where R = \<open>Id \<times>\<^sub>r {(n, n'). n' = n \<and> list_all step_id_bounded n}\<close>]
+      PAC_checker_l_step_s_rel_id)
+  using assms by (auto simp: neq_Nil_conv)
+
+lemma PAC_checker_l_s_loop_fref:
+  \<open>(uncurry4 PAC_checker_l_s_loop, uncurry4 PAC_checker_l_s')
+    \<in> [\<lambda>((((_, _), _), _), st). list_all step_id_bounded st]\<^sub>f Id \<rightarrow> \<langle>Id\<rangle>nres_rel\<close>
+  apply (intro frefI nres_relI)
+  using PAC_checker_l_s_loop_PAC_checker_l_s' by auto
 
 sepref_definition PAC_checker_l_s_impl
-  is \<open>uncurry3 PAC_checker_l_s\<close>
-  :: \<open>poly_s_assn\<^sup>k *\<^sub>a (shared_vars_assn \<times>\<^sub>a polys_s_assn)\<^sup>d *\<^sub>a(status_assn raw_string_assn)\<^sup>d *\<^sub>a
-  (list_assn (pac_step_rel_assn (uint64_nat_assn) poly_assn string_assn))\<^sup>d \<rightarrow>\<^sub>a
-  status_assn raw_string_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a polys_s_assn
-  \<close>
-  supply [[goals_limit = 1]]
-  supply [intro] = is_Mult_lastI
-  unfolding PAC_checker_l_s_def Let_def
-    pac_step.case_eq_if
-    neq_Nil_conv
-    conv_to_is_Nil is_Nil_def
+  is \<open>uncurry4 PAC_checker_l_s_loop\<close>
+  :: \<open>poly_s_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>d *\<^sub>a polys_s_assn\<^sup>d *\<^sub>a status_assn\<^sup>d *\<^sub>a
+     (cl_assn' lpac_step_assn)\<^sup>d \<rightarrow>\<^sub>a
+     status_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a polys_s_assn\<close>
+  supply [[goals_limit=1]] is_Mult_lastI[intro]
+  unfolding PAC_checker_l_s_loop_def is_success_alt_def[symmetric]
+    PAC_checker_l_step_s_tuple
+    nres_bind_let_law[symmetric]
+    ls_emp
+  apply (subst nres_bind_let_law)
   by sepref
 
-lemmas [sepref_fr_rules] = PAC_checker_l_s_impl.refine
+lemmas PAC_checker_l_s'_hnr[sepref_fr_rules] =
+  PAC_checker_l_s_impl.refine[FCOMP PAC_checker_l_s_loop_fref]
 
-definition memory_out_msg :: \<open>string\<close> where
-  \<open>memory_out_msg = ''memory out''\<close>
+sepref_register PAC_checker_l_s' ::
+  \<open>sllist_polynomial \<Rightarrow> (nat, string) shared_vars \<Rightarrow> (nat, sllist_polynomial) f_map \<Rightarrow>
+    string code_status \<Rightarrow> lpac_step_hol list \<Rightarrow>
+    (string code_status \<times> (nat, string) shared_vars \<times> (nat, sllist_polynomial) f_map) nres\<close>
 
-lemma [sepref_fr_rules]: \<open>(uncurry0 (return memory_out_msg), uncurry0 (RETURN memory_out_msg)) \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a raw_string_assn\<close>
-  unfolding memory_out_msg_def
-  by sepref_to_hoare sep_auto
+text \<open>Importing all variables of a polynomial, monomial by monomial (the flat
+  list \<open>vars_llist_s2 spec0\<close> of the previous formulation has no owning-list
+  producer). Defined before the remap definition that uses it.\<close>
+
+definition import_poly_varsS
+  :: \<open>(nat, string) shared_vars \<Rightarrow> llist_polynomial \<Rightarrow> (memory_allocation \<times> (nat, string) shared_vars) nres\<close>
+where
+  \<open>import_poly_varsS \<V> p = do {
+     p \<leftarrow> RETURN (COPY p);
+     (mem, \<V>, _) \<leftarrow> WHILE\<^sub>T (\<lambda>(mem, \<V>, p). \<not>alloc_failed mem \<and> p \<noteq> [])
+       (\<lambda>(_, \<V>, p). do {
+          ((m, c), p) \<leftarrow> mop_list_pop_hd p;
+          (mem, \<V>) \<leftarrow> import_variablesS m \<V>;
+          RETURN (mem, \<V>, p)
+       }) (Allocated, \<V>, p);
+     RETURN (mem, \<V>)
+  }\<close>
 
 definition (in -) remap_polys_l2_with_err_s :: \<open>llist_polynomial \<Rightarrow> llist_polynomial \<Rightarrow> (nat, llist_polynomial) fmap \<Rightarrow> (nat, string) shared_vars \<Rightarrow>
    (string code_status \<times> (nat, string) shared_vars \<times> (nat, sllist_polynomial) fmap \<times> sllist_polynomial) nres\<close> where
   \<open>remap_polys_l2_with_err_s spec spec0 A (\<V> :: (nat, string) shared_vars) =  do{
    ASSERT(vars_llist spec \<subseteq> vars_llist spec0);
     n \<leftarrow> upper_bound_on_dom A;
-   (mem, \<V>) \<leftarrow> import_variablesS (vars_llist_s2 spec0) \<V>;
+   (mem, \<V>) \<leftarrow> import_poly_varsS \<V> spec0;
    (mem', spec, \<V>) \<leftarrow> if \<not>alloc_failed mem then import_polyS \<V> spec else RETURN (mem, [], \<V>);
-   failed \<leftarrow> RETURN (alloc_failed mem \<or> alloc_failed mem' \<or> n \<ge> 2^64);
+   failed \<leftarrow> RETURN (alloc_failed mem \<or> alloc_failed mem' \<or> n \<ge> max_snat 64 - 1);
    if failed
    then do {
      c \<leftarrow> remap_polys_l_dom_err;
@@ -3014,50 +3373,150 @@ lemma set_vars_llist_s2 [simp]: \<open>set (vars_llist_s2 b) = vars_llist b\<clo
   by (induction b)
     (auto simp: vars_llist_def)
 
-sepref_register upper_bound_on_dom import_variablesS vars_llist_s2 memory_out_msg
+sepref_register import_variablesS import_poly_varsS memory_out_msg
 
-sepref_definition import_variablesS_impl
-  is \<open>uncurry import_variablesS\<close>
-  :: \<open>(list_assn string_assn)\<^sup>k *\<^sub>a shared_vars_assn\<^sup>d \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a shared_vars_assn\<close>
-  unfolding import_variablesS_def
+text \<open>The variable-import walks pop from a \<open>COPY\<close> (both branches of the abstract
+  body drop the head, so no re-prepending is needed).\<close>
+
+lemma import_variablesS_alt_def:
+  \<open>(import_variablesS :: string list \<Rightarrow> (nat, string) shared_vars \<Rightarrow> _) vs0 \<V> = do {
+     vs \<leftarrow> RETURN (COPY vs0);
+     (mem, \<V>, _) \<leftarrow> WHILE\<^sub>T (\<lambda>(mem, \<V>, vs). \<not>alloc_failed mem \<and> vs \<noteq> [])
+       (\<lambda>(_, \<V>, vs). do {
+          (v, vs) \<leftarrow> mop_list_pop_hd vs;
+          a \<leftarrow> is_new_variableS v \<V>;
+          if \<not>a then RETURN (Allocated, \<V>, vs)
+          else do {
+            (mem, \<V>, _) \<leftarrow> import_variableS v \<V>;
+            RETURN (mem, \<V>, vs)
+          }
+       }) (Allocated, \<V>, vs);
+     RETURN (mem, \<V>)
+  }\<close>
+proof -
+  have body_eq: \<open>(\<lambda>(_, \<V>, vs). do {
+    ASSERT(vs \<noteq> []);
+    let v = hd vs;
+    a \<leftarrow> is_new_variableS v \<V>;
+    if \<not>a then RETURN (Allocated ,\<V>, tl vs)
+    else do {
+      (mem, \<V>, _) \<leftarrow> import_variableS v \<V>;
+      RETURN(mem, \<V>, tl vs)
+    }
+    }) = (\<lambda>(_, \<V>, vs). do {
+          (v, vs) \<leftarrow> mop_list_pop_hd vs;
+          a \<leftarrow> is_new_variableS v \<V>;
+          if \<not>a then RETURN (Allocated, \<V>, vs)
+          else do {
+            (mem, \<V>, _) \<leftarrow> import_variableS v \<V>;
+            RETURN (mem, \<V>, vs)
+          }
+       })\<close> for \<V> :: \<open>(nat, string) shared_vars\<close>
+    by (intro ext)
+     (auto simp: mop_list_pop_hd_def Let_def pw_eq_iff refine_pw_simps
+        split: prod.splits)
+  show ?thesis
+    unfolding import_variablesS_def COPY_def nres_monad1 body_eq ..
+qed
+
+sepref_def import_variablesS_impl
+  is \<open>uncurry (import_variablesS :: string list \<Rightarrow> (nat, string) shared_vars \<Rightarrow> _)\<close>
+  :: \<open>monom_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>d \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a shared_vars_assn\<close>
+  supply [[goals_limit=1]]
+  unfolding import_variablesS_alt_def
+    ls_emp ls_emp'
   by sepref
 
 lemmas [sepref_fr_rules] =
   import_variablesS_impl.refine full_normalize_poly'_impl.refine
-lemma [sepref_fr_rules]:
-  \<open>CONSTRAINT is_pure R \<Longrightarrow> ((return o CFAILED), RETURN o CFAILED) \<in> R\<^sup>k \<rightarrow>\<^sub>a status_assn R\<close>
-  apply sepref_to_hoare
-  apply sep_auto
-  by (smt ent_refl_true is_pure_conv merge_pure_star pure_def)
 
-sepref_definition remap_polys_l2_with_err_s_impl
-  is \<open>uncurry3 remap_polys_l2_with_err_s\<close>
-  :: \<open>poly_assn\<^sup>k *\<^sub>a poly_assn\<^sup>k *\<^sub>a polys_assn_input\<^sup>k *\<^sub>a shared_vars_assn\<^sup>d \<rightarrow>\<^sub>a
-  status_assn raw_string_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a polys_s_assn \<times>\<^sub>a poly_s_assn\<close>
+sepref_def import_poly_varsS_impl
+  is \<open>uncurry import_poly_varsS\<close>
+  :: \<open>shared_vars_assn\<^sup>d *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a shared_vars_assn\<close>
   supply [[goals_limit=1]]
-  supply [split] = option.splits
-  unfolding remap_polys_l2_with_err_s_def pow_2_64
-    in_dom_m_lookup_iff
-    fmlookup'_def[symmetric]
-    memory_out_msg_def[symmetric]
+  unfolding import_poly_varsS_def
+    ls_emp ls_emp'
+  by sepref
+
+lemmas [sepref_fr_rules] = import_poly_varsS_impl.refine
+
+text \<open>The synthesized form of the remap loop \<open>BOX\<close>es the polynomials stored in
+  the map and carries the update-bound assertion, mirroring
+  \<open>remap_polys_l2_alt\<close> in \<open>PAC_Checker_Synthesis\<close>.\<close>
+
+lemma remap_polys_l2_with_err_s_alt:
+  \<open>remap_polys_l2_with_err_s spec spec0 A \<V> =  do{
+   ASSERT(vars_llist spec \<subseteq> vars_llist spec0);
+    n \<leftarrow> upper_bound_on_dom A;
+   (mem, \<V>) \<leftarrow> import_poly_varsS \<V> spec0;
+   (mem', spec, \<V>) \<leftarrow> if \<not>alloc_failed mem then import_polyS \<V> spec else RETURN (mem, [], \<V>);
+   failed \<leftarrow> RETURN (alloc_failed mem \<or> alloc_failed mem' \<or> n \<ge> max_snat 64 - 1);
+   if failed
+   then do {
+     c \<leftarrow> remap_polys_l_dom_err;
+     RETURN (error_msg (0::nat) c, \<V>, fmempty, [])
+   }
+   else do {
+     (err, A, \<V>) \<leftarrow>  nfoldli ([0..<n]) (\<lambda>(err, A', \<V>). \<not>is_cfailed err)
+       (\<lambda>i (err, A', \<V>).
+          if i \<in># dom_m A
+          then  do {
+           (err', p, \<V>) \<leftarrow> import_polyS \<V> (the (fmlookup A i));
+            if alloc_failed err' then RETURN((CFAILED ''memory out'',  A', \<V>))
+            else do {
+              p \<leftarrow> full_normalize_poly_s \<V> p;
+              eq  \<leftarrow> weak_equality_l_s p spec;
+              ASSERT(i + 1 < max_snat 64);
+              RETURN((if eq then CFOUND else CSUCCESS),  fmupd i (BOX p) A', \<V>)
+            }
+          } else RETURN (err, A', \<V>))
+       (CSUCCESS, fmempty,  \<V>);
+     RETURN (err, \<V>, A, spec)
+  }}\<close>
+  unfolding remap_polys_l2_with_err_s_def case_prod_beta
+  apply (simp only: nres_monad1)
+  apply (rule bind_cong[OF refl])
+  apply (rule bind_cong[OF refl])
+  apply (rule bind_cong[OF refl])
+  apply (rule bind_cong[OF refl])
+  apply (rule if_cong[OF refl refl])
+  apply (rule bind_cong[OF _ refl])
+  apply (rule nfoldli_body_cong)
+  apply (auto simp: BOX_def not_le ASSERT_insert_bound split: prod.splits
+      intro!: bind_cong[OF refl])
+  done
+
+sepref_def remap_polys_l2_with_err_s_impl
+  is \<open>uncurry3 remap_polys_l2_with_err_s\<close>
+  :: \<open>polynomial_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k *\<^sub>a polys_assn_input\<^sup>k *\<^sub>a shared_vars_assn\<^sup>d \<rightarrow>\<^sub>a
+  status_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a polys_s_assn \<times>\<^sub>a poly_s_assn\<close>
+  supply [[goals_limit=1]] is_Mult_lastI[intro] indom_mI[dest]
+  unfolding remap_polys_l2_with_err_s_alt
     op_fmap_empty_def[symmetric] while_eq_nfoldli[symmetric]
-  unfolding
-    HOL_list.fold_custom_empty
+    while_upt_while_direct max_snat_val
+    in_dom_by_contains
+    fmlookup'_def[symmetric]
+    ls_emp ls_emp'
   apply (subst while_upt_while_direct)
   apply simp
-  apply (rewrite in \<open>(_, \<hole>, _)\<close> annotate_assn[where A=\<open>polys_s_assn\<close>])
-  apply (rewrite at \<open>fmupd \<hole>\<close> uint64_of_nat_conv_def[symmetric])
+  apply (annot_snat_const \<open>TYPE(64)\<close>)
   by sepref
 
 lemmas [sepref_fr_rules] =
   remap_polys_l2_with_err_s_impl.refine
 
+text \<open>Like \<open>full_checker_l2\<close> in \<open>LPAC_Checker_Synthesis\<close>: the id bound of all
+  steps is asserted up front (threaded into the step loop's precondition), and
+  the specification polynomial is copied before normalization since the
+  original is also handed to the remap.\<close>
+
 definition full_checker_l_s2
-  :: \<open>llist_polynomial \<Rightarrow> (nat, llist_polynomial) fmap \<Rightarrow> (_, string, nat) pac_step list \<Rightarrow>
+  :: \<open>llist_polynomial \<Rightarrow> (nat, llist_polynomial) fmap \<Rightarrow> (llist_polynomial, string, nat) pac_step list \<Rightarrow>
     (string code_status \<times> _) nres\<close>
 where
   \<open>full_checker_l_s2 spec A st = do {
-    spec' \<leftarrow> full_normalize_poly spec;
+    ASSERT (list_all step_id_bounded st);
+    spec' \<leftarrow> full_normalize_poly (COPY spec);
     (b, \<V>, A, spec') \<leftarrow> remap_polys_l2_with_err_s spec' spec A ({#}, fmempty, fmempty);
     if is_cfailed b
     then RETURN (b, \<V>, A)
@@ -3066,286 +3525,25 @@ where
      }
    }\<close>
 
-sepref_register remap_polys_l2_with_err_s full_checker_l_s2 PAC_checker_l_s
+sepref_register remap_polys_l2_with_err_s ::
+  \<open>llist_polynomial \<Rightarrow> llist_polynomial \<Rightarrow> (nat, llist_polynomial) f_map \<Rightarrow>
+    (nat, string) shared_vars \<Rightarrow>
+    (string code_status \<times> (nat, string) shared_vars \<times> (nat, sllist_polynomial) f_map \<times>
+     sllist_polynomial) nres\<close>
 
-sepref_definition full_checker_l_s2_impl
+sepref_register full_checker_l_s2 ::
+  \<open>llist_polynomial \<Rightarrow> (nat, llist_polynomial) f_map \<Rightarrow> lpac_step_hol list \<Rightarrow>
+    (string code_status \<times> (nat, string) shared_vars \<times> (nat, sllist_polynomial) f_map) nres\<close>
+
+sepref_def full_checker_l_s2_impl
   is \<open>uncurry2 full_checker_l_s2\<close>
-  :: \<open>poly_assn\<^sup>k *\<^sub>a polys_assn_input\<^sup>k *\<^sub>a (list_assn (pac_step_rel_assn (uint64_nat_assn) poly_assn string_assn))\<^sup>k \<rightarrow>\<^sub>a
-  status_assn raw_string_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a polys_s_assn\<close>
+  :: \<open>polynomial_assn\<^sup>k *\<^sub>a polys_assn_input\<^sup>k *\<^sub>a (cl_assn' lpac_step_assn)\<^sup>d \<rightarrow>\<^sub>a
+  status_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a polys_s_assn\<close>
+  supply [[goals_limit=1]] is_Mult_lastI[intro]
   unfolding full_checker_l_s2_def
-     empty_shared_vars_def[symmetric]
+    PAC_checker_l_s_alt_def
+    empty_shared_vars_def[symmetric]
   by sepref
-local_setup \<open>
-  let
-    val version =
-      trim_line (#1 (Isabelle_System.bash_output ("cd $ISAFOL/ && git rev-parse --short HEAD || echo unknown")))
-  in
-    Local_Theory.define
-      ((\<^binding>\<open>version\<close>, NoSyn),
-        ((\<^binding>\<open>version_def\<close>, []), HOLogic.mk_literal version)) #> #2
-  end
-\<close>
-
-declare version_def [code]
-
-definition uint32_of_uint64 :: \<open>uint64 \<Rightarrow> uint32\<close> where
-  \<open>uint32_of_uint64 n = uint32_of_nat (nat_of_uint64 n)\<close>
-
-lemma [code]: \<open>hashcode n = uint32_of_uint64 (and n 4294967295)\<close> for n :: uint64
-  unfolding hashcode_uint64_def uint32_of_uint64_def by auto
-
-(*TODO this is a copy paste because of the order of the merge *)
-code_printing code_module Uint64 \<rightharpoonup> (SML) \<open>(* Test that words can handle numbers between 0 and 63 *)
-val _ = if 6 <= Word.wordSize then () else raise (Fail ("wordSize less than 6"));
-
-structure Uint64 : sig
-  eqtype uint64;
-  val zero : uint64;
-  val one : uint64;
-  val fromInt : IntInf.int -> uint64;
-  val toInt : uint64 -> IntInf.int;
-  val toFixedInt : uint64 -> Int.int;
-  val toLarge : uint64 -> LargeWord.word;
-  val fromLarge : LargeWord.word -> uint64
-  val fromFixedInt : Int.int -> uint64
-  val toWord32: uint64 -> Word32.word
-  val plus : uint64 -> uint64 -> uint64;
-  val minus : uint64 -> uint64 -> uint64;
-  val times : uint64 -> uint64 -> uint64;
-  val divide : uint64 -> uint64 -> uint64;
-  val modulus : uint64 -> uint64 -> uint64;
-  val negate : uint64 -> uint64;
-  val less_eq : uint64 -> uint64 -> bool;
-  val less : uint64 -> uint64 -> bool;
-  val notb : uint64 -> uint64;
-  val andb : uint64 -> uint64 -> uint64;
-  val orb : uint64 -> uint64 -> uint64;
-  val xorb : uint64 -> uint64 -> uint64;
-  val shiftl : uint64 -> IntInf.int -> uint64;
-  val shiftr : uint64 -> IntInf.int -> uint64;
-  val shiftr_signed : uint64 -> IntInf.int -> uint64;
-  val set_bit : uint64 -> IntInf.int -> bool -> uint64;
-  val test_bit : uint64 -> IntInf.int -> bool;
-end = struct
-
-type uint64 = Word64.word;
-
-val zero = (0wx0 : uint64);
-
-val one = (0wx1 : uint64);
-
-fun fromInt x = Word64.fromLargeInt (IntInf.toLarge x);
-
-fun toInt x = IntInf.fromLarge (Word64.toLargeInt x);
-
-fun toFixedInt x = Word64.toInt x;
-
-fun fromLarge x = Word64.fromLarge x;
-
-fun fromFixedInt x = Word64.fromInt x;
-
-fun toLarge x = Word64.toLarge x;
-
-fun toWord32 x = Word32.fromLarge x
-
-fun plus x y = Word64.+(x, y);
-
-fun minus x y = Word64.-(x, y);
-
-fun negate x = Word64.~(x);
-
-fun times x y = Word64.*(x, y);
-
-fun divide x y = Word64.div(x, y);
-
-fun modulus x y = Word64.mod(x, y);
-
-fun less_eq x y = Word64.<=(x, y);
-
-fun less x y = Word64.<(x, y);
-
-fun set_bit x n b =
-  let val mask = Word64.<< (0wx1, Word.fromLargeInt (IntInf.toLarge n))
-  in if b then Word64.orb (x, mask)
-     else Word64.andb (x, Word64.notb mask)
-  end
-
-fun shiftl x n =
-  Word64.<< (x, Word.fromLargeInt (IntInf.toLarge n))
-
-fun shiftr x n =
-  Word64.>> (x, Word.fromLargeInt (IntInf.toLarge n))
-
-fun shiftr_signed x n =
-  Word64.~>> (x, Word.fromLargeInt (IntInf.toLarge n))
-
-fun test_bit x n =
-  Word64.andb (x, Word64.<< (0wx1, Word.fromLargeInt (IntInf.toLarge n))) <> Word64.fromInt 0
-
-val notb = Word64.notb
-
-fun andb x y = Word64.andb(x, y);
-
-fun orb x y = Word64.orb(x, y);
-
-fun xorb x y = Word64.xorb(x, y);
-
-end (*struct Uint64*)
-\<close>
-
-code_printing constant arl_get_u' \<rightharpoonup> (SML) "(fn/ ()/ =>/ Array.sub/ ((fn/ (a,b)/ =>/ a) ((_)),/ Word64.toInt (Uint64.toLarge ((_)))))"
-
-definition uint32_of_uint64' where
-  [symmetric, code]: "uint32_of_uint64' = uint32_of_uint64"
-code_printing constant uint32_of_uint64' \<rightharpoonup> (SML) "Uint64.toWord32 ((_))"
-thm hashcode_literal_def[unfolded hashcode_list_def]
-
-definition string_nth where
-  \<open>string_nth s x = literal.explode s ! x\<close>
-
-definition string_nth' where
-  \<open>string_nth' s x = literal.explode s ! nat x\<close>
-
-lemma [code]: \<open>string_nth s x = string_nth' s (int x)\<close>
-  unfolding string_nth_def string_nth'_def
-  by auto
-
-definition string_size :: \<open>String.literal\<Rightarrow>nat\<close> where
-  \<open>string_size s = size s\<close>
-
-definition string_size' where
-  [symmetric,code]: \<open>string_size' = string_size\<close>
-
-lemma [code]: \<open>size = string_size\<close>
-  unfolding string_size_def ..
-
-code_printing constant string_nth' \<rightharpoonup> (SML) "(String.sub/ ((_),/ IntInf.toInt ((integer'_of'_int ((_))))))"
-code_printing constant string_size' \<rightharpoonup> (SML) "nat'_of'_integer ((IntInf.fromInt ((String.size ((_))))))"
-
-function hashcode_eff where 
-  [simp del]: \<open>hashcode_eff s h i = (if i \<ge> size s then h else hashcode_eff s (h * 33 + hashcode (s ! i)) (i+1))\<close>
-  by auto
-termination
-  by (relation \<open>measure (\<lambda>(s,h,i). size s -i)\<close>)
-    auto
-
-definition hashcode_eff' where
-  \<open>hashcode_eff' s h i = hashcode_eff (String.explode s) h i\<close>
-
-lemma hashcode_eff'_code[code]:
-   \<open>hashcode_eff' s h i = (if i \<ge> size s then h else hashcode_eff' s (h * 33 + hashcode (string_nth s i)) (i+1))\<close>
-  unfolding hashcode_eff'_def string_nth_def  hashcode_eff.simps[symmetric] size_literal.rep_eq
-  ..
-
-lemma [simp]: \<open>length s \<le> i \<Longrightarrow> hashcode_eff s h i = h\<close>
-  by (subst hashcode_eff.simps)
-   auto
-lemma [simp]: \<open>hashcode_eff (a # s) h (Suc i) = hashcode_eff (s) h (i)\<close>
-  apply (induction "s" h "i" rule: hashcode_eff.induct)
-  subgoal
-    apply (subst (2) hashcode_eff.simps)
-    apply (subst (1) hashcode_eff.simps)
-    apply auto
-    done
-  done
-
-
-lemma hashcode_eff_def[unfolded hashcode_eff'_def[symmetric], code]:
-  \<open>hashcode s = hashcode_eff (String.explode s)5381 0\<close> for s::String.literal
-proof -
-  have H: \<open>length (literal.explode s) = size s\<close>
-    by (simp add: size_literal.rep_eq)
-  have [simp]: \<open>foldl (\<lambda>h xa. h * 33 + hashcode ((xs @ [x]) ! xa)) 5381 [0..<length xs] =
-    foldl (\<lambda>h x. h * 33 + hashcode (xs ! x)) 5381 [0..<length xs]\<close> for xs x
-    by (rule foldl_cong) auto
-  have \<open>foldl (\<lambda>h x. h * 33 + hashcode x) 5381 (s) =
-    foldl (\<lambda>h x. h * 33 + hashcode (s ! x)) 5381
-     [0..<length (s)]\<close> for s
-    by (induction s rule: rev_induct) auto
-  then have 0: \<open>hashcode s = foldl (\<lambda>h x. h * 33 + hashcode (string_nth s x)) 5381 [0..<size s]\<close>
-    unfolding string_nth_def
-    unfolding hashcode_literal_def[unfolded hashcode_list_def] size_literal.rep_eq
-    by blast
-
-  have upt: \<open>\<not> Suc (length s) \<le> i \<Longrightarrow> [i..<Suc (length s)] = i # [Suc i..<Suc (length s)]\<close> for i s
-    by (meson leI upt_rec)
-
-  have [simp]: \<open>foldl (\<lambda>h x. h * 33 + hashcode ((a # s) ! x)) h [Suc i..<Suc (length s)] =
-    foldl (\<lambda>h x. h * 33 + hashcode (s ! x)) h [i..<(length s)]\<close> for a s i h
-  proof -
-    have \<open>foldl (\<lambda>h x. h * 33 + hashcode ((a # s) ! x)) h [Suc i..<Suc (length s)] = 
-      foldl (\<lambda>h x. h * 33 + hashcode ((a # s) ! x)) h (map Suc [i..<(length s)])\<close>
-      using map_Suc_upt by presburger
-    also have \<open>\<dots> = foldl (\<lambda>aa x. aa * 33 + hashcode (s ! x)) h [i..<length s]\<close>
-      unfolding foldl_map by (rule foldl_cong) auto
-    finally show ?thesis .
-  qed
-   
-  have H': \<open>foldl (\<lambda>h x. h * 33 + hashcode (s ! x)) h [i..<length s] =
-    hashcode_eff s h i\<close> for i h s
-    unfolding string_nth_def H[symmetric]
-    supply [simp del] = upt.simps
-    apply (induction \<open>s\<close> arbitrary: h)
-    subgoal
-      by (subst hashcode_eff.simps)
-       auto
-    subgoal
-      by (subst hashcode_eff.simps)
-       (auto simp: upt)
-    done
-  show ?thesis
-    unfolding 0 H[symmetric] string_nth_def H'
-    ..
-qed
-
-export_code "hashcode :: String.literal \<Rightarrow> _" 
-  in SML_imp module_name PAC_Checker
-(*make array_blit compatible with unsafe*)
-code_printing code_module "array_blit" \<rightharpoonup> (SML)
-    \<open>
-   fun array_blit src si dst di len = (
-      src=dst andalso raise Fail ("array_blit: Same arrays");
-      ArraySlice.copy {
-        di = IntInf.toInt di,
-        src = ArraySlice.slice (src,IntInf.toInt si,SOME (IntInf.toInt len)),
-        dst = dst})
-
-    fun array_nth_oo v a i () = if IntInf.toInt i >= Array.length a then v 
-       else Array.sub(a,IntInf.toInt i) handle Overflow => v
-    fun array_upd_oo f i x a () = 
-      if IntInf.toInt i >= Array.length a then f ()
-      else
-        (Array.update(a,IntInf.toInt i,x); a) handle Overflow => f ()
-
-\<close>
-
-export_code
-    full_checker_l_s2_impl int_of_integer Del CL nat_of_integer String.implode remap_polys_l2_with_err_s_impl
-    PAC_update_impl PAC_empty_impl the_error is_cfailed is_cfound
-    fully_normalize_poly_impl empty_shared_vars_int_impl
-    PAC_checker_l_s_impl PAC_checker_l_step_s_impl version
-  in SML_imp module_name PAC_Checker
-  file_prefix "checker"
-
-
-compile_generated_files _
-  external_files
-    \<open>code/parser.sml\<close>
-    \<open>code/pasteque.sml\<close>
-    \<open>code/pasteque.mlb\<close>
-  where \<open>fn dir =>
-  let
-
-    val exec = Generated_Files.execute (Path.append dir (Path.basic "code"));
-    val _ = exec \<open>Copy files\<close>
-      ("cp checker.ML " ^ ((File.bash_path \<^path>\<open>$ISAFOL\<close>) ^ "/PAC_Checker2/code/checker.ML"));
-    val _ =
-        exec \<open>Compilation\<close>
-          (File.bash_path \<^path>\<open>$ISABELLE_MLTON\<close> ^ " " ^
-            "-const 'MLton.safe false' -verbose 1 -default-type int64 -output pasteque " ^
-            "-codegen native -inline 700 -cc-opt -O3 pasteque.mlb");
-    in () end\<close>
-
 
 section \<open>Correctness theorem\<close>
 
@@ -3353,12 +3551,11 @@ context poly_embed
 begin
 
 definition fully_epac_assn where
-  \<open>fully_epac_assn = (list_assn
-        (hr_comp (pac_step_rel_assn uint64_nat_assn poly_assn string_assn)
-          (p2rel
-            (\<langle>nat_rel, 
-             fully_unsorted_poly_rel O
-             mset_poly_rel, var_rel\<rangle>pac_step_rel_raw))))\<close>
+  \<open>fully_epac_assn = hr_comp (cl_assn' lpac_step_assn)
+     (\<langle>p2rel
+        (\<langle>nat_rel,
+         fully_unsorted_poly_rel O
+         mset_poly_rel, var_rel\<rangle>pac_step_rel_raw)\<rangle>list_rel)\<close>
 
 
 text \<open>
@@ -3391,6 +3588,82 @@ The input parameters are:
 
   \<close>
 
+subsection \<open>Relating the nested and the flat variable import\<close>
+
+lemma import_variablesS_Nil:
+  \<open>import_variablesS [] (\<V> :: (nat, string) shared_vars) = RETURN (Allocated, \<V>)\<close>
+  unfolding import_variablesS_def
+  by (subst WHILET_unfold) auto
+
+lemma import_variablesS_Cons:
+  \<open>import_variablesS (v # vs) (\<V> :: (nat, string) shared_vars) = do {
+     a \<leftarrow> is_new_variableS v \<V>;
+     if \<not>a then import_variablesS vs \<V>
+     else do {
+       (mem, \<V>', _) \<leftarrow> import_variableS v \<V>;
+       if alloc_failed mem then RETURN (mem, \<V>')
+       else import_variablesS vs \<V>'
+     }
+  }\<close>
+proof -
+  have exit: \<open>WHILE\<^sub>T (\<lambda>(mem, \<V>, vs). \<not>alloc_failed mem \<and> vs \<noteq> []) b (Mem_Out, \<V>0, vs0)
+      = RETURN (Mem_Out, \<V>0, vs0)\<close>
+    for b :: \<open>memory_allocation \<times> (nat, string) shared_vars \<times> string list \<Rightarrow> _\<close> and \<V>0 vs0
+    by (subst WHILET_unfold) auto
+  show ?thesis
+    apply (subst import_variablesS_def)
+    apply (subst WHILET_unfold)
+    unfolding import_variablesS_def
+    by (auto simp: is_new_variableS_def exit Let_def pw_eq_iff refine_pw_simps
+      split: prod.splits memory_allocation.splits intro!: bind_cong[OF refl])
+qed
+
+lemma import_variablesS_append:
+  \<open>import_variablesS (xs @ ys) (\<V> :: (nat, string) shared_vars) = do {
+     (mem, \<V>) \<leftarrow> import_variablesS xs \<V>;
+     if alloc_failed mem then RETURN (mem, \<V>) else import_variablesS ys \<V>
+  }\<close>
+  apply (induction xs arbitrary: \<V>)
+  subgoal by (auto simp: import_variablesS_Nil)
+  subgoal for v xs \<V>
+    by (auto simp: import_variablesS_Cons pw_eq_iff refine_pw_simps
+        split: memory_allocation.splits intro!: bind_cong[OF refl])
+  done
+
+lemma import_poly_varsS_Nil:
+  \<open>import_poly_varsS \<V> [] = RETURN (Allocated, \<V>)\<close>
+  unfolding import_poly_varsS_def COPY_def nres_monad1
+  by (subst WHILET_unfold) auto
+
+lemma import_poly_varsS_Cons:
+  \<open>import_poly_varsS \<V> ((m, c) # p) = do {
+     (mem, \<V>) \<leftarrow> import_variablesS m \<V>;
+     if alloc_failed mem then RETURN (mem, \<V>) else import_poly_varsS \<V> p
+  }\<close>
+proof -
+  have exit: \<open>WHILE\<^sub>T (\<lambda>(mem, \<V>, p). \<not>alloc_failed mem \<and> p \<noteq> []) b (Mem_Out, \<V>0, p0)
+      = RETURN (Mem_Out, \<V>0, p0)\<close>
+    for b :: \<open>memory_allocation \<times> (nat, string) shared_vars \<times> llist_polynomial \<Rightarrow> _\<close> and \<V>0 p0
+    by (subst WHILET_unfold) auto
+  show ?thesis
+    apply (subst import_poly_varsS_def)
+    apply (simp only: COPY_def id_apply nres_monad1)
+    apply (subst WHILET_unfold)
+    unfolding import_poly_varsS_def COPY_def nres_monad1
+    by (auto simp: mop_list_pop_hd_def exit Let_def pw_eq_iff refine_pw_simps
+      split: prod.splits memory_allocation.splits intro!: bind_cong[OF refl])
+qed
+
+lemma import_poly_varsS_import_variablesS:
+  \<open>import_poly_varsS \<V> p = import_variablesS (vars_llist_s2 p) \<V>\<close>
+  apply (induction p arbitrary: \<V>)
+  subgoal by (simp add: import_poly_varsS_Nil import_variablesS_Nil)
+  subgoal for x p \<V>
+    by (cases x)
+      (auto simp: import_poly_varsS_Cons import_variablesS_append pw_eq_iff refine_pw_simps
+        intro!: bind_cong[OF refl])
+  done
+
 lemma remap_polys_l2_with_err_s_remap_polys_s_with_err:
   assumes \<open>((spec, a, b, c), (spec', a', c', b')) \<in> Id\<close>
   shows \<open>remap_polys_l2_with_err_s spec a b c
@@ -3417,6 +3690,9 @@ proof -
     by auto
   have [simp]: \<open>vars_llist_s2 x = vars_llist_l x\<close> for x
     by (induction x rule: vars_llist_s2.induct) auto
+  have [simp]: \<open>import_poly_varsS \<V> p = import_variablesS (vars_llist_l p) \<V>\<close>
+    for \<V> :: \<open>(nat, string) shared_vars\<close> and p
+    by (simp add: import_poly_varsS_import_variablesS)
   show ?thesis
     supply [[goals_limit=1]]
     unfolding remap_polys_l2_with_err_s_def remap_polys_s_with_err_def
@@ -3453,7 +3729,8 @@ proof -
 qed
 
 lemma full_checker_l_s2_full_checker_l_s:
-  \<open>(uncurry2 full_checker_l_s2, uncurry2 full_checker_l_s) \<in> (Id \<times>\<^sub>r Id) \<times>\<^sub>r Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  \<open>(uncurry2 full_checker_l_s2, uncurry2 full_checker_l_s)
+    \<in> [\<lambda>((_, _), st). list_all step_id_bounded st]\<^sub>f (Id \<times>\<^sub>r Id) \<times>\<^sub>r Id \<rightarrow> \<langle>Id\<rangle>nres_rel\<close>
 proof -
   have id: \<open>f=g \<Longrightarrow> f \<le>\<Down>Id g\<close> for f g
     by auto
@@ -3462,8 +3739,9 @@ proof -
     unfolding uncurry_def
     apply clarify
     unfolding full_checker_l_s2_def
-      full_checker_l_s_def
+      full_checker_l_s_def COPY_def id_apply
     apply (refine_rcg remap_polys_l2_with_err_s_remap_polys_s_with_err)
+    subgoal by auto
     apply (rule id)
     subgoal by auto
     subgoal by auto
