@@ -2,21 +2,7 @@ theory Printing_Setup
   imports Char_Assn
 begin
 
-text \<open>Constant-table synthesis for character literals.
-
-  A literal \<open>CHR ''-''\<close> is notation for the ground constructor application
-  @{term \<open>Char True False True True False True False False\<close>}, and \<open>Char\<close> is a
-  \<open>sepref_register\<close>ed 8-ary operation (@{thm asciichar_of_holchar_hnr}); each literal
-  therefore synthesizes into eight boolean constants plus the inlined
-  \<open>asciichar_of_holchar\<close> zext/shl/or chain (~23 LLVM instructions per literal).
-  Clang constant-folds that chain, but the generated \<open>.ll\<close> is bloated and every
-  literal costs sepref nine rule applications.
-
-  Here we instead fold each literal into a dedicated nullary operation via
-  \<open>def_pat_rules\<close> \<^emph>\<open>in the ID phase\<close>, i.e. before monadify flattens the \<open>Char\<close>
-  application, and give that operation a one-instruction implementation
-  \<open>Mreturn <code>\<close>. Characters outside the table (non-printable, non-newline)
-  still take the generic constructor route.\<close>
+text \<open>Constant-table synthesis for character literals.\<close>
 
 section \<open>Generic constant rule\<close>
 
@@ -26,10 +12,9 @@ text \<open>@{term char_assn} is pure (@{thm char_assn_pure}), so any word liter
 lemma char_const_hnr:
   assumes \<open>char_of_word w = c\<close>
   shows \<open>(uncurry0 (Mreturn w), uncurry0 (RETURN c)) \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a char_assn\<close>
-  unfolding char_assn_def
   apply (intro hfrefI hn_refineI; vcg)
-  apply (auto simp: assms[symmetric] in_br_conv ENTAILS_def entails_def char_rel_def
-      sep_algebra_simps pure_def pred_lift_extract_simps)
+  apply (auto simp: assms[symmetric] in_br_conv ENTAILS_def entails_def 
+        char_of_word_in_char_rel sep_algebra_simps pure_def pred_lift_extract_simps)
   done
 
 section \<open>The character table\<close>

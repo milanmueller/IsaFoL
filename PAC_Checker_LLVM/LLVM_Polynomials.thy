@@ -157,6 +157,8 @@ lemma mnml_copy_rule'[vcg_rules]: \<open>llvm_htriple
   (\<lambda>r. monom_assn m mi ** sbi_assn n ni ** monomial_assn (m, n) r)\<close>
   using mnml_copy_rule[of \<open>(m, n)\<close> \<open>(mi, ni)\<close>] by simp
 
+lemmas mnml_copy_rule''[vcg_rules] = mnml_copy_rule'[unfolded pure_def]
+
 lemma mnml_copy_hnr[sepref_fr_rules]:
   \<open>(mnml_copy, RETURN o COPY) \<in> monomial_assn\<^sup>k \<rightarrow>\<^sub>a monomial_assn\<close>
   by (sepref_to_hoare; vcg)
@@ -302,7 +304,7 @@ lemma print_monom_hnr[sepref_fr_rules]:
   \<open>(print_monom_impl, (RETURN o print_monom))
   \<in> monom_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
   apply (sepref_to_hoare)
-  supply [vcg_rules] = print_monom_rule
+  supply [vcg_rules] = print_monom_rule[unfolded pure_def]
   by vcg
 
 definition \<open>mnml_print \<equiv> \<lambda>(m,n). cl_to_clt (chars_of_int (COPY n)) @ print_monom m\<close>
@@ -349,7 +351,7 @@ lemma poly_print_hnr[sepref_fr_rules]:
   \<open>(poly_print_impl, (RETURN o poly_print))
   \<in> polynomial_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
   apply (sepref_to_hoare)
-  supply [vcg_rules] = poly_print_rule
+  supply [vcg_rules] = poly_print_rule[unfolded pure_def]
   by vcg
 
 end

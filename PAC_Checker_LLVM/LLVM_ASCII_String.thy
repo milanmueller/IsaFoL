@@ -20,6 +20,14 @@ definition char_uval :: \<open>char \<Rightarrow> nat\<close> where
 
 definition \<open>ascii_char_nat_rel \<equiv> br char_uval is_ascii_unum\<close>
 
+lemma ascii_char_nat_rel_sanity_check:
+  \<open>(hd ''0'',0) \<in> ascii_char_nat_rel\<close> \<open>(hd ''1'',1) \<in> ascii_char_nat_rel\<close>
+  \<open>(hd ''2'',2) \<in> ascii_char_nat_rel\<close> \<open>(hd ''3'',3) \<in> ascii_char_nat_rel\<close>
+  \<open>(hd ''4'',4) \<in> ascii_char_nat_rel\<close> \<open>(hd ''5'',5) \<in> ascii_char_nat_rel\<close>
+  \<open>(hd ''6'',6) \<in> ascii_char_nat_rel\<close> \<open>(hd ''7'',7) \<in> ascii_char_nat_rel\<close>
+  \<open>(hd ''8'',8) \<in> ascii_char_nat_rel\<close> \<open>(hd ''9'',9) \<in> ascii_char_nat_rel\<close>
+  unfolding ascii_char_nat_rel_def char_uval_def is_ascii_unum_def in_br_conv by auto
+
 definition is_ascii_unum_str :: \<open>string \<Rightarrow> bool\<close> where
   \<open>is_ascii_unum_str ss \<equiv> ss \<noteq> [] \<and> foldl (\<lambda>acc d. acc \<and> is_ascii_unum d) True ss\<close>
 
@@ -133,8 +141,9 @@ lemma char_uval_hnr[sepref_fr_rules]:
   supply [vcg_rules] = ll_sub8_rule ll_zext_8_64_rule
   apply vcg
   by (auto simp: is_ascii_unum_def sep_algebra_simps  in_br_conv
-      char_rel_def char_assn_def char_of_word_def
-      pure_def ENTAILS_def entails_def unat_of_char_mod
+      char_rel_def char_of_word_def char_of_word_in_char_rel
+      pure_def ENTAILS_def entails_def unat_of_char_mod char_nat_rel_def
+      char_of_nat_invar_def char_of_nat_def unat_rel_def unat.rel_def
       intro: char_uval_snat_aux)
 
 sepref_def str_uvals_inner_impl is \<open>uncurry (RETURN oo str_uvals_inner)\<close>
@@ -145,13 +154,28 @@ sepref_def str_uvals_inner_impl is \<open>uncurry (RETURN oo str_uvals_inner)\<c
 definition str_uvals_inner_dimpl where
   \<open>str_uvals_inner_dimpl ai ci \<equiv> doM { r \<leftarrow> str_uvals_inner_impl ai ci; sbi_free ai; Mreturn r }\<close>
 
+lemma str_uvals_inner_impl_rule:
+  assumes \<open>(bi, b) \<in> char_rel\<close> and \<open>is_ascii_unum b\<close>
+  shows \<open>llvm_htriple (sbi_assn a ai) (str_uvals_inner_impl ai bi)
+           (\<lambda>r. sbi_assn a ai ** sbi_assn (str_uvals_inner a b) r)\<close>
+proof -
+  have PRE: \<open>(\<lambda>(_, c). is_ascii_unum c) (a, b)\<close> using assms by simp
+  note HT = hfref_htriple_k1_k2_guard[OF str_uvals_inner_impl.refine PRE]
+  show ?thesis
+    using HT[of ai bi] assms
+    by (simp add: pure_app_eq pure_true_conv sep_algebra_simps)
+qed
+
 lemma str_uvals_inner_dimpl_refine:
   \<open>(uncurry str_uvals_inner_dimpl, uncurry (RETURN oo str_uvals_inner))
      \<in> [\<lambda>(_, c). is_ascii_unum c]\<^sub>a sbi_assn\<^sup>d *\<^sub>a char_assn\<^sup>k \<rightarrow> sbi_assn\<close>
   unfolding str_uvals_inner_dimpl_def
   apply sepref_to_hoare
-  supply [vcg_rules] = hfref_htriple_k1_k2_guard[OF str_uvals_inner_impl.refine]
+  supply [vcg_rules] = str_uvals_inner_impl_rule
     sbi_free_rule[THEN MK_FREED]
+  apply vcg
+  apply assumption
+  apply assumption
   apply vcg
   done
 
@@ -223,14 +247,10 @@ lemma str_sval_nres_correct:
   apply (auto simp: is_ascii_snum_str_def is_ascii_unum_str_alt neq_Nil_conv)
   done
 
-lemma ascii_hyphen_hnr[sepref_fr_rules]:
-  \<open>(uncurry0 (Mreturn 45), uncurry0 (RETURN ascii_hyphen))
-  \<in> unit_assn\<^sup>k \<rightarrow>\<^sub>a char_assn\<close>
-  unfolding ascii_hyphen_def hd_def
-  apply sepref_to_hoare
-  apply vcg
-  by (auto simp: sep_algebra_simps ENTAILS_def entails_def char_assn_def pure_def
-    char_rel_def in_br_conv char_of_word_def char_of_def bit_Suc_0_iff)
+sepref_def ascii_hyphen_impl is \<open>uncurry0 (RETURN ascii_hyphen)\<close>
+  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a char_assn\<close>
+  unfolding ascii_hyphen_def
+  by sepref
 
 sepref_register str_uvals_outer'
 
@@ -355,7 +375,7 @@ lemma is_ascii_snum_str_chars_of_int[simp]: \<open>is_ascii_snum_str (chars_of_i
   by (metis chars_of_int_def chars_of_nat_neq_Nil chars_of_nat_unum 
             is_ascii_snum_str_def is_ascii_unum_str_alt list.sel(1,3))
 
-lemma int_ascii_str_rel_ascii_str_int_rel_inv:
+corollary int_ascii_str_rel_ascii_str_int_rel_inv:
   \<open>int_ascii_str_rel O ascii_str_int_rel = Id\<close>
   unfolding int_ascii_str_rel_def ascii_str_int_rel_def
   apply (auto simp: relcomp_unfold)

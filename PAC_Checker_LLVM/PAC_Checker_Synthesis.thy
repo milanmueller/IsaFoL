@@ -169,6 +169,7 @@ lemma union_vars_monom_impl_hnr[sepref_fr_rules]:
     and f = \<open>insert'_impl\<close>
     and fa = \<open>insert'\<close>,
     OF insert'_step_rule]
+  supply [simp] = pure_def
   by vcg
 
 definition union_vars_poly :: \<open>llist_polynomial \<Rightarrow> string set \<Rightarrow> string set\<close> where
@@ -205,6 +206,7 @@ lemma union_vars_poly_impl_hnr[sepref_fr_rules]:
     and f = \<open>union_vars_poly_inner_impl\<close>
     and fa = \<open>union_vars_poly_inner\<close>,
     OF union_vars_poly_inner_step_rule]
+  supply [simp] = pure_def
   by vcg
 
 lemma union_vars_monom_alt_def:

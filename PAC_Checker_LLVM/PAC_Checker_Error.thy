@@ -94,7 +94,7 @@ lemma FAILED_hnr[sepref_fr_rules]:
   apply sepref_to_hoare
   apply vcg
   by (auto simp: sep_algebra_simps ENTAILS_def entails_def msg_assn_def
-    invalid_assn_def)
+    invalid_assn_def pure_def)
 
 (* definition is_csuccess_impl :: \<open>status_conc \<Rightarrow> 1 word llM\<close> where[llvm_code,llvm_inline]:
  *   \<open>is_csuccess_impl \<equiv> \<lambda>(tag,msg). ll_icmp_eq tag 0\<close> *)

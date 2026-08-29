@@ -20,8 +20,8 @@ interpretation strl: copyable_assn char_assn \<open>\<lambda>_. Mreturn ()\<clos
 
 interpretation strl: linorder_assn char_assn ll_icmp_eq ll_icmp_ult
   apply unfold_locales
-  subgoal by (rule char_eq_hnr)
-  subgoal by (rule char_lt_hnr)
+  subgoal using char_eq_hnr char_eq_impl_def by auto
+  subgoal using char_lt_hnr char_lt_impl_def by argo 
   done
 
 interpretation strl: cmp_env_impl
@@ -29,7 +29,7 @@ interpretation strl: cmp_env_impl
   apply unfold_locales
   subgoal by auto
   subgoal by auto
-  subgoal by (rule char_le_impl.refine)
+  subgoal using char_le_hnr by blast 
   done
 
 sepref_register \<open>(=) :: char list \<Rightarrow> char list \<Rightarrow> bool\<close>
@@ -72,10 +72,13 @@ lemma fnv1a_of_strl_inner_rule':
   using fnv1a_of_strl_inner_rule[of w wi c ci]
   by (simp add: pure_def)
 
+text \<open>\<open>char_assn\<close> is an abbreviation for \<open>pure char_rel\<close> now, so the
+  \<open>sepref_to_hoare\<close> normalization unfolds \<open>pure_def\<close> inside the \<open>cl_assn'\<close>
+  parameter; the walk rule must be stated in that unfolded form to match.\<close>
 lemmas fnv1a_of_strl_walk_rule =
-  cl_fold_rule[where R = \<open>\<lambda>a c. \<up>(c = a)\<close> and A = \<open>char_assn\<close>
+  cl_fold_rule[where R = \<open>\<lambda>a c. \<up>(c = a)\<close> and A = \<open>\<lambda>a c. \<up>((c, a) \<in> char_rel)\<close>
     and f = \<open>fnv1a_of_strl_inner_impl\<close> and fa = \<open>fnv1a_of_strl_inner\<close>,
-    OF fnv1a_of_strl_inner_rule']
+    OF fnv1a_of_strl_inner_rule'[unfolded pure_def]]
 
 sepref_register fnv1a_of_strl
 
@@ -256,6 +259,10 @@ lemmas stra_of_strl_hnr[sepref_fr_rules] =
 lemma stra_of_strl_impl_rule[vcg_rules]:
   \<open>llvm_htriple (strl_assn' xs xsi) (stra_of_strl_impl xsi) (\<lambda>r. stra_assn (capped xs) r)\<close>
   by (rule hfref_htriple_d1[OF stra_of_strl_hnr])
+
+text \<open>Variant matching goals where @{method sepref_to_hoare} has unfolded @{thm pure_def}
+  inside the @{const cl_assn'} element parameter.\<close>
+lemmas stra_of_strl_impl_rule'[vcg_rules] = stra_of_strl_impl_rule[unfolded pure_def]
 
 experiment
 begin

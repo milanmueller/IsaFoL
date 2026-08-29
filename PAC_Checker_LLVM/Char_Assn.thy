@@ -4,24 +4,27 @@ begin
 
 text \<open>We need to tell sepref how to relate @{typ \<open>char\<close>} and @{typ \<open>8 word\<close>}\<close>
 
-definition char_of_word :: \<open>8 word \<Rightarrow> char\<close> where
-  \<open>char_of_word \<equiv> char_of \<circ> unat\<close>
+definition char_of_nat :: \<open>nat \<Rightarrow> char\<close> where \<open>char_of_nat = char_of\<close>
+definition char_of_nat_invar :: \<open>nat \<Rightarrow> bool\<close> where \<open>char_of_nat_invar n = (n < 256)\<close>
+definition \<open>char_nat_rel = br char_of_nat char_of_nat_invar\<close>
+abbreviation \<open>w8_assn \<equiv> unat_assn' TYPE(8)\<close>
 
 definition char_rel :: \<open>(8 word \<times> char) set\<close> where
-  \<open>char_rel \<equiv> br char_of_word (\<lambda>_. True)\<close>
+  \<open>char_rel = unat_rel O char_nat_rel\<close>
 
-definition \<open>char_assn \<equiv> pure char_rel\<close>
+abbreviation char_assn :: \<open>char \<Rightarrow> 8 word \<Rightarrow> assn\<close> where
+  \<open>char_assn \<equiv> pure char_rel\<close>
+
+lemmas char_rel_norm[fcomp_norm_unfold] = char_rel_def[symmetric]
+
+lemma char_assn_alt: \<open>hr_comp w8_assn char_nat_rel = char_assn\<close>
+  by (simp add: char_rel_def hr_comp_pure)
 
 lemma char_assn_pure[safe_constraint_rules]: \<open>is_pure char_assn\<close>
-  unfolding char_assn_def by simp
-
-interpretation char_word: standard_opr_abstraction
-  "char_of_word :: 8 word \<Rightarrow> char"
-  "(\<lambda>_. True)"
-  "(\<lambda>_ _ _. True)"
-  "(\<lambda>_ _ _ _. True)"
-  "(\<lambda>_ _. True)"
-  by standard simp
+  by simp
+  
+definition char_of_word :: \<open>8 word \<Rightarrow> char\<close> where
+  \<open>char_of_word \<equiv> (char_of :: nat \<Rightarrow> char) \<circ> (unat :: 8 word \<Rightarrow> nat)\<close>
 
 lemma unat_of_char_mod: \<open>unat (a :: 8 word) mod 256 = unat a\<close>
 proof -
@@ -30,18 +33,6 @@ proof -
   then show ?thesis
     by simp
 qed
-
-lemma char_eq_is_cmp_op: "char_word.is_cmp_op ll_icmp_eq (=) (=)"
-  apply (rule char_word.is_cmp_opI)
-  unfolding ll_icmp_eq_def op_lift_cmp_def char_of_word_def
-  apply (simp add: from_bool_lint_conv word_to_lint_eq)
-  using unat_of_char_mod by auto
-
-lemma char_ne_is_cmp_op: \<open>char_word.is_cmp_op ll_icmp_ne (\<noteq>) (\<noteq>)\<close>
-  apply (rule char_word.is_cmp_opI)
-  unfolding ll_icmp_ne_def op_lift_cmp_def char_of_word_def
-  apply (simp add: from_bool_lint_conv word_to_lint_eq)
-  using unat_of_char_mod by auto
 
 definition less_eq_char :: \<open>char \<Rightarrow> char \<Rightarrow> bool\<close> where
   \<open>less_eq_char c d = (((of_char c) :: nat) \<le> of_char d)\<close>
@@ -68,51 +59,66 @@ instance
     (auto simp: less_eq_char_inst less_char_inst less_eq_char_def less_char_def)
 end
 
-lemma char_lt_is_cmp_op: "char_word.is_cmp_op ll_icmp_ult (<) (<)"
-  apply (rule char_word.is_cmp_opI)
-  unfolding ll_icmp_ult_def op_lift_cmp_def char_of_word_def
-  apply (simp add: from_bool_lint_conv word_to_lint_ult)
-  using unat_of_char_mod
-  by (metis comp_eq_dest_lhs less_char_def less_char_inst of_char_of word_less_nat_alt)
+sepref_def char_eq_impl is \<open>uncurry (RETURN oo ((=) :: nat \<Rightarrow> nat \<Rightarrow> bool))\<close>
+  :: \<open>(unat_assn' TYPE(8))\<^sup>k *\<^sub>a (unat_assn' TYPE(8))\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  by sepref
 
-lemma char_le_is_cmp_op: "char_word.is_cmp_op ll_icmp_ule (\<le>) (\<le>)"
-  apply (rule char_word.is_cmp_opI)
-  unfolding ll_icmp_ule_def op_lift_cmp_def char_of_word_def
-  apply (simp add: from_bool_lint_conv word_to_lint_ule)
-  using unat_of_char_mod 
-  by (metis comp_eq_dest_lhs less_char_def less_char_inst linorder_not_le of_char_of word_less_eq_iff_unsigned)
-
+lemma char_eq_fref: 
+  \<open>(uncurry (RETURN oo (=)), uncurry (RETURN oo (=)))
+  \<in> char_nat_rel \<times>\<^sub>r char_nat_rel \<rightarrow>\<^sub>f \<langle>bool_rel\<rangle>nres_rel\<close>
+  by (intro frefI nres_relI) 
+     (auto simp: char_nat_rel_def in_br_conv
+                 char_of_nat_def char_of_nat_invar_def)
 
 lemmas char_eq_hnr[sepref_fr_rules] =
-  char_eq_is_cmp_op[THEN char_word.hn_cmp_op,
-    unfolded char_word.assn_is_rel bool.assn_is_rel char_word.rel_def,
-    folded bool1_rel_def char_rel_def char_assn_def]
+  char_eq_impl.refine[FCOMP char_eq_fref]
 
-lemmas char_ne_hnr[sepref_fr_rules] =
-  char_ne_is_cmp_op[THEN char_word.hn_cmp_op,
-    unfolded char_word.assn_is_rel bool.assn_is_rel char_word.rel_def,
-    folded bool1_rel_def op_neq_def char_rel_def char_assn_def]
+lemma of_char_char_of_nat:
+  \<open>char_of_nat_invar n \<Longrightarrow> (of_char (char_of_nat n) :: nat) = n\<close>
+  by (simp add: char_of_nat_def char_of_nat_invar_def)
 
-lemmas char_lt_hnr[sepref_fr_rules] =
-  char_lt_is_cmp_op[THEN char_word.hn_cmp_op,
-    unfolded char_word.assn_is_rel bool.assn_is_rel char_word.rel_def,
-    folded bool1_rel_def char_rel_def char_assn_def char_rel_def]
+lemma char_of_nat_inj:
+  \<open>char_of_nat_invar a \<Longrightarrow> char_of_nat_invar b \<Longrightarrow>
+    (char_of_nat a = char_of_nat b) \<longleftrightarrow> a = b\<close>
+  by (metis of_char_char_of_nat)
 
-lemmas char_le_hnr[sepref_fr_rules] =
-  char_le_is_cmp_op[THEN char_word.hn_cmp_op,
-    unfolded char_word.assn_is_rel bool.assn_is_rel char_word.rel_def,
-    folded bool1_rel_def char_rel_def char_assn_def]
+lemmas char_nat_rel_simps =
+  char_nat_rel_def in_br_conv of_char_char_of_nat char_of_nat_inj
+  less_char_inst less_eq_char_inst less_char_def less_eq_char_def
 
-lemma char_of_word_hnr[sepref_fr_rules]:
-  \<open>(Mreturn, RETURN o char_of_word) \<in> (hn_val word_rel)\<^sup>k \<rightarrow>\<^sub>a char_assn\<close>
-  unfolding char_assn_def 
-  apply (intro hfrefI hn_refineI; vcg)
-  apply (auto simp: in_br_conv ENTAILS_def entails_def char_rel_def char_of_word_def sep_algebra_simps br_def)
-  by (smt (verit, best) Misc.IdD case_prodI fri_basic_extract_simps(1) import_param_3(2) mem_Collect_eq pure_app_eq)
+sepref_def char_ne_impl is \<open>uncurry (RETURN oo (op_neq :: nat \<Rightarrow> nat \<Rightarrow> bool))\<close>
+  :: \<open>w8_assn\<^sup>k *\<^sub>a w8_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  by sepref
+
+sepref_def char_lt_impl is \<open>uncurry (RETURN oo ((<) :: nat \<Rightarrow> nat \<Rightarrow> bool))\<close>
+  :: \<open>w8_assn\<^sup>k *\<^sub>a w8_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  by sepref
+
+sepref_def char_le_impl is \<open>uncurry (RETURN oo ((\<le>) :: nat \<Rightarrow> nat \<Rightarrow> bool))\<close>
+  :: \<open>w8_assn\<^sup>k *\<^sub>a w8_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  by sepref
+
+lemma char_ne_fref:
+  \<open>(uncurry (RETURN oo op_neq), uncurry (RETURN oo op_neq))
+  \<in> char_nat_rel \<times>\<^sub>r char_nat_rel \<rightarrow>\<^sub>f \<langle>bool_rel\<rangle>nres_rel\<close>
+  by (intro frefI nres_relI) (auto simp: char_nat_rel_simps)
+
+lemma char_lt_fref:
+  \<open>(uncurry (RETURN oo (<)), uncurry (RETURN oo (<)))
+  \<in> char_nat_rel \<times>\<^sub>r char_nat_rel \<rightarrow>\<^sub>f \<langle>bool_rel\<rangle>nres_rel\<close>
+  by (intro frefI nres_relI) (auto simp: char_nat_rel_simps)
+
+lemma char_le_fref:
+  \<open>(uncurry (RETURN oo (\<le>)), uncurry (RETURN oo (\<le>)))
+  \<in> char_nat_rel \<times>\<^sub>r char_nat_rel \<rightarrow>\<^sub>f \<langle>bool_rel\<rangle>nres_rel\<close>
+  by (intro frefI nres_relI) (auto simp: char_nat_rel_simps)
+
+lemmas char_ne_hnr[sepref_fr_rules] = char_ne_impl.refine[FCOMP char_ne_fref]
+lemmas char_lt_hnr[sepref_fr_rules] = char_lt_impl.refine[FCOMP char_lt_fref]
+lemmas char_le_hnr[sepref_fr_rules] = char_le_impl.refine[FCOMP char_le_fref]
 
 lemma char_assn_mk_free[sepref_frame_free_rules]:
   \<open>MK_FREE char_assn (\<lambda>_. Mreturn ())\<close>
-  unfolding char_assn_def
   by (rule mk_free_pure)
 
 lemma char_of_word_inj: \<open>char_of_word a = char_of_word b \<longleftrightarrow> a = b\<close>
@@ -126,7 +132,7 @@ qed simp
 
 lemma char_of_word_less: \<open>char_of_word c < char_of_word c' \<longleftrightarrow> c < c'\<close>
   using unat_of_char_mod
-  by (meson char_lt_is_cmp_op char_word.is_cmp_op_def)
+  by (metis char_of_word_def comp_apply less_char_def less_char_inst of_char_of word_less_iff_unsigned)
 
 context begin
 interpretation llvm_prim_arith_setup .
@@ -134,16 +140,27 @@ interpretation llvm_prim_arith_setup .
 lemma char_eq_rule:
   \<open>llvm_htriple (char_assn a c ** char_assn a' c') (ll_icmp_eq c c')
     (\<lambda>r. char_assn a c ** char_assn a' c' ** \<upharpoonleft>bool.assn (a = a') r)\<close>
-  unfolding char_assn_def char_rel_def
+  unfolding char_rel_def
   supply [simp] = pure_def in_br_conv bool.assn_def char_of_word_inj
-  by vcg
+                  char_nat_rel_def char_of_nat_def char_of_nat_invar_def
+  apply vcg
+  apply (auto simp: ENTAILS_def entails_def sep_algebra_simps)
+  apply (metis in_br_conv unat.rel_def unat_rel_def word_unat.Rep_inverse)
+  apply (metis in_br_conv unat.rel_def unat_rel_def)
+  done
+  
 
 lemma char_lt_rule:
   \<open>llvm_htriple (char_assn a c ** char_assn a' c') (ll_icmp_ult c c')
     (\<lambda>r. char_assn a c ** char_assn a' c' ** \<upharpoonleft>bool.assn (a < a') r)\<close>
-  unfolding char_assn_def char_rel_def
+  unfolding char_rel_def
   supply [simp] = pure_def in_br_conv bool.assn_def char_of_word_less
-  by vcg
+                  char_nat_rel_def char_of_nat_def char_of_nat_invar_def
+  apply vcg
+  apply (auto simp: ENTAILS_def entails_def sep_algebra_simps)
+  apply (simp add: less_char_def less_char_inst unat.rel_def unat_arith_simps(2) unat_rel_def)
+  apply (simp add: less_char_def less_char_inst unat.rel_def unat_arith_simps(2) unat_rel_def)
+  done
 
 end
 
@@ -153,12 +170,6 @@ sepref_register \<open>(\<le>) :: char \<Rightarrow> char \<Rightarrow> bool\<cl
 sepref_register op_neq_char: "op_neq :: char \<Rightarrow> _"
 
 section \<open>Producing Chars (HOL \<open>Char\<close> Constructor)\<close>
-
-text \<open>String literals elaborate into @{term \<open>Char b0 b1 b2 b3 b4 b5 b6 b7\<close>} constructor
-  applications over eight booleans (least significant bit first). To let sepref synthesize
-  them, we implement the constructor generically: zero-extend each 1-bit word to 8 bits,
-  shift it into position, and or everything together. At literal call sites the arguments
-  are constants, so LLVM constant-folds the chain into a single \<open>i8\<close> constant.\<close>
 
 definition asciichar_of_holchar ::
   \<open>1 word \<Rightarrow> 1 word \<Rightarrow> 1 word \<Rightarrow> 1 word \<Rightarrow> 1 word \<Rightarrow> 1 word \<Rightarrow> 1 word \<Rightarrow> 1 word \<Rightarrow> 8 word llM\<close>
@@ -202,9 +213,6 @@ qed
 lemma bit_word1_iff: \<open>bit (b :: 1 word) n \<longleftrightarrow> n = 0 \<and> b \<noteq> 0\<close>
   using word1_exhaust[of b] by (cases n) (auto simp: bit_0 dest: bit_imp_le_length)
 
-text \<open>The ambient simpset rewrites \<open><< 1\<close> to \<open>* 2\<close>, so this operand needs its own bit rule.
-  Proved by exhausting the two values of the 1-word (simp re-normalizes \<open>push_bit\<close> back
-  to \<open>* 2\<close>, so the bit-algebraic route is not available here).\<close>
 lemma bit_ucast18_double: \<open>bit (UCAST(1 \<rightarrow> 8) (b :: 1 word) * 2) n \<longleftrightarrow> n = 1 \<and> b \<noteq> 0\<close>
 proof (cases \<open>b = 0\<close>)
   case True
@@ -226,11 +234,6 @@ lemma word1_lsb: \<open>lsb (b :: 1 word) \<longleftrightarrow> b \<noteq> 0\<cl
 lemma bit_ucast18_shiftl: \<open>bit (UCAST(1 \<rightarrow> 8) (b :: 1 word) << k) n \<longleftrightarrow> n = k \<and> k < 8 \<and> b \<noteq> 0\<close>
   by (auto simp: bit_shiftl_word_iff bit_ucast18)
 
-text \<open>The assembled byte has exactly the constructor's booleans as bits. The statement
-  is normalized to the shape the ambient simpset leaves in the vcg goal: left-nested
-  or-chain, \<open><< 1\<close> already rewritten to \<open>* 2\<close>, and \<open>to_bool\<close> unfolded to \<open>\<noteq> 0\<close>.
-  The proof must not unfold to \<open>push_bit\<close> (the ambient simpset normalizes it back,
-  overflowing the simplifier); only atom-level \<open>bit\<close> rules are used.\<close>
 lemma asciichar_of_holchar_correct:
   fixes b0 b1 b2 b3 b4 b5 b6 b7 :: \<open>1 word\<close>
   shows \<open>char_of_word
@@ -242,11 +245,23 @@ lemma asciichar_of_holchar_correct:
   by (simp add: bit_unsigned_iff bit_or_iff bit_ucast18 bit_ucast18_double bit_ucast18_shiftl
       bit_word1_iff word1_lsb)
 
+lemma char_of_word_in_char_rel_raw:
+  \<open>(w, char_of_word w) \<in> br unat (\<lambda>_. True) O br char_of char_of_nat_invar\<close>
+proof -
+  have \<open>unat w < 256\<close>
+    by (rule less_le_trans[OF unat_lt2p]) simp
+  then show ?thesis
+    by (auto simp: in_br_conv char_of_word_def char_of_nat_invar_def
+      intro!: relcompI[of w \<open>unat w\<close>])
+qed
+
+lemma char_of_word_in_char_rel:
+  \<open>(w, char_of_word w) \<in> char_rel\<close>
+  unfolding char_rel_def
+  by (simp add: Char_Assn.char_of_nat_def char_nat_rel_def char_of_word_in_char_rel_raw unat.rel_def unat_rel_def)
+
 sepref_register Char
 
-text \<open>The library's @{thm norm_RETURN_o} (in \<open>to_hnr_post\<close>) only normalizes
-  \<open>(RETURN o\<dots>o f)$x$\<dots>\<close> heads up to arity 5; the 8-ary constructor needs its own rule,
-  otherwise the \<open>sepref_fr_rules\<close> attribute rejects the rule with "Invalid abstract head".\<close>
 lemma norm_RETURN_o8[to_hnr_post]:
   \<open>\<And>f. (\<lambda>x y z a b. RETURN ooo f x y z a b)$x$y$z$a$b$c$d$e = (RETURN$(f$x$y$z$a$b$c$d$e))\<close>
   by auto
@@ -258,22 +273,16 @@ lemma asciichar_of_holchar_hnr[sepref_fr_rules]:
   \<open>(uncurry7 asciichar_of_holchar, uncurry7 (RETURN oooooooo Char))
     \<in> bool1_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a
       bool1_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k \<rightarrow>\<^sub>a char_assn\<close>
-  unfolding asciichar_of_holchar_def char_assn_def
+  unfolding asciichar_of_holchar_def
   supply [simp] = is_up' pure_def in_br_conv char_rel_def bool1_rel_def bool.rel_def
   apply sepref_to_hoare
   apply vcg (* very slow *)
-  by (simp add: asciichar_of_holchar_correct ENTAILS_def entails_def
-      sep_algebra_simps sep_conj_exists pred_lift_extract_simps)
-
-end
-
-experiment
-begin
-
-sepref_definition char_lit_test is \<open>uncurry0 (RETURN (CHR ''a''))\<close>
-  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a char_assn\<close>
-  by sepref
-
+  apply (simp add: asciichar_of_holchar_correct ENTAILS_def entails_def
+        sep_algebra_simps sep_conj_exists pred_lift_extract_simps char_nat_rel_def
+        in_br_conv char_of_nat_def char_of_nat_invar_def unat_rel_def unat.rel_def)
+  apply (simp add: asciichar_of_holchar_correct[symmetric] char_of_word_in_char_rel_raw)
+  done
+  
 end
 
 section \<open>Hashing of Chars\<close>
@@ -297,16 +306,24 @@ proof -
     by (simp add: of_char_of unat_of_char_mod)
 qed
 
+lemma char_of_word_hnr[sepref_fr_rules]:
+  \<open>(Mreturn, RETURN o char_of_word) \<in> word_assn\<^sup>k \<rightarrow>\<^sub>a char_assn\<close>
+  apply (sepref_to_hoare; vcg)
+  apply (auto simp: sep_algebra_simps ENTAILS_def entails_def char_rel_def)
+  using char_of_word_in_char_rel char_rel_def by fastforce
+  
 context begin
 interpretation llvm_prim_arith_setup .
 
 lemma w64_of_char_hnr[sepref_fr_rules]:
   \<open>(\<lambda>c. ll_zext c TYPE(64 word), RETURN o w64_of_char)
     \<in> char_assn\<^sup>k \<rightarrow>\<^sub>a word_assn' TYPE(64)\<close>
-  supply [simp] = is_up' char_assn_def char_rel_def in_br_conv pure_def
-    w64_of_char_ucast
-  apply sepref_to_hoare
-  by vcg
+  supply [simp] = is_up' char_rel_def in_br_conv pure_def
+    w64_of_char_ucast char_of_word_in_char_rel_raw char_nat_rel_def
+  apply (sepref_to_hoare; vcg)
+  apply (auto simp: sep_algebra_simps ENTAILS_def entails_def
+          char_of_nat_def)
+  by (simp add: char_of_nat_invar_def unat.rel_def unat_rel_def w64_of_char_def)
 
 end
 
@@ -315,9 +332,15 @@ definition \<open>fnv1a_of_char c \<equiv> (fnv_offset XOR w64_of_char c) * fnv_
 sepref_def fnv1a_of_char_impl is \<open>RETURN o fnv1a_of_char\<close>
   :: \<open>char_assn\<^sup>k \<rightarrow>\<^sub>a (word_assn' TYPE(64))\<close>
   unfolding fnv1a_of_char_def
-  by sepref_dbg_keep  
+  by sepref_dbg_keep
 
-(* This is essentially just testing *)
+experiment
+begin
+
+sepref_definition char_lit_test is \<open>uncurry0 (RETURN (CHR ''a''))\<close>
+  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a char_assn\<close>
+  by sepref
+
 sepref_definition char_eq_impl is \<open>uncurry (RETURN oo (=))\<close> 
   :: \<open>char_assn\<^sup>k *\<^sub>a char_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   by sepref
@@ -333,5 +356,7 @@ sepref_definition char_lt_impl is \<open>uncurry (RETURN oo (<))\<close>
 sepref_definition char_le_impl is \<open>uncurry (RETURN oo (\<le>))\<close> 
   :: \<open>char_assn\<^sup>k *\<^sub>a char_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   by sepref
+
+end
 
 end
