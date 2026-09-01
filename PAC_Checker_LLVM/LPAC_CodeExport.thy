@@ -1,6 +1,7 @@
 theory LPAC_CodeExport
   imports
     LPAC_Efficient_Checker_Synthesis
+    LPAC_Checker_Synthesis
     LLVM_ASCII_String
     IICF_Copying_List
 begin
@@ -224,14 +225,6 @@ context
   assumes IMP: \<open>is_import A B impf\<close>
   notes [safe_constraint_rules] = CN_FALSEI[of is_pure A]
 begin
-
-text \<open>NB: \<open>import_rule\<close> and \<open>wo_nth_import_rule\<close> must NOT carry a global
-  \<open>[vcg_rules]\<close> attribute: on context exit the attribute is re-applied to the
-  exported rule, which is guarded by the (never dischargeable) premise
-  \<open>is_import ?A ?B ?impf\<close> and — for \<open>import_rule\<close> — has the fully schematic
-  command head \<open>?impf ?c\<close> that HO-unifies with every command. Such a rule makes
-  every later \<open>vcg\<close> invocation in the import closure diverge. Supply the rules
-  locally in the proofs (inside this context) that need them.\<close>
 
 lemma import_rule: \<open>llvm_htriple (A a c) (impf c) (\<lambda>r. A a c ** B a r)\<close>
   using hfref_htriple_k1[OF IMP[unfolded is_import_def]] by simp
@@ -499,10 +492,6 @@ lemma slice_to_big_int_m_correct:
     \<in> [\<lambda>x. length x < max_snat 64]\<^sub>f Id \<rightarrow> \<langle>Id\<rangle>nres_rel\<close>
   by (intro frefI nres_relI) (auto intro!: slice_to_big_int_m_le)
 
-
-text \<open>The \<open>str_sval\<close> rule registered in \<open>LLVM_ASCII_String\<close> retains an
-  unnormalized \<open>hr_comp strl_assn' (\<langle>Id\<rangle>list_rel)\<close> argument assertion, so
-  \<open>sepref\<close> never applies it. Re-derive the collapsed form.\<close>
 lemma str_sval_hnr'[sepref_fr_rules]:
   \<open>(str_sval_impl, RETURN o str_sval) \<in> [is_ascii_snum_str]\<^sub>a strl_assn'\<^sup>d \<rightarrow> sbi_assn\<close>
   using str_sval_hnr by simp
@@ -517,8 +506,6 @@ lemmas slice_to_big_int_hnr =
 
 subsection \<open>Bridges between guarded and unguarded refinement rules\<close>
 
-text \<open>A precondition that is a representation invariant of the argument
-  assertion can be dropped from a guarded \<open>hfref\<close> rule.\<close>
 lemma hfref_precond_from_assn:
   assumes R: \<open>(f, g) \<in> [P]\<^sub>a A\<^sup>k \<rightarrow> B\<close>
   assumes I: \<open>\<And>a c. pure_part (A a c) \<Longrightarrow> P a\<close>
@@ -584,21 +571,10 @@ proof -
     done
 qed
 
-section \<open>Verified Import of the C-Parsed Structures\<close>
-
-text \<open>Methodology: every C-side structure gets a refinement assertion whose
-  \<^emph>\<open>abstract\<close> value is the already-parsed HOL value (built by composing raw
-  component assertions with a parse function via \<open>hr_comp\<close>/\<open>br\<close>). Every
-  importer is then an \<open>is_import\<close> instance, i.e. an abstract \<open>COPY\<close>, and the
-  array-shaped levels are instances of the generic
-  \<open>arr_to_list_import_is_import\<close>. What remains trusted is only the claim that
-  the C parser establishes the source assertions.\<close>
+section \<open>Import of the C-Parsed Structures\<close>
 
 subsection \<open>Import combinators\<close>
 
-text \<open>Bridge from a parse-style program to an \<open>is_import\<close>-style abstract
-  \<open>COPY\<close>: composing with this \<open>fref\<close> moves the parse function into the source
-  assertion.\<close>
 lemma import_parse_fref:
   \<open>(RETURN o f, RETURN o COPY) \<in> br f (\<lambda>_. True) \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
   by (intro frefI nres_relI) (auto simp: in_br_conv)
@@ -642,7 +618,6 @@ lemma imp_term_is_import:
   using arr_to_list_import_is_import[OF slice_to_str_is_import]
   unfolding imp_term_def .
 
-text \<open>Named abstract operation for use in downstream syntheses.\<close>
 definition import_term :: \<open>char list list \<Rightarrow> char list list\<close> where
   \<open>import_term \<equiv> COPY\<close>
 
@@ -656,9 +631,6 @@ subsection \<open>Coefficients\<close>
 
 abbreviation \<open>sgn_assn \<equiv> unat_assn' TYPE(8)\<close>
 
-text \<open>The sign byte of the C interface: \<open>1\<close> means negated. A malformed number
-  string yields coefficient \<open>0\<close> (\<open>slice_to_big_int\<close> returns \<open>int0\<close> then),
-  which makes the checker reject the proof later on.\<close>
 definition parse_coeff :: \<open>char list \<Rightarrow> nat \<Rightarrow> int\<close> where
   \<open>parse_coeff s sg =
      (case slice_to_big_int s of (ok, v) \<Rightarrow> if sg = 1 then - v else v)\<close>
@@ -817,9 +789,6 @@ lemma imp_srcs_is_import: \<open>is_import c_summands_assn srcs_assn imp_srcs\<c
 
 subsection \<open>Proof steps\<close>
 
-text \<open>Hoare triples for the step constructors, derived from their
-  \<open>sepref\<close> rules.\<close>
-
 lemma mk_cl_rule:
   \<open>llvm_htriple (srcs_assn a ai ** si64_assn n ni ** polynomial_assn p ri)
      (mk_cl_impl ai ni ri)
@@ -839,9 +808,6 @@ lemma mk_ldel_rule:
      (\<lambda>r. lpac_step_assn (Del i) r ** si64_assn i ii)\<close>
   unfolding mk_ldel_impl_def
   by (vcg; auto simp: step_pure_reassembly)
-
-text \<open>The parsed view of a C rule is the step itself. The tag convention of
-  the C interface is \<open>0 \<mapsto> CL\<close>, \<open>1 \<mapsto> Del\<close>, anything else \<open>\<mapsto> Extension\<close>.\<close>
 
 definition c_rule_assn :: \<open>lpac_step_hol \<Rightarrow> c_rule \<Rightarrow> assn\<close> where
   \<open>c_rule_assn step \<equiv> \<lambda>(t, u). case step of
@@ -903,7 +869,7 @@ lemma imp_step_is_import: \<open>is_import c_rule_assn lpac_step_assn imp_step\<
   apply (clarsimp simp: refine_pw_simps)
   subgoal for step tu
     apply (cases tu)
-    subgoal for t u
+    subgoal for t
       apply (cases step)
       subgoal for srcs n res
         apply (clarsimp simp: imp_step_def)
@@ -921,6 +887,7 @@ lemma imp_step_is_import: \<open>is_import c_rule_assn lpac_step_assn imp_step\<
         by (auto simp: step_pure_reassembly)
       done
     done
+  done
 
 subsection \<open>The proof (rule list)\<close>
 
@@ -964,41 +931,47 @@ definition imp_inputs_m
   :: \<open>nat \<Rightarrow> (nat \<times> llist_polynomial) list \<Rightarrow> (nat, llist_polynomial) fmap nres\<close>
   where
   \<open>imp_inputs_m n xs = doN {
-     ASSERT (n = length xs \<and> n < max_snat 64);
+     ASSERT (n = length xs \<and> n < max_snat 64 \<and>
+       (\<forall>(k, _) \<in> set xs. k + 1 < max_snat 64));
      (m, _) \<leftarrow> WHILEIT
        (\<lambda>(m, i). i \<le> n \<and> m = fold (\<lambda>(k, p) m. fmupd k p m) (take i xs) fmempty)
        (\<lambda>(_, i). i < n)
        (\<lambda>(m, i). doN {
           ASSERT (i < n);
+          ASSERT (i + 1 < max_snat 64);
           (k, p) \<leftarrow> mop_list_get xs i;
-          RETURN (fmupd k p m, i + 1)
+          ASSERT (k + 1 < max_snat 64);
+          let pb = BOX p;
+          RETURN (fmupd k pb m, i + 1)
         })
        (fmempty, 0);
      RETURN m
    }\<close>
 
 lemma imp_inputs_m_le:
-  assumes \<open>n = length xs\<close> and \<open>n < max_snat 64\<close>
+  assumes \<open>n = length xs\<close> and \<open>n < max_snat 64\<close> and
+    \<open>\<forall>(k, _) \<in> set xs. k + 1 < max_snat 64\<close>
   shows \<open>imp_inputs_m n xs \<le> RETURN (inputs_fmap xs)\<close>
   unfolding imp_inputs_m_def mop_list_get_alt inputs_fmap_def
   apply (refine_vcg WHILEIT_rule[where R=\<open>measure (\<lambda>(_, i). n - i)\<close>])
   using assms
-  apply (clarsimp_all simp: take_Suc_conv_app_nth split: prod.splits)
-  using diff_less_mono2 by blast
+  apply (clarsimp_all simp: take_Suc_conv_app_nth BOX_def
+    all_set_conv_all_nth split: prod.splits)
+  using diff_less_mono2 by auto
 
 lemma imp_inputs_m_correct:
   \<open>(uncurry imp_inputs_m, uncurry (RETURN oo inputs_fmap_n))
-    \<in> [\<lambda>(n, xs). n = length xs \<and> n < max_snat 64]\<^sub>f Id \<times>\<^sub>r Id \<rightarrow> \<langle>Id\<rangle>nres_rel\<close>
-  by (intro frefI nres_relI)
-    (auto simp: inputs_fmap_n_def intro!: imp_inputs_m_le)
+    \<in> [\<lambda>(n, xs). n = length xs \<and> n < max_snat 64 \<and>
+        (\<forall>(k, _) \<in> set xs. k + 1 < max_snat 64)]\<^sub>f Id \<times>\<^sub>r Id \<rightarrow> \<langle>Id\<rangle>nres_rel\<close>
+  apply (intro frefI nres_relI; auto simp: inputs_fmap_n_def intro!: imp_inputs_m_le)
+  by fast
 
 sepref_def imp_inputs_arr is \<open>uncurry imp_inputs_m\<close>
   :: \<open>si64_assn\<^sup>k *\<^sub>a (woarray_assn c_input_assn)\<^sup>k \<rightarrow>\<^sub>a polys_assn\<close>
   unfolding imp_inputs_m_def op_fmap_empty_def[symmetric]
   supply [sepref_fr_rules] = wo_nth_import_hnr[OF imp_input_is_import]
   apply (annot_snat_const size_t)
-  apply sepref_dbg_keep
-  apply sepref_dbg_trans_keep
+  by sepref
 
 lemmas imp_inputs_arr_hnr = imp_inputs_arr.refine[FCOMP imp_inputs_m_correct]
 
@@ -1007,7 +980,8 @@ definition imp_inputs where [llvm_code]:
 
 lemma imp_inputs_import:
   \<open>(imp_inputs, RETURN o inputs_fmap)
-    \<in> (arr_with_len_assn c_input_assn)\<^sup>k \<rightarrow>\<^sub>a polys_assn\<close>
+    \<in> [\<lambda>xs. \<forall>(k, _) \<in> set xs. k + 1 < max_snat 64]\<^sub>a
+      (arr_with_len_assn c_input_assn)\<^sup>k \<rightarrow> polys_assn\<close>
 proof -
   note HT = hfref_htriple_k1_k2_guard[OF imp_inputs_arr_hnr]
   show ?thesis
@@ -1019,12 +993,13 @@ proof -
       apply (clarsimp dest!: pure_part_split_conj)
       subgoal premises prems
       proof -
-        have PRE: \<open>(\<lambda>(n, arr). n = length arr \<and> n < max_snat 64) (length xs, xs)\<close>
+        have PRE: \<open>(\<lambda>(n, arr). n = length arr \<and> n < max_snat 64 \<and>
+            (\<forall>(k, _) \<in> set arr. k + 1 < max_snat 64)) (length xs, xs)\<close>
           using prems snat_lt_max_snat[of ni] by (auto simp: snat.assn_def)
         show ?thesis
           using HT[OF PRE, of ni ai]
-          by (simp add: inputs_fmap_n_def pure_app_eq in_snat_rel_conv_assn
-            snat.assn_is_rel[symmetric] snat_rel_def sep_algebra_simps)
+          by (simp add: inputs_fmap_n_def arr_with_len_assn_def pure_def
+            snat.assn_is_rel snat_rel_def sep_algebra_simps)
       qed
       done
     done
@@ -1045,7 +1020,7 @@ definition run_checker :: \<open>c_inputs ptr \<Rightarrow> c_proof ptr \<Righta
     isatgt \<leftarrow> imp_target ctgt;
     isainps \<leftarrow> imp_inputs cinps;
     isaprf \<leftarrow> imp_proof cprf;
-    ((st, msg), vsp) \<leftarrow> full_checker_l_impl isatgt isainps isaprf;
+    ((st, msg), vsp) \<leftarrow> LPAC_Checker_Synthesis.full_checker_l_impl isatgt isainps isaprf;
     Mreturn st
   }\<close>
 
