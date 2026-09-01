@@ -23,20 +23,16 @@ session PAC_Checker_LLVM = "Isabelle_LLVM" +
     LLVM_Polynomials
     LPAC_Checker_Specification
     LPAC_Checker
-    LPAC_Checker_Synthesis
     LPAC_Perfectly_Shared
     LPAC_Error
     LPAC_Efficient_Checker
     LPAC_Perfectly_Shared_Vars
-    LPAC_Efficient_Checker_Sorting
     LPAC_Specification
-    LPAC_Step_Assn
     More_Loops
     PAC_Checker_Error
     PAC_Checker_Init
     PAC_Checker_Relation
     PAC_Checker_Specification
-    PAC_Checker_Synthesis
     PAC_Checker
     PAC_Map_Rel
     PAC_Misc
@@ -45,7 +41,6 @@ session PAC_Checker_LLVM = "Isabelle_LLVM" +
     PAC_Polynomials_Term
     PAC_Polynomials
     PAC_Specification
-    PAC_Step_Assn
     Printing_Setup
     Aux_Lemmas
     Char_Assn

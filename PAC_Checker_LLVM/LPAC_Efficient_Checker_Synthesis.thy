@@ -2279,7 +2279,9 @@ text \<open>Structural equality on shared polynomials: monoms compare via \<open
   the pair equality to \<open>poly_s_assn\<close> (cf. \<open>mnml_eq_impl'\<close> in \<open>LLVM_Polynomials\<close>).\<close>
 
 definition mnml_s_eq_impl' where [llvm_code]:
-  \<open>mnml_s_eq_impl' \<equiv> \<lambda>(pm,pn) (qm,qn). doM {
+  \<open>mnml_s_eq_impl' \<equiv> \<lambda>pii qii. doM {
+    let (pm,pn) = pii;
+    let (qm,qn) = qii;
     r \<leftarrow> si64.cl_eq pm qm;
     llc_if r (signed_big_int_eq_impl pn qn) (Mreturn 0)
   }\<close>

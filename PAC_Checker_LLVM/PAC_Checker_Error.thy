@@ -125,7 +125,9 @@ lemma is_cfailed_hnr[sepref_fr_rules]:
     dest!: status_assn_tagD split: if_splits)
 
 definition merge_cstatus_impl :: \<open>status_conc \<Rightarrow> status_conc \<Rightarrow> status_conc llM\<close>
-  where[llvm_code]: \<open>merge_cstatus_impl \<equiv> \<lambda>(t1,msg1) (t2,msg2). doM {
+  where[llvm_code]: \<open>merge_cstatus_impl \<equiv> \<lambda>s1 s2. doM {
+    let (t1,msg1) = s1;
+    let (t2,msg2) = s2;
     failed1 \<leftarrow> is_cfailed_impl (t1,msg1);
     llc_if failed1
       (doM {
@@ -285,7 +287,6 @@ sepref_def show_nat_impl is \<open>RETURN o show_nat\<close>
   :: \<open>si64_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
   unfolding show_nat_def show_nat_show_int_of_nat
   by sepref
-
 
 subsection \<open>Error Messages with Line Numbers\<close>
 

@@ -556,6 +556,8 @@ sepref_def check_mult_l_impl
     vars_llist_alt_def
   by sepref
 
+export_llvm check_mult_l_impl
+
 definition uminus_poly :: \<open>llist_polynomial \<Rightarrow> llist_polynomial\<close> where
   \<open>uminus_poly p = map (\<lambda>(a,b). (a,-b)) p\<close>
 
@@ -691,6 +693,8 @@ sepref_def check_extension_l_impl
     vars_llist_alt_def
     uminus_poly_def[symmetric]
   by sepref
+
+export_llvm check_extension_l_impl
 
 lemmas check_extension_l_hnr[sepref_fr_rules] =
   check_extension_l_impl.refine[FCOMP check_extension_l_refine]
@@ -829,6 +833,8 @@ sepref_def check_step_impl
      is_success_alt_def[symmetric]
     uminus_poly_def[symmetric]
   by sepref
+
+export_llvm check_step_impl
 
 lemmas PAC_checker_l_step_mop_hnr[sepref_fr_rules] =
   check_step_impl.refine[FCOMP PAC_checker_l_step_mop_fref]
@@ -1063,6 +1069,8 @@ sepref_def full_checker_l_impl
     PAC_checker_l_alt2
   supply [sepref_fr_rules] = strl.hs_empty_2pow14_hnr
   by sepref
+
+export_llvm full_checker_l_impl
 
 section \<open>Correctness theorem\<close>
 (* TODO: Correctness theorem must assume precondition of step_id_bounded *)

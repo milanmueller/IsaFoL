@@ -199,7 +199,7 @@ lemma hs_empty_fref_2pow14:
       by (metis length_replicate nth_replicate list.set(1) empty_iff)
   done
 
-sepref_definition hs_empty_2pow14 is "uncurry0 (RETURN (lshs_op_set_empty 16384))"
+sepref_definition hs_empty_2pow14 [llvm_code] is "uncurry0 (RETURN (lshs_op_set_empty 16384))"
   :: "unit_assn\<^sup>k \<rightarrow>\<^sub>a \<upharpoonleft>hs_assn"
   apply (annot_snat_const \<open>TYPE(64)\<close>)
   by sepref
@@ -208,7 +208,7 @@ lemmas hs_empty_2pow14_hnr = hs_empty_2pow14.refine[FCOMP hs_empty_fref_2pow14]
 
 subsection \<open>Insert\<close>
 
-definition \<open>hs_bucket_of \<equiv> \<lambda>ii (li, ai). doM {
+definition [llvm_code]: \<open>hs_bucket_of \<equiv> \<lambda>ii (li, ai). doM {
     hi \<leftarrow> ahash_impl ii;   
     hi \<leftarrow> ll_urem hi li;
     Mreturn hi
@@ -226,7 +226,7 @@ lemma hs_bucket_of_rule[vcg_rules]:
   by vcg
 
 
-definition \<open>hs_insert \<equiv> \<lambda>ai (li, xsi). doM {
+definition [llvm_code]: \<open>hs_insert \<equiv> \<lambda>ai (li, xsi). doM {
     hi \<leftarrow> hs_bucket_of ai (li, xsi); 
     bi \<leftarrow> nao_nth xsi hi;
     bi \<leftarrow> cl_prepend ai bi;
@@ -258,7 +258,7 @@ lemmas hs_insert_hnr2[sepref_fr_rules] =
 
 section \<open>@{term op_set_member}\<close>
 
-definition \<open>hs_member \<equiv> \<lambda>ai (li, xsi). doM{
+definition [llvm_code]: \<open>hs_member \<equiv> \<lambda>ai (li, xsi). doM{
     hi \<leftarrow> hs_bucket_of ai (li, xsi);
     bi \<leftarrow> nao_nth xsi hi;
     r \<leftarrow> cl_contains ai bi;

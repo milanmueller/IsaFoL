@@ -59,7 +59,8 @@ lemma fnv1a_of_strl_inner_rule: \<open>llvm_htriple
   apply vcg
   by (auto simp: ENTAILS_def entails_def sep_algebra_simps pure_def)
   
-definition \<open>fnv1a_of_strl_impl xs \<equiv> cl_fold fnv1a_of_strl_inner_impl (xs, fnv_offset)\<close>
+definition fnv1a_of_strl_impl where[llvm_code]: 
+  \<open>fnv1a_of_strl_impl xs \<equiv> cl_fold fnv1a_of_strl_inner_impl (xs, fnv_offset)\<close>
 
 lemma fnv1a_of_strl_comp: \<open>fnv1a_of_strl = foldl fnv1a_of_strl_inner fnv_offset\<close>
   unfolding fnv1a_of_strl_def fnv1a_of_strl_inner_def by simp

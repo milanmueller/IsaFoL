@@ -1009,23 +1009,37 @@ section \<open>Checker Entry Points\<close>
 
 text \<open>The entry points below are the remaining trusted glue: load the three
   C structures, import them through the verified importers, run the verified
-  checker and return the status byte.\<close>
+  checker and return the status byte. The error message (a \<open>slice\<close>, only
+  meaningful when the returned status is \<open>2\<close>) and the final polynomial map are
+  additionally handed back through out-pointers; their internal representations
+  are read directly on the C side. The polynomial map is an array list
+  \<open>{uint64_t len; uint64_t capacity; poly **data;}\<close> indexed by polynomial id,
+  where a \<open>NULL\<close> entry means the id is unmapped.\<close>
 
-definition run_checker :: \<open>c_inputs ptr \<Rightarrow> c_proof ptr \<Rightarrow> c_target ptr \<Rightarrow> 8 word llM\<close>
+definition run_checker
+  :: \<open>c_inputs ptr \<Rightarrow> c_proof ptr \<Rightarrow> c_target ptr \<Rightarrow>
+      stra_conc ptr \<Rightarrow> (poly_conc ptr) pmap_conc ptr \<Rightarrow> 8 word llM\<close>
   where [llvm_code]:
-  \<open>run_checker \<equiv> \<lambda>cinpsp cprfp ctgtp. doM {
+  \<open>run_checker \<equiv> \<lambda>cinpsp cprfp ctgtp msgp polysp. doM {
     cinps \<leftarrow> ll_load cinpsp;
     cprf \<leftarrow> ll_load cprfp;
     ctgt \<leftarrow> ll_load ctgtp;
     isatgt \<leftarrow> imp_target ctgt;
     isainps \<leftarrow> imp_inputs cinps;
     isaprf \<leftarrow> imp_proof cprf;
-    ((st, msg), vsp) \<leftarrow> LPAC_Checker_Synthesis.full_checker_l_impl isatgt isainps isaprf;
+    res \<leftarrow> LPAC_Checker_Synthesis.full_checker_l_impl isatgt isainps isaprf;
+    stm \<leftarrow> ll_extract_value res 0;
+    st \<leftarrow> ll_extract_value stm 0;
+    msg \<leftarrow> ll_extract_value stm 1;
+    vsp \<leftarrow> ll_extract_value res 1;
+    polys \<leftarrow> ll_extract_value vsp 1;
+    ll_store msg msgp;
+    ll_store polys polysp;
     Mreturn st
   }\<close>
 
 export_llvm
-  run_checker is \<open>char run_checker(inputs*, proof*, polynomial*)\<close>
+  run_checker is \<open>char run_checker(inputs*, proof*, polynomial*, slice*, auto)\<close>
   defines \<open>
     typedef struct {uint64_t len; char *ptr;} slice;
     typedef struct {uint64_t num_vars; slice *vars_ptr;} term;
@@ -1045,21 +1059,29 @@ export_llvm
 text \<open>Efficient checker\<close>
 
 definition run_shared_checker
-  :: \<open>c_inputs ptr \<Rightarrow> c_proof ptr \<Rightarrow> c_target ptr \<Rightarrow> 8 word llM\<close>
+  :: \<open>c_inputs ptr \<Rightarrow> c_proof ptr \<Rightarrow> c_target ptr \<Rightarrow>
+      stra_conc ptr \<Rightarrow> ((64 word cl_list \<times> sbi_conc) cl_list ptr) pmap_conc ptr \<Rightarrow> 8 word llM\<close>
   where [llvm_code]:
-  \<open>run_shared_checker \<equiv> \<lambda>cinpsp cprfp ctgtp. doM {
+  \<open>run_shared_checker \<equiv> \<lambda>cinpsp cprfp ctgtp msgp polysp. doM {
     cinps \<leftarrow> ll_load cinpsp;
     cprf \<leftarrow> ll_load cprfp;
     ctgt \<leftarrow> ll_load ctgtp;
     isatgt \<leftarrow> imp_target ctgt;
     isainps \<leftarrow> imp_inputs cinps;
     isaprf \<leftarrow> imp_proof cprf;
-    ((st, msg), vsp) \<leftarrow> full_checker_l_s2_impl isatgt isainps isaprf;
+    res \<leftarrow> full_checker_l_s2_impl isatgt isainps isaprf;
+    stm \<leftarrow> ll_extract_value res 0;
+    st \<leftarrow> ll_extract_value stm 0;
+    msg \<leftarrow> ll_extract_value stm 1;
+    vsp \<leftarrow> ll_extract_value res 1;
+    polys \<leftarrow> ll_extract_value vsp 1;
+    ll_store msg msgp;
+    ll_store polys polysp;
     Mreturn st
   }\<close>
 
 export_llvm
-  run_shared_checker is \<open>char run_shared_checker(inputs*, proof*, polynomial*)\<close>
+  run_shared_checker is \<open>char run_shared_checker(inputs*, proof*, polynomial*, slice*, auto)\<close>
   defines \<open>
     typedef struct {uint64_t len; char *ptr;} slice;
     typedef struct {uint64_t num_vars; slice *vars_ptr;} term;

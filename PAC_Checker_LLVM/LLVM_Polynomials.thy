@@ -142,7 +142,7 @@ lemma mnml_free_rule[sepref_frame_free_rules]: \<open>MK_FREE monomial_assn mnml
   unfolding mnml_free_def
   by (rule mk_free_pair[OF monom.cl_assn_free sbi_free_rule])
 
-definition mnml_copy :: \<open>monomial_conc \<Rightarrow> monomial_conc llM\<close> where [llvm_code, llvm_inline]:
+definition mnml_copy :: \<open>monomial_conc \<Rightarrow> monomial_conc llM\<close> where [llvm_code]:
   \<open>mnml_copy \<equiv> \<lambda>(m, c). doM { m' \<leftarrow> monom.cl_copy m; c' \<leftarrow> sbi_copy c; Mreturn (m', c')}\<close>
 
 lemma mnml_copy_rule[vcg_rules]: \<open>llvm_htriple
@@ -176,7 +176,9 @@ text \<open>refining with sepref can only give us a destructive implementation d
   unpacking, therefore we go down to llM level\<close>
 
 definition monomial_le_impl' :: \<open>monomial_conc \<Rightarrow> monomial_conc \<Rightarrow> 1 word llM\<close> where[llvm_code]:
-  \<open>monomial_le_impl' \<equiv> \<lambda>(pm,pn) (qm,qn).doM {
+  \<open>monomial_le_impl' \<equiv> \<lambda>pii qii. doM {
+    let (pm,pn) = pii;
+    let (qm,qn) = qii;
     r \<leftarrow> monom.cl_le pm qm;
     Mreturn r 
   }\<close>
@@ -204,7 +206,9 @@ lemma monomial_le_hnr[sepref_fr_rules]:
   by (sepref_to_hoare; vcg)
 
 definition mnml_eq_impl' :: \<open>monomial_conc \<Rightarrow> monomial_conc \<Rightarrow> 1 word llM\<close> where[llvm_code]:
-  \<open>mnml_eq_impl' \<equiv> \<lambda>(pm,pn) (qm,qn). doM {
+  \<open>mnml_eq_impl' \<equiv> \<lambda>pii qii. doM {
+    let (pm,pn) = pii;
+    let (qm,qn) = qii;
     r \<leftarrow> monom.cl_eq pm qm;
     llc_if r (signed_big_int_eq_impl pn qn) (Mreturn 0)
   }\<close>
@@ -278,7 +282,8 @@ sepref_def print_monom_inner_impl is \<open>uncurry (RETURN oo print_monom_inner
 definition print_monom :: \<open>char list list \<Rightarrow> char list\<close> where
   \<open>print_monom \<equiv> foldl print_monom_inner []\<close>
 
-definition \<open>print_monom_impl \<equiv> \<lambda>m. doM {e \<leftarrow> clt_empty; cl_fold' print_monom_inner_impl e m}\<close> 
+definition print_monom_impl where[llvm_code]:
+  \<open>print_monom_impl \<equiv> \<lambda>m. doM {e \<leftarrow> clt_empty; cl_fold' print_monom_inner_impl e m}\<close>
 
 lemma print_monom_rule: \<open>llvm_htriple
   (monom_assn m mi)
@@ -325,7 +330,8 @@ sepref_def poly_print_inner_impl is \<open>uncurry (RETURN oo poly_print_inner)\
 definition poly_print :: \<open>llist_polynomial \<Rightarrow> string\<close> where
   \<open>poly_print \<equiv> foldl poly_print_inner []\<close>
 
-definition \<open>poly_print_impl \<equiv> \<lambda>ps. doM {e \<leftarrow> clt_empty; cl_fold' poly_print_inner_impl e ps}\<close>
+definition poly_print_impl where[llvm_code]: 
+  \<open>poly_print_impl \<equiv> \<lambda>ps. doM {e \<leftarrow> clt_empty; cl_fold' poly_print_inner_impl e ps}\<close>
 
 lemma poly_print_rule: \<open>llvm_htriple
   (polynomial_assn ps psi)

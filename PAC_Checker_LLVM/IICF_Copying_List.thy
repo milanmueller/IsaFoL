@@ -364,7 +364,7 @@ text \<open>Using our other functions like @{term op_list_hd} or @{term op_list_
   implement a fold operation, parameterized over an f, that keeps the inner elements intact\<close>
 
 definition cl_fold :: \<open>('a::llvm_rep \<Rightarrow> 'b::llvm_rep \<Rightarrow> 'a llM) \<Rightarrow> ('b cl_list \<times> 'a) \<Rightarrow> 'a llM\<close>
-  where
+  where [llvm_code]:
   \<open>cl_fold f \<equiv> MMonad.REC (\<lambda>ff (xi, a).
     if xi = null then Mreturn a
     else doM {
@@ -398,7 +398,7 @@ next
 qed
 
 (* for nicer refinment, we want uncurried version *)
-definition \<open>cl_fold' f a xi \<equiv> cl_fold f (xi, a)\<close>
+definition [llvm_inline]: \<open>cl_fold' f a xi \<equiv> cl_fold f (xi, a)\<close>
 
 lemma cl_fold'_rule:
   assumes F: \<open>\<And>a ai x xi. llvm_htriple
@@ -656,7 +656,8 @@ lemma cl_assn_free[sepref_frame_free_rules]: \<open>MK_FREE (cl_assn' A) cl_free
   by vcg
 
 subsection \<open>@{term op_list_hd}, destructively\<close>
-definition \<open>cl_hd\<^sub>d \<equiv> \<lambda>p. doM {(hd,tl) \<leftarrow> os_pop p; cl_free tl; Mreturn hd}\<close>
+definition cl_hd\<^sub>d where [llvm_code]: 
+  \<open>cl_hd\<^sub>d \<equiv> \<lambda>p. doM {(hd,tl) \<leftarrow> os_pop p; cl_free tl; Mreturn hd}\<close>
 
 lemma cl_hd\<^sub>d_rule[vcg_rules]:
   assumes \<open>xs \<noteq> []\<close>
@@ -903,7 +904,7 @@ definition cl_eq_impl :: \<open>'b cl_list \<times> 'b cl_list \<Rightarrow> 1 w
 
 lemmas cl_eq_impl_unfold = REC_unfold_extr[OF cl_eq_impl_def, discharge_monos]
 
-definition \<open>cl_eq ai bi \<equiv> cl_eq_impl (ai, bi)\<close>
+definition [llvm_code]: \<open>cl_eq ai bi \<equiv> cl_eq_impl (ai, bi)\<close>
 
 context begin
 interpretation llvm_prim_ctrl_setup .
@@ -1330,7 +1331,8 @@ text \<open>Takes ownership of the element, like @{term cl_prepend}. The list ar
   first to match @{term op_list_append}.\<close>
 
 definition clt_snoc :: \<open>'a::llvm_rep clt_list \<Rightarrow> 'a \<Rightarrow> 'a clt_list llM\<close> where [llvm_code]:
-  \<open>clt_snoc \<equiv> \<lambda>(p, q) x. doM {
+  \<open>clt_snoc \<equiv> \<lambda>pq x. doM {
+    let (p, q) = pq;
     r \<leftarrow> ll_ref (Node x null);
     if p = null then Mreturn (r, r)
     else doM {
@@ -1399,14 +1401,17 @@ text \<open>Destructively links the last node of the first list to the head of t
 
 definition clt_concat :: \<open>'a::llvm_rep clt_list \<Rightarrow> 'a clt_list \<Rightarrow> 'a clt_list llM\<close>
   where [llvm_code]:
-  \<open>clt_concat \<equiv> \<lambda>(p1, q1) (p2, q2).
+  \<open>clt_concat \<equiv> \<lambda>c1 c2. doM {
+    let (p1, q1) = c1;
+    let (p2, q2) = c2;
     if p1 = null then Mreturn (p2, q2)
     else if p2 = null then Mreturn (p1, q1)
     else doM {
       n \<leftarrow> ll_load q1;
       ll_store (Node (node.val n) p2) q1;
       Mreturn (p1, q2)
-    }\<close>
+    }
+  }\<close>
 
 context begin
 
@@ -1493,13 +1498,15 @@ text \<open>Destructively links the last node of the tail-pointer list to the he
 
 definition clt_cl_append :: \<open>'a::llvm_rep clt_list \<Rightarrow> 'a cl_list \<Rightarrow> 'a cl_list llM\<close>
   where [llvm_code]:
-  \<open>clt_cl_append \<equiv> \<lambda>(p, q) r.
+  \<open>clt_cl_append \<equiv> \<lambda>pq r. doM {
+    let (p, q) = pq;
     if p = null then Mreturn r
     else doM {
       n \<leftarrow> ll_load q;
       ll_store (Node (node.val n) r) q;
       Mreturn p
-    }\<close>
+    }
+  }\<close>
 
 lemma cl_assn_olseg: \<open>cl_assn' A xs p = olseg A xs p null\<close>
   unfolding cl_assn'_def cl_assn_def by simp
@@ -1629,7 +1636,7 @@ sepref_def cl_to_clt_inner_impl is \<open>uncurry (RETURN oo cl_to_clt_inner)\<c
   unfolding cl_to_clt_inner_def
   by sepref
 
-definition \<open>cl_to_clt_impl \<equiv> \<lambda>p. doM {e \<leftarrow> clt_empty; cl_fold' cl_to_clt_inner_impl e p}\<close>
+definition [llvm_code]: \<open>cl_to_clt_impl \<equiv> \<lambda>p. doM {e \<leftarrow> clt_empty; cl_fold' cl_to_clt_inner_impl e p}\<close>
 
 lemma cl_to_clt_rule: \<open>llvm_htriple
   ((cl_assn' A) xs xsi)
@@ -1653,7 +1660,7 @@ lemma cl_to_clt_hnr[sepref_fr_rules]:
   supply [vcg_rules] = cl_to_clt_rule
   supply [simp] = cl_to_clt_id
   by (sepref_to_hoare; vcg)
-    
+
 end
 
 section \<open>Extras\<close>

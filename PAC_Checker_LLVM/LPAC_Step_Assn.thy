@@ -190,8 +190,11 @@ section \<open>Free\<close>
 text \<open>The sources of a linear combination are a list of (polynomial, index) pairs; only
   the polynomial component owns memory.\<close>
 
+text \<open>No \<open>llvm_inline\<close> here: the constant appears as the \<open>afree\<close> argument of
+  \<open>freeable_assn.cl_free\<close>, and inlining it there would break the code-equation
+  lookup for the interpreted \<open>srcs.cl_free\<close>.\<close>
 definition srcs_pair_free :: \<open>poly_conc \<times> 64 word \<Rightarrow> unit llM\<close>
-  where [llvm_code, llvm_inline]:
+  where [llvm_code]:
   \<open>srcs_pair_free \<equiv> \<lambda>(pi, _). doM { poly.cl_free pi; Mreturn () }\<close>
 
 lemma srcs_pair_free_mk_free:

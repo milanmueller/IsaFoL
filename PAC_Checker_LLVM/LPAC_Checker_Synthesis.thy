@@ -95,8 +95,11 @@ sepref_register linear_combi_l ::
 
 declare linear_combi_l_impl.refine[sepref_fr_rules]
 
+text \<open>No \<open>llvm_inline\<close> here: the constant appears as the \<open>afree\<close> argument of
+  \<open>freeable_assn.cl_free\<close>, and inlining it there would break the code-equation
+  lookup for the interpreted \<open>lincomb.cl_free\<close>.\<close>
 definition poly_input_pair_free :: \<open>poly_conc \<times> 64 word \<Rightarrow> unit llM\<close>
-  where [llvm_code, llvm_inline]:
+  where [llvm_code]:
   \<open>poly_input_pair_free \<equiv> \<lambda>(pi, _). doM { poly.cl_free pi; Mreturn () }\<close>
 
 lemma poly_input_pair_free_mk_free: \<open>MK_FREE poly_input_pair_assn poly_input_pair_free\<close>
@@ -297,7 +300,7 @@ lemma PAC_checker_l_step_tuple:
   \<open>PAC_checker_l_step a bcd e = (let (b, c, d) = bcd in PAC_checker_l_step' a b c d e)\<close>
   unfolding PAC_checker_l_step'_def by (auto split: prod.splits)
 
-sepref_definition check_step_impl
+sepref_definition check_step_impl [llvm_code]
   is \<open>uncurry4 PAC_checker_l_step_alt\<close>
   :: \<open>polynomial_assn\<^sup>k *\<^sub>a status_assn\<^sup>d *\<^sub>a vars_assn\<^sup>d *\<^sub>a polys_assn\<^sup>d *\<^sub>a lpac_step_assn\<^sup>d \<rightarrow>\<^sub>a
     status_assn \<times>\<^sub>a vars_assn \<times>\<^sub>a polys_assn\<close>
@@ -371,7 +374,7 @@ sepref_register PAC_checker_l' ::
     string code_status \<Rightarrow> lpac_step_hol list \<Rightarrow>
     (string code_status \<times> string set \<times> (nat, llist_polynomial) f_map) nres\<close>
 
-sepref_definition PAC_checker_l_impl
+sepref_def PAC_checker_l_impl
   is \<open>uncurry4 PAC_checker_l_loop\<close>
   :: \<open>polynomial_assn\<^sup>k *\<^sub>a vars_assn\<^sup>d *\<^sub>a polys_assn\<^sup>d *\<^sub>a status_assn\<^sup>d *\<^sub>a (cl_assn' lpac_step_assn)\<^sup>d \<rightarrow>\<^sub>a
      status_assn \<times>\<^sub>a vars_assn \<times>\<^sub>a polys_assn\<close>
@@ -408,7 +411,7 @@ where
 
 sepref_register remap_polys_l
 find_theorems full_checker_l2
-sepref_definition full_checker_l_impl
+sepref_def full_checker_l_impl
   is \<open>uncurry2 full_checker_l2\<close>
   :: \<open>polynomial_assn\<^sup>d *\<^sub>a polys_assn_input\<^sup>d *\<^sub>a (cl_assn' lpac_step_assn)\<^sup>d \<rightarrow>\<^sub>a
     status_assn \<times>\<^sub>a vars_assn \<times>\<^sub>a polys_assn\<close>
@@ -418,6 +421,8 @@ sepref_definition full_checker_l_impl
     PAC_checker_l_alt_def
   supply [sepref_fr_rules] = strl.hs_empty_2pow14_hnr
   by sepref
+
+export_llvm full_checker_l_impl
 
 (* sepref_definition PAC_empty_impl
  *   is \<open>uncurry0 (RETURN fmempty)\<close>
