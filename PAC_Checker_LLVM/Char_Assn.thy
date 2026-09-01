@@ -6,6 +6,7 @@ text \<open>We need to tell sepref how to relate @{typ \<open>char\<close>} and 
 
 definition char_of_nat :: \<open>nat \<Rightarrow> char\<close> where \<open>char_of_nat = char_of\<close>
 definition char_of_nat_invar :: \<open>nat \<Rightarrow> bool\<close> where \<open>char_of_nat_invar n = (n < 256)\<close>
+(* TODO: should actually be named `char_nat_rel` *)
 definition \<open>char_nat_rel = br char_of_nat char_of_nat_invar\<close>
 abbreviation \<open>w8_assn \<equiv> unat_assn' TYPE(8)\<close>
 

@@ -266,7 +266,7 @@ lemma str_sval_nres_refine:
      \<in> [is_ascii_snum_str]\<^sub>f \<langle>Id\<rangle>list_rel \<rightarrow> \<langle>int_rel\<rangle>nres_rel\<close>
   by (intro frefI nres_relI) (auto simp: str_sval_nres_correct)
 
-lemmas str_sval_hnr = str_sval_impl.refine[FCOMP str_sval_nres_refine]
+lemmas str_sval_hnr[sepref_fr_rules] = str_sval_impl.refine[FCOMP str_sval_nres_refine]
 
 definition str_int_assn where
   \<open>str_int_assn \<equiv> hr_comp strl_assn' ascii_str_int_rel\<close>
@@ -325,16 +325,20 @@ proof -
 qed
 
 fun chars_of_nat :: \<open>nat \<Rightarrow> string\<close> where
-  \<open>chars_of_nat n = 
-    (if n < 10 then [char_of_digit n] 
+  \<open>chars_of_nat n =
+    (if n < 10 then [char_of_digit n]
      else chars_of_nat (n div 10) @ [char_of_digit (n mod 10)])\<close>
+
+text \<open>The defining equation has no constructor pattern on the left-hand side, so as a
+  simp rule it unfolds indefinitely on non-literal arguments.\<close>
+declare chars_of_nat.simps[simp del]
 
 definition \<open>nat_ascii_str_rel \<equiv> br chars_of_nat (\<lambda>_. True)\<close>
 
 lemma chars_of_nat_neq_Nil[simp]: \<open>chars_of_nat n \<noteq> []\<close>
   by (subst chars_of_nat.simps) (auto simp del: chars_of_nat.simps)
 
-lemma chars_of_nat_unum[simp]: \<open>\<forall>c \<in> set (chars_of_nat n). is_ascii_unum c\<close>
+lemma chars_of_nat_unum: \<open>\<forall>c \<in> set (chars_of_nat n). is_ascii_unum c\<close>
   apply (induction n rule: chars_of_nat.induct)
   apply (subst chars_of_nat.simps)
   apply (auto simp del: chars_of_nat.simps simp add: is_digit_def

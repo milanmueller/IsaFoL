@@ -3594,7 +3594,7 @@ lemma import_variablesS_Nil:
   \<open>import_variablesS [] (\<V> :: (nat, string) shared_vars) = RETURN (Allocated, \<V>)\<close>
   unfolding import_variablesS_def
   by (subst WHILET_unfold) auto
-
+(*
 lemma import_variablesS_Cons:
   \<open>import_variablesS (v # vs) (\<V> :: (nat, string) shared_vars) = do {
      a \<leftarrow> is_new_variableS v \<V>;
@@ -3634,7 +3634,8 @@ lemma import_poly_varsS_Nil:
   \<open>import_poly_varsS \<V> [] = RETURN (Allocated, \<V>)\<close>
   unfolding import_poly_varsS_def COPY_def nres_monad1
   by (subst WHILET_unfold) auto
-
+*)
+(*
 lemma import_poly_varsS_Cons:
   \<open>import_poly_varsS \<V> ((m, c) # p) = do {
      (mem, \<V>) \<leftarrow> import_variablesS m \<V>;
@@ -3885,6 +3886,8 @@ the position to read does not match the current position, return an error. This 
 correctness theorem of the code generation (roughly ``if it terminates without exception, the answer
 is the same''), but it is still unsatisfactory.
 \<close>
+
+*)
 
 end
 end

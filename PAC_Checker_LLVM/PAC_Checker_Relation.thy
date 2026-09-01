@@ -92,9 +92,10 @@ next
   then show ?case
     apply (cases ys; cases xs'; cases ys') 
     apply (auto simp: list_rel_split_right_iff list_rel_split_left_iff
-        in_br_conv char_rel_def char_of_word_less_iff)
-    by (metis char_of_word_less_iff less_le not_less)
-    
+        in_br_conv char_rel_def char_of_word_less_iff char_nat_rel_def
+        char_nat_rel_simps(3) less_char_def less_char_inst 
+        unat.rel_def unat_arith_simps(2) unat_rel_def)
+    using char_of_nat_inj by auto    
 qed
 
 (* lemma list_rel_list_rel_order_iff:
