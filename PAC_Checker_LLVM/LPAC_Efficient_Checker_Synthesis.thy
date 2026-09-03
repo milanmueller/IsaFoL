@@ -896,11 +896,235 @@ lemma var_order_rel'':
   \<open>(x,y) \<in> var_order_rel \<longleftrightarrow> x < y\<close>
   by (metis leD less_than_char_linear lexord_linear neq_iff var_order_rel' var_order_rel_antisym
       var_order_rel_def)
-term get_var_name_c_impl 
+
+thm get_var_name_c_impl_def
+
+definition \<open>perfect_shared_var_order_s_else \<D> x y \<equiv> doN {
+  x \<leftarrow> get_var_nameS \<D> x;
+  y \<leftarrow> get_var_nameS \<D> y;
+  if x < y then RETURN (LESS)
+  else RETURN (GREATER) 
+}\<close>
+
+text \<open>The synthesised implementation of @{term perfect_shared_var_order_s_else} would deep-copy
+  both variable names out of the string table (@{term strls.oa_nth} calls @{term strl.cl_copy}).
+  I therefore implement the operation by hand: the two names are only borrowed from the table
+  for the duration of the comparison.\<close>
+
+subsubsection \<open>Borrowing two elements of a string table\<close>
+
+text \<open>Focussing on two distinct positions of a @{term list_assn}: the remainder of the
+  assertion is irrelevant, so it is only named by Hilbert choice.\<close>
+
+lemma strls_list_assn_focus2_ex:
+  assumes I: \<open>i < length xs\<close> and J: \<open>j < length xs\<close> and IJ: \<open>i \<noteq> j\<close>
+  shows \<open>\<exists>F. \<upharpoonleft>(list_assn (mk_assn strl_assn')) xs xsi =
+    (strl_assn' (xs ! i) (xsi ! i) ** strl_assn' (xs ! j) (xsi ! j) **
+      \<up>(length xsi = length xs) ** F)\<close>
+proof -
+  have KEY: \<open>\<exists>F. \<upharpoonleft>(list_assn (mk_assn strl_assn')) xs xsi =
+      (strl_assn' (xs ! a) (xsi ! a) ** strl_assn' (xs ! b) (xsi ! b) **
+        \<up>(length xsi = length xs) ** F)\<close>
+    if ab: \<open>a < b\<close> and b: \<open>b < length xs\<close> for a b
+  proof -
+    have A: \<open>a < length xs\<close> using ab b by simp
+    have K: \<open>b - Suc a < length (drop (Suc a) xs)\<close> using ab b by simp
+    show ?thesis
+    proof (cases \<open>length xsi = length xs\<close>)
+      case False
+      then have \<open>\<upharpoonleft>(list_assn (mk_assn strl_assn')) xs xsi = sep_false\<close>
+        by (simp add: strls.list_assn_focus[OF A])
+      then show ?thesis
+        using False by (intro exI[of _ \<open>\<box>\<close>]) simp
+    next
+      case True
+      have E1: \<open>drop (Suc a) xs ! (b - Suc a) = xs ! b\<close> using ab b by simp
+      have E2: \<open>drop (Suc a) xsi ! (b - Suc a) = xsi ! b\<close> using ab b True by simp
+      show ?thesis
+        apply (rule exI[of _ \<open>\<upharpoonleft>(list_assn (mk_assn strl_assn')) (take a xs) (take a xsi) **
+            \<upharpoonleft>(list_assn (mk_assn strl_assn')) (take (b - Suc a) (drop (Suc a) xs))
+               (take (b - Suc a) (drop (Suc a) xsi)) **
+            \<upharpoonleft>(list_assn (mk_assn strl_assn')) (drop (Suc (b - Suc a)) (drop (Suc a) xs))
+               (drop (Suc (b - Suc a)) (drop (Suc a) xsi))\<close>])
+        apply (subst strls.list_assn_focus[OF A])
+        apply (subst strls.list_assn_focus[OF K])
+        apply (simp only: E1 E2)
+        apply (simp add: True sep_algebra_simps)
+        apply (simp add: sep_conj_c)
+        done
+    qed
+  qed
+  show ?thesis
+  proof (cases \<open>i < j\<close>)
+    case True
+    show ?thesis by (rule KEY[OF True J])
+  next
+    case False
+    then have \<open>j < i\<close> using IJ by auto
+    from KEY[OF this I] obtain F where
+      F: \<open>\<upharpoonleft>(list_assn (mk_assn strl_assn')) xs xsi =
+        (strl_assn' (xs ! j) (xsi ! j) ** strl_assn' (xs ! i) (xsi ! i) **
+          \<up>(length xsi = length xs) ** F)\<close>
+      by blast
+    show ?thesis
+      apply (rule exI[of _ F])
+      apply (subst F)
+      apply (simp add: sep_conj_c)
+      done
+  qed
+qed
+
+definition strls_focus2_rest ::
+  \<open>string list \<Rightarrow> 8 word cl_list list \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> assn\<close> where
+  \<open>strls_focus2_rest xs xsi i j = (SOME F. \<upharpoonleft>(list_assn (mk_assn strl_assn')) xs xsi =
+    (strl_assn' (xs ! i) (xsi ! i) ** strl_assn' (xs ! j) (xsi ! j) **
+      \<up>(length xsi = length xs) ** F))\<close>
+
+lemma strls_list_assn_focus2:
+  assumes \<open>i < length xs\<close> and \<open>j < length xs\<close> and \<open>i \<noteq> j\<close>
+  shows \<open>\<upharpoonleft>(list_assn (mk_assn strl_assn')) xs xsi =
+    (strl_assn' (xs ! i) (xsi ! i) ** strl_assn' (xs ! j) (xsi ! j) **
+      \<up>(length xsi = length xs) ** strls_focus2_rest xs xsi i j)\<close>
+  unfolding strls_focus2_rest_def
+  by (rule someI_ex[OF strls_list_assn_focus2_ex[OF assms]])
+
+subsubsection \<open>Comparing two entries of the string table in place\<close>
+
+definition strls_less_impl :: \<open>(8 word cl_list, 64) array_list \<Rightarrow> 64 word \<Rightarrow> 64 word \<Rightarrow> 1 word llM\<close>
+  where [llvm_code]:
+  \<open>strls_less_impl ali ii ji \<equiv> doM {
+    xi \<leftarrow> arl_nth ali ii;
+    yi \<leftarrow> arl_nth ali ji;
+    strl.cl_less xi yi
+  }\<close>
+
+lemma strls_less_impl_rule_aux:
+  assumes \<open>i < length xs\<close> and \<open>j < length xs\<close> and \<open>i \<noteq> j\<close>
+  shows \<open>llvm_htriple
+    (strls_assn xs ali ** \<upharpoonleft>snat.assn i ii ** \<upharpoonleft>snat.assn j ji)
+    (strls_less_impl ali ii ji)
+    (\<lambda>r. strls_assn xs ali ** bool1_assn (list_lt (xs ! i) (xs ! j)) r)\<close>
+  unfolding strls_less_impl_def strls.oa_assn_def
+  supply [vcg_rules] = strl.cl_less_rule[unfolded list_lt_less]
+  supply [simp] = assms
+  apply (simp only: sel_mk_assn strls_list_assn_focus2[OF assms])
+  apply vcg
+  done
+
+lemma strls_less_impl_rule[vcg_rules]:
+  \<open>llvm_htriple
+    (strls_assn xs ali ** \<upharpoonleft>snat.assn i ii ** \<upharpoonleft>snat.assn j ji
+      ** \<up>\<^sub>d(i < length xs \<and> j < length xs \<and> i \<noteq> j))
+    (strls_less_impl ali ii ji)
+    (\<lambda>r. strls_assn xs ali ** bool1_assn (xs ! i < xs ! j) r)\<close>
+  apply (rule htriple_pure_preI)
+  apply (clarsimp dest!: pure_part_split_conj simp: vcg_tag_defs sep_algebra_simps
+    pred_lift_extract_simps)
+  apply (rule strls_less_impl_rule_aux[unfolded list_lt_less]; assumption)
+  done
+
+lemmas strls_less_impl_rule'[vcg_rules] = strls_less_impl_rule[unfolded pure_def]
+
+subsubsection \<open>The comparison itself\<close>
+
+definition perfect_shared_var_order_c_else ::
+  \<open>(string, nat) shared_vars_c \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> ordered nres\<close> where
+  \<open>perfect_shared_var_order_c_else \<D> x y = doN {
+    x \<leftarrow> get_var_name_c \<D> x;
+    y \<leftarrow> get_var_name_c \<D> y;
+    if x < y then RETURN LESS else RETURN GREATER
+  }\<close>
+
+lemma perfect_shared_var_order_c_else_alt_def:
+  \<open>perfect_shared_var_order_c_else = (\<lambda>(xs, \<V>) x y. doN {
+    ASSERT (x < length xs);
+    ASSERT (y < length xs);
+    RETURN (if xs ! x < xs ! y then LESS else GREATER)
+  })\<close>
+  unfolding perfect_shared_var_order_c_else_def get_var_name_c_def
+  by (intro ext) auto
+
+definition perfect_shared_var_order_c_else_impl ::
+  \<open>(64 word \<times> 64 word \<times> 8 word node ptr ptr) \<times>
+   64 word \<times> 64 word \<times> (8 word node ptr \<times> 64 word ptr) node ptr ptr
+    \<Rightarrow> 64 word \<Rightarrow> 64 word \<Rightarrow> 8 word llM\<close> where [llvm_code]:
+  \<open>perfect_shared_var_order_c_else_impl \<D> xi yi \<equiv> doM {
+    let (strs, _) = \<D>;
+    same \<leftarrow> ll_icmp_eq xi yi;
+    llc_if same (Mreturn 2) (doM {
+      cmp \<leftarrow> strls_less_impl strs xi yi;
+      llc_if cmp (Mreturn 1) (Mreturn 2)
+    })
+  }\<close>
+
+context begin
+interpretation llvm_prim_ctrl_setup .
+
+lemma perfect_shared_var_order_c_else_impl_rule[vcg_rules]:
+  \<open>llvm_htriple
+    (strls_assn xs strsi ** \<upharpoonleft>snat.assn i ii ** \<upharpoonleft>snat.assn j ji
+      ** \<up>\<^sub>d(i < length xs \<and> j < length xs))
+    (perfect_shared_var_order_c_else_impl (strsi, \<V>i) ii ji)
+    (\<lambda>r. strls_assn xs strsi ** ordered_assn (if xs ! i < xs ! j then LESS else GREATER) r)\<close>
+  unfolding perfect_shared_var_order_c_else_impl_def
+  supply [simp] = pure_def bool1_rel_def bool.rel_def in_br_conv ordered_rel_def
+    bool.assn_def from_bool_def
+  apply (simp only: Let_def prod.case)?
+  apply vcg
+  done
+
+end
+
+lemmas perfect_shared_var_order_c_else_impl_rule'[vcg_rules] =
+  perfect_shared_var_order_c_else_impl_rule[unfolded pure_def]
+
+lemma perfect_shared_var_order_c_else_impl_refine:
+  \<open>(uncurry2 perfect_shared_var_order_c_else_impl, uncurry2 perfect_shared_var_order_c_else)
+    \<in> perfect_shared_vars_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k \<rightarrow>\<^sub>a ordered_assn\<close>
+  unfolding perfect_shared_var_order_c_else_alt_def snat_rel_def
+    snat.assn_is_rel[symmetric]
+  apply sepref_to_hoare
+  apply (clarsimp simp: refine_pw_simps split del: if_split)
+  apply vcg
+  done
+
+lemma perfect_shared_var_order_c_else_fref:
+  \<open>(uncurry2 perfect_shared_var_order_c_else, uncurry2 perfect_shared_var_order_s_else)
+    \<in> (perfect_shared_vars_rel_c Id \<times>\<^sub>r nat_rel) \<times>\<^sub>r nat_rel \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  unfolding perfect_shared_var_order_c_else_def perfect_shared_var_order_s_else_def
+    get_var_name_c_def get_var_nameS_def uncurry_def
+  apply (clarify intro!: frefI nres_relI)
+  apply refine_vcg
+  apply (auto dest!: multi_member_split simp: perfect_shared_vars_rel_c_def)
+  done
+
+sepref_register perfect_shared_var_order_s_else
+
+lemma perfect_shared_var_order_s_else_hnr[sepref_fr_rules]:
+  \<open>(uncurry2 perfect_shared_var_order_c_else_impl, uncurry2 perfect_shared_var_order_s_else)
+    \<in> shared_vars_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k \<rightarrow>\<^sub>a ordered_assn\<close>
+  using perfect_shared_var_order_c_else_impl_refine[FCOMP perfect_shared_var_order_c_else_fref]
+  by auto
+
+lemma perfect_shared_var_order_s_alt:
+  \<open>perfect_shared_var_order_s \<D> x y= do { 
+    eq \<leftarrow> perfectly_shared_strings_equal_l \<D> x y;
+    if eq then RETURN EQUAL
+    else perfect_shared_var_order_s_else \<D> x y
+  }\<close>
+  unfolding perfect_shared_var_order_s_def
+    perfect_shared_var_order_s_else_def
+    term_order_rel'_def[symmetric]
+    term_order_rel'_alt_def
+    var_order_rel''
+  by simp
+
 sepref_def perfect_shared_var_order_s_impl
   is \<open>uncurry2 perfect_shared_var_order_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k \<rightarrow>\<^sub>a ordered_assn\<close>
-  unfolding perfect_shared_var_order_s_def perfectly_shared_strings_equal_l_def
+  unfolding
+    perfect_shared_var_order_s_alt
+    perfectly_shared_strings_equal_l_def
     term_order_rel'_def[symmetric]
     term_order_rel'_alt_def
     var_order_rel''
