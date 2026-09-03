@@ -214,6 +214,8 @@ text \<open>Length of the spine, i.e. an upper bound on the key domain. Needs no
 definition pmap_len :: \<open>('a::llvm_rep, 64) array_list \<Rightarrow> 64 word llM\<close> where[llvm_code]:
   \<open>pmap_len ai \<equiv> arl_len ai\<close>
 
+type_synonym 'c pmap_conc = \<open>('c, 64) array_list\<close>
+
 locale array_pmap =
   dflt_option_private dflt A is_dflt + freeable_assn A afree
   for dflt and A :: \<open>'b \<Rightarrow> 'a::llvm_rep \<Rightarrow> assn\<close> and is_dflt
@@ -227,7 +229,6 @@ text \<open>Very similar to @{term nao_assn}, but we use the option assertion fr
 (* We opt into 64-bit keys here, this makes proofs less noisy but maybe should be generalized at some point? *)
 definition \<open>pmap_assn \<equiv> mk_assn (\<lambda>xs (p :: (_, 64) array_list). EXS xsi. \<upharpoonleft>iarl_assn xsi p ** \<upharpoonleft>(list_assn (mk_assn option_assn)) xs xsi)\<close>
 abbreviation \<open>pmap_assn' \<equiv> \<upharpoonleft>pmap_assn\<close>
-type_synonym 'c pmap_conc = \<open>('c, 64) array_list\<close>
 
 text \<open>Basic simplifications of the locale's option assertion.\<close>
 

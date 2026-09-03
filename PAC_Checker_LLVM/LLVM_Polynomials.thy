@@ -38,6 +38,13 @@ interpretation monom: cmp_env_impl
   subgoal by (rule strl_le_hnr)
   done
 
+lemma monoml_freeable: \<open>freeable_assn (cl_assn' strl_assn') monom.cl_free\<close>
+  by unfold_locales (rule monom.cl_assn_free)
+
+lemmas [llvm_code] =
+  freeable_assn.cl_free_def[OF monoml_freeable]
+  freeable_assn.cl_hd\<^sub>d_def[OF monoml_freeable]
+
 experiment
 begin
 
@@ -246,6 +253,13 @@ interpretation poly: cmp_env_impl \<open>monomial_le\<close> \<open>monomial_ass
 
 interpretation poly: eq_assn \<open>monomial_assn\<close> \<open>mnml_eq_impl'\<close>
   by unfold_locales (rule mnml_eq_hnr)
+
+lemma polyl_freeable: \<open>freeable_assn (cl_assn' monomial_assn) poly.cl_free\<close>
+  by unfold_locales (rule poly.cl_assn_free)
+
+lemmas [llvm_code] =
+  freeable_assn.cl_free_def[OF polyl_freeable]
+  freeable_assn.cl_hd\<^sub>d_def[OF polyl_freeable]
 
 experiment
 begin

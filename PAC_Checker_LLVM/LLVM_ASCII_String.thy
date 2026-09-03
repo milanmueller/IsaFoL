@@ -113,7 +113,7 @@ lemma ll_zext_8_64_rule:
   by vcg
 end
 
-definition char_uval_impl :: \<open>8 word \<Rightarrow> 64 word llM\<close> where
+definition char_uval_impl :: \<open>8 word \<Rightarrow> 64 word llM\<close> where [llvm_code, llvm_inline]:
   \<open>char_uval_impl xi \<equiv> doM { d \<leftarrow> ll_sub xi 0x30; ll_zext d TYPE(64 word) }\<close>
 
 lemma char_uval_snat_aux:
@@ -151,7 +151,7 @@ sepref_def str_uvals_inner_impl is \<open>uncurry (RETURN oo str_uvals_inner)\<c
   unfolding str_uvals_inner_def int10_def[symmetric]
   by sepref
 
-definition str_uvals_inner_dimpl where
+definition str_uvals_inner_dimpl where [llvm_code]:
   \<open>str_uvals_inner_dimpl ai ci \<equiv> doM { r \<leftarrow> str_uvals_inner_impl ai ci; sbi_free ai; Mreturn r }\<close>
 
 lemma str_uvals_inner_impl_rule:
@@ -181,7 +181,7 @@ lemma str_uvals_inner_dimpl_refine:
 
 lemmas str_uvals_fold_hnr = cl_fold_hfref_guard[OF str_uvals_inner_dimpl_refine]
 
-definition str_uvals_outer_impl where
+definition str_uvals_outer_impl where [llvm_inline]:
   \<open>str_uvals_outer_impl \<equiv> cl_fold' str_uvals_inner_dimpl\<close>
 
 sepref_register str_uvals_outer

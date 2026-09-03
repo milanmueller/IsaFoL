@@ -607,11 +607,15 @@ proof -
     unfolding is_import_def using slice_to_str_impl.refine by simp
 qed
 
-definition imp_term :: \<open>c_term \<Rightarrow> monom_conc llM\<close> where [llvm_code]:
-  \<open>imp_term \<equiv> \<lambda>(ni, ai). arr_to_list_import_impl slice_to_str_impl ni ai\<close>
-
+text \<open>The \<open>llvm_inline\<close> instance equation must be registered BEFORE the
+  \<open>llvm_code\<close> definition that calls it: the code attribute's preprocessing
+  only M_CONST-wraps occurrences of already-registered constants, and the
+  inline rule can never match an unwrapped occurrence afterwards.\<close>
 lemmas arr_to_list_import_slice_inline[llvm_inline] =
   arr_to_list_import_impl_def[OF slice_to_str_is_import]
+
+definition imp_term :: \<open>c_term \<Rightarrow> monom_conc llM\<close> where [llvm_code]:
+  \<open>imp_term \<equiv> \<lambda>(ni, ai). arr_to_list_import_impl slice_to_str_impl ni ai\<close>
 
 lemma imp_term_is_import:
   \<open>is_import (arr_with_len_assn stra_assn) monom_assn imp_term\<close>
@@ -698,11 +702,11 @@ subsection \<open>Polynomials\<close>
 
 abbreviation \<open>c_poly_assn \<equiv> arr_with_len_assn c_mnml_assn\<close>
 
-definition imp_poly :: \<open>c_polynomial \<Rightarrow> poly_conc llM\<close> where [llvm_code]:
-  \<open>imp_poly \<equiv> \<lambda>(ni, ai). arr_to_list_import_impl imp_monomial ni ai\<close>
-
 lemmas arr_to_list_import_mnml_inline[llvm_inline] =
   arr_to_list_import_impl_def[OF imp_monomial_is_import]
+
+definition imp_poly :: \<open>c_polynomial \<Rightarrow> poly_conc llM\<close> where [llvm_code]:
+  \<open>imp_poly \<equiv> \<lambda>(ni, ai). arr_to_list_import_impl imp_monomial ni ai\<close>
 
 lemma imp_poly_is_import: \<open>is_import c_poly_assn polynomial_assn imp_poly\<close>
   using arr_to_list_import_is_import[OF imp_monomial_is_import]
@@ -766,7 +770,7 @@ lemma imp_summand_poly_is_import:
 abbreviation \<open>c_summand_assn \<equiv> poly_ptr_assn \<times>\<^sub>a si64_assn\<close>
 
 definition imp_summand :: \<open>c_summand \<Rightarrow> (poly_conc \<times> 64 word) llM\<close>
-  where [llvm_code, llvm_inline]:
+  where [llvm_code]:
   \<open>imp_summand \<equiv> \<lambda>(ppi, ii). doM {
      p \<leftarrow> imp_summand_poly ppi; i \<leftarrow> Mreturn ii; Mreturn (p, i) }\<close>
 
@@ -775,11 +779,11 @@ lemma imp_summand_is_import:
   using is_import_prod[OF imp_summand_poly_is_import si64_is_import]
   unfolding imp_summand_def .
 
-definition imp_srcs :: \<open>c_summands \<Rightarrow> srcs_conc llM\<close> where [llvm_code]:
-  \<open>imp_srcs \<equiv> \<lambda>(ni, ai). arr_to_list_import_impl imp_summand ni ai\<close>
-
 lemmas arr_to_list_import_summand_inline[llvm_inline] =
   arr_to_list_import_impl_def[OF imp_summand_is_import]
+
+definition imp_srcs :: \<open>c_summands \<Rightarrow> srcs_conc llM\<close> where [llvm_code]:
+  \<open>imp_srcs \<equiv> \<lambda>(ni, ai). arr_to_list_import_impl imp_summand ni ai\<close>
 
 abbreviation \<open>c_summands_assn \<equiv> arr_with_len_assn c_summand_assn\<close>
 
@@ -891,11 +895,11 @@ lemma imp_step_is_import: \<open>is_import c_rule_assn lpac_step_assn imp_step\<
 
 subsection \<open>The proof (rule list)\<close>
 
-definition imp_proof :: \<open>c_proof \<Rightarrow> lpac_step_conc cl_list llM\<close> where [llvm_code]:
-  \<open>imp_proof \<equiv> \<lambda>(ni, ai). arr_to_list_import_impl imp_step ni ai\<close>
-
 lemmas arr_to_list_import_step_inline[llvm_inline] =
   arr_to_list_import_impl_def[OF imp_step_is_import]
+
+definition imp_proof :: \<open>c_proof \<Rightarrow> lpac_step_conc cl_list llM\<close> where [llvm_code]:
+  \<open>imp_proof \<equiv> \<lambda>(ni, ai). arr_to_list_import_impl imp_step ni ai\<close>
 
 lemma imp_proof_is_import:
   \<open>is_import (arr_with_len_assn c_rule_assn) (cl_assn' lpac_step_assn) imp_proof\<close>
@@ -1007,20 +1011,11 @@ qed
 
 section \<open>Checker Entry Points\<close>
 
-text \<open>The entry points below are the remaining trusted glue: load the three
-  C structures, import them through the verified importers, run the verified
-  checker and return the status byte. The error message (a \<open>slice\<close>, only
-  meaningful when the returned status is \<open>2\<close>) and the final polynomial map are
-  additionally handed back through out-pointers; their internal representations
-  are read directly on the C side. The polynomial map is an array list
-  \<open>{uint64_t len; uint64_t capacity; poly **data;}\<close> indexed by polynomial id,
-  where a \<open>NULL\<close> entry means the id is unmapped.\<close>
-
 definition run_checker
   :: \<open>c_inputs ptr \<Rightarrow> c_proof ptr \<Rightarrow> c_target ptr \<Rightarrow>
-      stra_conc ptr \<Rightarrow> (poly_conc ptr) pmap_conc ptr \<Rightarrow> 8 word llM\<close>
+      stra_conc ptr \<Rightarrow> 8 word llM\<close>
   where [llvm_code]:
-  \<open>run_checker \<equiv> \<lambda>cinpsp cprfp ctgtp msgp polysp. doM {
+  \<open>run_checker \<equiv> \<lambda>cinpsp cprfp ctgtp msgp. doM {
     cinps \<leftarrow> ll_load cinpsp;
     cprf \<leftarrow> ll_load cprfp;
     ctgt \<leftarrow> ll_load ctgtp;
@@ -1028,18 +1023,15 @@ definition run_checker
     isainps \<leftarrow> imp_inputs cinps;
     isaprf \<leftarrow> imp_proof cprf;
     res \<leftarrow> LPAC_Checker_Synthesis.full_checker_l_impl isatgt isainps isaprf;
-    stm \<leftarrow> ll_extract_value res 0;
-    st \<leftarrow> ll_extract_value stm 0;
-    msg \<leftarrow> ll_extract_value stm 1;
-    vsp \<leftarrow> ll_extract_value res 1;
-    polys \<leftarrow> ll_extract_value vsp 1;
-    ll_store msg msgp;
-    ll_store polys polysp;
-    Mreturn st
+    case res of (stm, vsp) \<Rightarrow>
+    case stm of (st, msg) \<Rightarrow> doM {
+      ll_store msg msgp;
+      Mreturn st
+    }
   }\<close>
 
 export_llvm
-  run_checker is \<open>char run_checker(inputs*, proof*, polynomial*, slice*, auto)\<close>
+  run_checker is \<open>char run_checker(inputs*, proof*, polynomial*, slice*)\<close>
   defines \<open>
     typedef struct {uint64_t len; char *ptr;} slice;
     typedef struct {uint64_t num_vars; slice *vars_ptr;} term;
@@ -1060,9 +1052,9 @@ text \<open>Efficient checker\<close>
 
 definition run_shared_checker
   :: \<open>c_inputs ptr \<Rightarrow> c_proof ptr \<Rightarrow> c_target ptr \<Rightarrow>
-      stra_conc ptr \<Rightarrow> ((64 word cl_list \<times> sbi_conc) cl_list ptr) pmap_conc ptr \<Rightarrow> 8 word llM\<close>
+      stra_conc ptr \<Rightarrow> 8 word llM\<close>
   where [llvm_code]:
-  \<open>run_shared_checker \<equiv> \<lambda>cinpsp cprfp ctgtp msgp polysp. doM {
+  \<open>run_shared_checker \<equiv> \<lambda>cinpsp cprfp ctgtp msgp. doM {
     cinps \<leftarrow> ll_load cinpsp;
     cprf \<leftarrow> ll_load cprfp;
     ctgt \<leftarrow> ll_load ctgtp;
@@ -1070,18 +1062,15 @@ definition run_shared_checker
     isainps \<leftarrow> imp_inputs cinps;
     isaprf \<leftarrow> imp_proof cprf;
     res \<leftarrow> full_checker_l_s2_impl isatgt isainps isaprf;
-    stm \<leftarrow> ll_extract_value res 0;
-    st \<leftarrow> ll_extract_value stm 0;
-    msg \<leftarrow> ll_extract_value stm 1;
-    vsp \<leftarrow> ll_extract_value res 1;
-    polys \<leftarrow> ll_extract_value vsp 1;
-    ll_store msg msgp;
-    ll_store polys polysp;
-    Mreturn st
+    case res of (stm, vsp) \<Rightarrow>
+    case stm of (st, msg) \<Rightarrow> doM {
+      ll_store msg msgp;
+      Mreturn st
+    }
   }\<close>
 
 export_llvm
-  run_shared_checker is \<open>char run_shared_checker(inputs*, proof*, polynomial*, slice*, auto)\<close>
+  run_shared_checker is \<open>char run_shared_checker(inputs*, proof*, polynomial*, slice*)\<close>
   defines \<open>
     typedef struct {uint64_t len; char *ptr;} slice;
     typedef struct {uint64_t num_vars; slice *vars_ptr;} term;

@@ -337,25 +337,6 @@ qed
 
 end
 
-text \<open>The coefficient-sort instance (replacing \<open>msort_coeff_s\<close>) is analogous:
-  \<open>valid = (\<lambda>a. a \<in># dom_m (fst (snd \<V>)))\<close>,
-  \<open>cmp = (\<lambda>a b. a = b \<or> var_order (fst (snd \<V>) \<propto> a) (fst (snd \<V>) \<propto> b))\<close>,
-  \<open>mcmp\<close> via \<open>get_var_nameS\<close>; totality additionally needs injectivity of the
-  lookup (perfectly_shared_var_rel_unique_right), which \<open>V_rel\<close> provides.
-
-  Synthesis is per instance with \<open>\<V>\<close> explicit (no @{locale mcmp_env_impl}
-  interpretation \<midarrow> the comparison impl needs heap ownership of \<open>\<V>\<close>, which a
-  binary \<open>A\<^sup>k *\<^sub>a A\<^sup>k\<close> rule cannot capture): unfold \<open>msort_monoms_def\<close> together
-  with the global program definitions \<open>mcmp_msort_def\<close>, \<open>mcmp_run_passes_def\<close>,
-  \<open>mcmp_pass_def\<close>, \<open>mcmp_merge_while_def\<close>, \<open>mcmp_merge_while_inner_def\<close>
-  (the locale-exported \<open>mcmp_env.msort_def\<close> etc. are unusable for unfolding:
-  they are guarded by the locale predicate, which does not hold for arbitrary
-  \<open>\<V>\<close>) and \<open>term_mcmp_def\<close>; the comparison then appears as
-  \<open>perfect_shared_term_order_rel_s \<V> \<dots>\<close> with \<open>\<V>\<close> a real argument, so the
-  existing impl rule (perfect_shared_term_order_rel_s_impl) applies.
-  See the \<open>msort_coeffs\<close> synthesis chain below for a worked instance.\<close>
-
-
 lemma perfectly_shared_var_rel_unique_left:
   \<open>(x, y) \<in> perfectly_shared_var_rel \<V> \<Longrightarrow> (x, y') \<in> perfectly_shared_var_rel \<V> \<Longrightarrow> y = y'\<close>
   using perfectly_shared_monom_unique_left[of \<open>[x]\<close>  \<open>[y]\<close> \<V> \<open>[y']\<close>] by auto
@@ -796,7 +777,7 @@ lemma mnml_s_free_rule[sepref_frame_free_rules]:
   unfolding mnml_s_free_def
   by (rule mk_free_pair[OF snhm.val.cl_assn_free sbi_free_rule])
 
-definition mnml_s_copy where [llvm_code, llvm_inline]:
+definition mnml_s_copy where [llvm_code]:
   \<open>mnml_s_copy \<equiv> \<lambda>(m, c). doM { m' \<leftarrow> snhm.val.cl_copy m; c' \<leftarrow> sbi_copy c; Mreturn (m', c') }\<close>
 
 lemma mnml_s_copy_rule[vcg_rules]: \<open>llvm_htriple
@@ -2079,11 +2060,11 @@ lemma sort_all_coeffs_s_alt_def:
        }) (xs, [])\<close>
   unfolding sort_all_coeffs_s_def
   by (rule sort_all_coeffs_s_RECT_aux) auto
-
+(*
 lemma cl_assn_free_comp[sepref_frame_free_rules]:
   \<open>MK_FREE A f \<Longrightarrow> MK_FREE (cl_assn' A) (freeable_assn.cl_free f)\<close>
   by (intro freeable_assn.cl_assn_free freeable_assn.intro)
-
+*)
 interpretation monom_fa: freeable_assn monom_s_assn snhm.val.cl_free
   by unfold_locales (rule snhm.val.cl_assn_free)
 
@@ -2172,6 +2153,10 @@ sepref_def term_merge_while_impl
 definition term_pass :: \<open>(nat,string)shared_vars \<Rightarrow> sllist_polynomial list \<Rightarrow> sllist_polynomial list nres\<close> where
   \<open>term_pass \<V> = mcmp_pass (term_cmp \<V>) (term_valid \<V>) (term_mcmp \<V>)\<close>
 
+interpretation polys_s_ls: freeable_assn \<open>poly_s_assn\<close> \<open>poly_s.cl_free\<close>
+  apply unfold_locales
+  using poly_s.cl_assn_free by blast
+
 sepref_register term_pass
 sepref_def term_pass_impl
   is \<open>uncurry term_pass\<close>
@@ -2191,8 +2176,10 @@ sepref_def term_run_passes_impl
     ls_emp ls_emp'
   by sepref
 
-interpretation poly_fa: freeable_assn poly_s_assn poly_s.cl_free
-  by unfold_locales (rule poly_s.cl_assn_free)
+interpretation poly_fa: copyable_assn poly_s_assn poly_s.cl_free poly_s.cl_copy
+  apply unfold_locales
+  apply (rule poly_s.cl_assn_free poly_s.cl_copy_hnr)+
+  done
 
 sepref_register msort_monoms
 sepref_def msort_monoms_impl
@@ -2322,7 +2309,6 @@ text \<open>The map from ids to shared polynomials, built exactly like \<open>po
 interpretation polys_s: boxed_copying_pmap
   \<open>poly_s_assn\<close> \<open>poly_s.cl_free\<close> \<open>poly_s.cl_copy\<close>
   apply unfold_locales
-  apply (rule poly_s.cl_assn_free poly_s.cl_copy_hnr)+
   done
 
 abbreviation polys_s_assn where
@@ -2499,21 +2485,24 @@ sepref_def s_fold_inner_impl is \<open>uncurry2 (RETURN ooo s_fold_inner)\<close
   unfolding s_fold_inner_alt
   by sepref
 
-definition \<open>vars_of_monom_in_s_impl xs \<V> \<equiv> cl_fold (s_fold_inner_impl \<V>) (xs, 1)\<close>
+text \<open>The step function must not capture \<open>\<V>\<close> (LLVM has no closures), so we use
+  the lambda-lifted \<open>cl_fold_env\<close> that threads it through the recursion.\<close>
+definition [llvm_code]:
+  \<open>vars_of_monom_in_s_impl xs \<V> \<equiv> cl_fold_env s_fold_inner_impl (\<V>, xs, 1)\<close>
 
 lemma s_fold_inner_step_rule:
   \<open>llvm_htriple
-    ((bool1_assn b bi ** shared_vars_assn \<V> vi) ** strl_assn' x xi)
+    (shared_vars_assn \<V> vi ** bool1_assn b bi ** strl_assn' x xi)
     (s_fold_inner_impl vi bi xi)
-    (\<lambda>r. (bool1_assn (s_fold_inner \<V> b x) r ** shared_vars_assn \<V> vi) ** strl_assn' x xi)\<close>
+    (\<lambda>r. shared_vars_assn \<V> vi ** bool1_assn (s_fold_inner \<V> b x) r ** strl_assn' x xi)\<close>
   supply [vcg_rules] = hfref_htriple_k3[OF s_fold_inner_impl.refine]
   apply vcg
   unfolding ENTAILS_def
   by (auto simp: entails_def pure_def sep_algebra_simps)
 
 lemmas vars_of_monom_in_s_walk_rule =
-  cl_fold_rule[where R = \<open>\<lambda>b r. bool1_assn b r ** shared_vars_assn \<V> vi\<close>
-    and fa = \<open>s_fold_inner \<V>\<close> and A = strl_assn' for \<V> vi,
+  cl_fold_env_rule[where P = shared_vars_assn and R = bool1_assn and A = strl_assn'
+    and f = s_fold_inner_impl and fa = s_fold_inner,
     OF s_fold_inner_step_rule]
 
 lemma vars_of_monom_in_s_foldl:
@@ -2540,21 +2529,22 @@ sepref_def s_poly_inner_impl is \<open>uncurry2 (RETURN ooo s_poly_inner)\<close
   unfolding s_poly_inner_def
   by sepref
 
-definition \<open>vars_of_poly_in_s_impl xs \<V> \<equiv> cl_fold (s_poly_inner_impl \<V>) (xs, 1)\<close>
+definition [llvm_code]:
+  \<open>vars_of_poly_in_s_impl xs \<V> \<equiv> cl_fold_env s_poly_inner_impl (\<V>, xs, 1)\<close>
 
 lemma s_poly_inner_step_rule:
   \<open>llvm_htriple
-    ((bool1_assn b bi ** shared_vars_assn \<V> vi) ** monomial_assn x xi)
+    (shared_vars_assn \<V> vi ** bool1_assn b bi ** monomial_assn x xi)
     (s_poly_inner_impl vi bi xi)
-    (\<lambda>r. (bool1_assn (s_poly_inner \<V> b x) r ** shared_vars_assn \<V> vi) ** monomial_assn x xi)\<close>
+    (\<lambda>r. shared_vars_assn \<V> vi ** bool1_assn (s_poly_inner \<V> b x) r ** monomial_assn x xi)\<close>
   supply [vcg_rules] = hfref_htriple_k3[OF s_poly_inner_impl.refine]
   apply vcg
   unfolding ENTAILS_def
   by (auto simp: entails_def pure_def sep_algebra_simps)
 
 lemmas vars_of_poly_in_s_walk_rule =
-  cl_fold_rule[where R = \<open>\<lambda>b r. bool1_assn b r ** shared_vars_assn \<V> vi\<close>
-    and fa = \<open>s_poly_inner \<V>\<close> and A = monomial_assn for \<V> vi,
+  cl_fold_env_rule[where P = shared_vars_assn and R = bool1_assn and A = monomial_assn
+    and f = s_poly_inner_impl and fa = s_poly_inner,
     OF s_poly_inner_step_rule]
 
 lemma vars_of_poly_in_s_foldl:
@@ -2581,9 +2571,8 @@ sepref_def vars_llist_in_s_impl
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   unfolding vars_llist_in_s_alt_def
   by sepref
+
 lemmas [sepref_fr_rules] = vars_llist_in_s_impl.refine
-
-
 
 sepref_register mult_poly_s normalize_poly_s
 sepref_def normalize_poly_sharedS_impl
@@ -2594,9 +2583,6 @@ sepref_def normalize_poly_sharedS_impl
 
 lemmas [sepref_fr_rules] = normalize_poly_sharedS_impl.refine
   mult_poly_s_impl.refine
-text \<open>Same accumulator-loop treatment as for \<open>merge_coeffs0_s\<close> above; the only
-  differences are that a trailing singleton is kept unconditionally and that
-  no zero-filtering happens in the \<open>\<noteq>\<close> branch.\<close>
 
 definition mc2_body_s :: \<open>sllist_polynomial \<times> sllist_polynomial \<Rightarrow>
   (sllist_polynomial \<times> sllist_polynomial) nres\<close> where
@@ -2662,10 +2648,6 @@ lemmas [sepref_fr_rules] = mult_poly_full_s_impl.refine
   add_poly_l_prep_impl.refine
 
 sepref_register add_poly_l_s
-
-text \<open>The \<open>hd\<close>/\<open>tl\<close> walk over the linear combination becomes a pop-walk that
-  re-prepends the pair in the error branch, exactly like \<open>linear_combi_alt\<close>
-  in \<open>LPAC_Checker_Synthesis\<close>.\<close>
 
 lemma linear_combi_l_prep_s_alt:
   \<open>linear_combi_l_prep_s i A \<V> xs = do {
@@ -2746,7 +2728,7 @@ sepref_def print_monom_s_inner_impl is \<open>uncurry (RETURN oo print_monom_s_i
 definition print_monom_s :: \<open>nat list \<Rightarrow> char list\<close> where
   \<open>print_monom_s \<equiv> foldl print_monom_s_inner []\<close>
 
-definition \<open>print_monom_s_impl \<equiv> \<lambda>m. doM {e \<leftarrow> clt_empty; cl_fold' print_monom_s_inner_impl e m}\<close>
+definition [llvm_code]: \<open>print_monom_s_impl \<equiv> \<lambda>m. doM {e \<leftarrow> clt_empty; cl_fold' print_monom_s_inner_impl e m}\<close>
 
 lemma print_monom_s_rule: \<open>llvm_htriple
   (monom_s_assn m mi)
@@ -2795,7 +2777,7 @@ sepref_def poly_s_print_inner_impl is \<open>uncurry (RETURN oo poly_s_print_inn
 definition poly_s_print :: \<open>sllist_polynomial \<Rightarrow> string\<close> where
   \<open>poly_s_print \<equiv> foldl poly_s_print_inner []\<close>
 
-definition \<open>poly_s_print_impl \<equiv> \<lambda>ps. doM {e \<leftarrow> clt_empty; cl_fold' poly_s_print_inner_impl e ps}\<close>
+definition [llvm_code]: \<open>poly_s_print_impl \<equiv> \<lambda>ps. doM {e \<leftarrow> clt_empty; cl_fold' poly_s_print_inner_impl e ps}\<close>
 
 lemma poly_s_print_rule: \<open>llvm_htriple
   (poly_s_assn ps psi)
@@ -2998,12 +2980,6 @@ lemma check_extension_l2_s_alt_def:
 
 sepref_register import_monomS import_polyS
 
-text \<open>\<open>import_monomS\<close>/\<open>import_polyS\<close> keep the unconsumed remainder of their input
-  in the loop state on allocation failure. The pop-walks below pop from a
-  \<open>COPY\<close> of the input (so the argument stays in keep mode) and re-prepend the
-  popped element on the failure path \<emdash> \<open>import_variableS\<close>/\<open>import_monomS\<close> keep
-  their argument, so it is still owned there. This gives literal body equality.\<close>
-
 lemma import_monomS_alt_def:
   \<open>(import_monomS :: (nat, string) shared_vars \<Rightarrow> _) \<A> xs0 = do {
      xs \<leftarrow> RETURN (COPY xs0);
@@ -3143,7 +3119,6 @@ sepref_def check_extension_l_impl
   apply (annot_snat_const \<open>TYPE(64)\<close>)
   by sepref
 
-
 sepref_def check_del_l_impl
   is \<open>uncurry2 check_del_l\<close>
   :: \<open>poly_s_assn\<^sup>k *\<^sub>a polys_s_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k \<rightarrow>\<^sub>a status_assn\<close>
@@ -3229,11 +3204,12 @@ lemma PAC_checker_l_step_s_tuple:
   \<open>PAC_checker_l_step_s a bcd e = (let (b, c, d) = bcd in PAC_checker_l_step_s' a b c d e)\<close>
   unfolding PAC_checker_l_step_s'_def by (auto split: prod.splits)
 
-sepref_definition check_step_s_impl
+sepref_def check_step_s_impl
   is \<open>uncurry4 PAC_checker_l_step_s_alt\<close>
   :: \<open>poly_s_assn\<^sup>k *\<^sub>a status_assn\<^sup>d *\<^sub>a shared_vars_assn\<^sup>d *\<^sub>a polys_s_assn\<^sup>d *\<^sub>a lpac_step_assn\<^sup>d \<rightarrow>\<^sub>a
     status_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a polys_s_assn\<close>
   supply [[goals_limit=1]] is_Mult_lastI[intro]
+  supply [sepref_frame_free_rules] = poly.cl_assn_free (* Need this to force our custom free *)
   unfolding PAC_checker_l_step_s_alt_def Let_def
     is_success_alt_def[symmetric]
     ls_emp ls_emp'
@@ -3302,7 +3278,7 @@ lemma PAC_checker_l_s_loop_fref:
   apply (intro frefI nres_relI)
   using PAC_checker_l_s_loop_PAC_checker_l_s' by auto
 
-sepref_definition PAC_checker_l_s_impl
+sepref_def PAC_checker_l_s_impl
   is \<open>uncurry4 PAC_checker_l_s_loop\<close>
   :: \<open>poly_s_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>d *\<^sub>a polys_s_assn\<^sup>d *\<^sub>a status_assn\<^sup>d *\<^sub>a
      (cl_assn' lpac_step_assn)\<^sup>d \<rightarrow>\<^sub>a

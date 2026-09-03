@@ -54,21 +54,24 @@ sepref_def fold_inner_impl is \<open>uncurry2 (RETURN ooo fold_inner)\<close>
   unfolding fold_inner_def
   by sepref
     
-definition \<open>vars_of_monom_in_impl xs \<V> \<equiv> cl_fold (fold_inner_impl \<V>) (xs, 1)\<close>
+text \<open>The step function must not capture \<open>\<V>\<close> (LLVM has no closures), so we use
+  the lambda-lifted \<open>cl_fold_env\<close> that threads it through the recursion.\<close>
+definition [llvm_code]:
+  \<open>vars_of_monom_in_impl xs \<V> \<equiv> cl_fold_env fold_inner_impl (\<V>, xs, 1)\<close>
 
 lemma fold_inner_step_rule:
   \<open>llvm_htriple
-    ((bool1_assn b bi ** vars_assn \<V> vi) ** strl_assn' x xi)
+    (vars_assn \<V> vi ** bool1_assn b bi ** strl_assn' x xi)
     (fold_inner_impl vi bi xi)
-    (\<lambda>r. (bool1_assn (fold_inner \<V> b x) r ** vars_assn \<V> vi) ** strl_assn' x xi)\<close>
+    (\<lambda>r. vars_assn \<V> vi ** bool1_assn (fold_inner \<V> b x) r ** strl_assn' x xi)\<close>
   supply [vcg_rules] = hfref_htriple_k3[OF fold_inner_impl.refine]
   apply vcg
   unfolding ENTAILS_def
   by (auto simp: entails_def pure_def sep_algebra_simps)
 
 lemmas vars_of_monom_walk_rule =
-  cl_fold_rule[where R = \<open>\<lambda>b r. bool1_assn b r ** vars_assn \<V> vi\<close>
-    and fa = \<open>fold_inner \<V>\<close> and A = strl_assn' for \<V> vi,
+  cl_fold_env_rule[where P = vars_assn and R = bool1_assn and A = strl_assn'
+    and f = fold_inner_impl and fa = fold_inner,
     OF fold_inner_step_rule]
 
 lemma vars_of_monom_in_foldl:
@@ -102,21 +105,22 @@ sepref_def vars_of_poly_in_inner_impl is \<open>uncurry2 (RETURN ooo vars_of_pol
   unfolding vars_of_poly_in_inner_def
   by sepref
 
-definition \<open>vars_of_poly_in_impl xs \<V> \<equiv> cl_fold (vars_of_poly_in_inner_impl \<V>) (xs, 1)\<close>
+definition [llvm_code]:
+  \<open>vars_of_poly_in_impl xs \<V> \<equiv> cl_fold_env vars_of_poly_in_inner_impl (\<V>, xs, 1)\<close>
 
 lemma vars_of_poly_in_inner_step_rule:
   \<open>llvm_htriple
-    ((bool1_assn b bi ** vars_assn \<V> vi) ** monomial_assn x xi)
+    (vars_assn \<V> vi ** bool1_assn b bi ** monomial_assn x xi)
     (vars_of_poly_in_inner_impl vi bi xi)
-    (\<lambda>r. (bool1_assn (vars_of_poly_in_inner \<V> b x) r ** vars_assn \<V> vi) ** monomial_assn x xi)\<close>
+    (\<lambda>r. vars_assn \<V> vi ** bool1_assn (vars_of_poly_in_inner \<V> b x) r ** monomial_assn x xi)\<close>
   supply [vcg_rules] = hfref_htriple_k3[OF vars_of_poly_in_inner_impl.refine]
   apply vcg
   unfolding ENTAILS_def
   by (auto simp: entails_def pure_def sep_algebra_simps)
 
 lemmas vars_of_poly_walk_rule =
-  cl_fold_rule[where R = \<open>\<lambda>b r. bool1_assn b r ** vars_assn \<V> vi\<close>
-    and fa = \<open>vars_of_poly_in_inner \<V>\<close> and A = monomial_assn for \<V> vi,
+  cl_fold_env_rule[where P = vars_assn and R = bool1_assn and A = monomial_assn
+    and f = vars_of_poly_in_inner_impl and fa = vars_of_poly_in_inner,
     OF vars_of_poly_in_inner_step_rule]
 
 lemma vars_of_poly_in_foldl:
@@ -150,7 +154,7 @@ lemma union_vars_monom_alt: \<open>union_vars_monom xs \<V> = foldl insert' \<V>
   unfolding union_vars_monom_def insert'_def COPY_def
   by (auto simp: foldl_conv_fold)
 
-definition \<open>union_vars_monom_impl xs \<V> \<equiv> cl_fold insert'_impl (xs, \<V>)\<close>
+definition [llvm_code]: \<open>union_vars_monom_impl xs \<V> \<equiv> cl_fold insert'_impl (xs, \<V>)\<close>
 
 lemma insert'_step_rule: \<open>llvm_htriple
     (vars_assn \<V> \<V>i ** strl_assn' x xi)
@@ -187,7 +191,8 @@ lemma union_vars_poly_comp: \<open>union_vars_poly xs \<V> = foldl union_vars_po
   unfolding union_vars_poly_def union_vars_poly_inner_def
   by (simp add: foldl_conv_fold split_def)
 
-definition \<open>union_vars_poly_impl xsi \<V>i \<equiv> cl_fold (union_vars_poly_inner_impl) (xsi, \<V>i)\<close>
+definition [llvm_code]:
+  \<open>union_vars_poly_impl xsi \<V>i \<equiv> cl_fold (union_vars_poly_inner_impl) (xsi, \<V>i)\<close>
 
 lemma union_vars_poly_inner_step_rule: \<open>llvm_htriple
     (vars_assn \<V> \<V>i ** monomial_assn m mi)
@@ -328,11 +333,11 @@ definition poly_row_fold :: \<open>monomial_abs \<Rightarrow> llist_polynomial \
 
 sepref_register poly_row_fold
 lemma poly_row_fold_hnr[sepref_fr_rules]:
-  \<open>(uncurry2 (\<lambda>pmi. cl_fold' (mult_poly_raw_inner_impl pmi)),
+  \<open>(uncurry2 (\<lambda>pmi ai xsi. cl_fold_env mult_poly_raw_inner_impl (pmi, xsi, ai)),
     uncurry2 (RETURN ooo poly_row_fold))
     \<in> monomial_assn\<^sup>k *\<^sub>a polynomial_assn_tail\<^sup>d *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a polynomial_assn_tail\<close>
   unfolding poly_row_fold_def[abs_def]
-  by (rule cl_fold_hfref_param[OF mult_poly_raw_inner_impl.refine])
+  by (rule cl_fold_env_hfref_param[OF mult_poly_raw_inner_impl.refine])
 
 definition mult_poly_raw_inner2 :: \<open>monomial_abs \<Rightarrow> llist_polynomial \<Rightarrow> llist_polynomial\<close>
   where \<open>mult_poly_raw_inner2 pm q \<equiv> poly_row_fold pm [] q\<close>
@@ -357,11 +362,11 @@ definition poly_mult_fold :: \<open>llist_polynomial \<Rightarrow> llist_polynom
 
 sepref_register poly_mult_fold
 lemma poly_mult_fold_hnr[sepref_fr_rules]:
-  \<open>(uncurry2 (\<lambda>qi. cl_fold' (mult_poly_raw_outer_impl qi)),
+  \<open>(uncurry2 (\<lambda>qi ai xsi. cl_fold_env mult_poly_raw_outer_impl (qi, xsi, ai)),
     uncurry2 (RETURN ooo poly_mult_fold))
     \<in> polynomial_assn\<^sup>k *\<^sub>a polynomial_assn_tail\<^sup>d *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a polynomial_assn_tail\<close>
   unfolding poly_mult_fold_def[abs_def]
-  by (rule cl_fold_hfref_param[OF mult_poly_raw_outer_impl.refine])
+  by (rule cl_fold_env_hfref_param[OF mult_poly_raw_outer_impl.refine])
 
 lemma foldl_snoc_conv_map: \<open>foldl (\<lambda>b x. b @ [g x]) b\<^sub>0 xs = b\<^sub>0 @ map g xs\<close>
   by (induction xs arbitrary: b\<^sub>0) auto
@@ -556,8 +561,6 @@ sepref_def check_mult_l_impl
     vars_llist_alt_def
   by sepref
 
-export_llvm check_mult_l_impl
-
 definition uminus_poly :: \<open>llist_polynomial \<Rightarrow> llist_polynomial\<close> where
   \<open>uminus_poly p = map (\<lambda>(a,b). (a,-b)) p\<close>
 
@@ -693,8 +696,6 @@ sepref_def check_extension_l_impl
     vars_llist_alt_def
     uminus_poly_def[symmetric]
   by sepref
-
-export_llvm check_extension_l_impl
 
 lemmas check_extension_l_hnr[sepref_fr_rules] =
   check_extension_l_impl.refine[FCOMP check_extension_l_refine]
@@ -833,8 +834,6 @@ sepref_def check_step_impl
      is_success_alt_def[symmetric]
     uminus_poly_def[symmetric]
   by sepref
-
-export_llvm check_step_impl
 
 lemmas PAC_checker_l_step_mop_hnr[sepref_fr_rules] =
   check_step_impl.refine[FCOMP PAC_checker_l_step_mop_fref]
@@ -1069,8 +1068,6 @@ sepref_def full_checker_l_impl
     PAC_checker_l_alt2
   supply [sepref_fr_rules] = strl.hs_empty_2pow14_hnr
   by sepref
-
-export_llvm full_checker_l_impl
 
 section \<open>Correctness theorem\<close>
 (* TODO: Correctness theorem must assume precondition of step_id_bounded *)

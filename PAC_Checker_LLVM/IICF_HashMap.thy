@@ -430,25 +430,28 @@ definition lshm_bucket_contains_step where [llvm_code, llvm_inline]:
   }\<close>
 
 lemma lshm_bucket_contains_step_rule: \<open>llvm_htriple
-  ((K k ki ** bool1_assn a ai) ** boxed_bucket_assn x xi)
+  (K k ki ** bool1_assn a ai ** boxed_bucket_assn x xi)
   (lshm_bucket_contains_step ki ai xi)
-  (\<lambda>r. (K k ki ** bool1_assn (lshm_bucket_contains_fold_inner k a x) r) ** boxed_bucket_assn x xi)\<close>
+  (\<lambda>r. K k ki ** bool1_assn (lshm_bucket_contains_fold_inner k a x) r ** boxed_bucket_assn x xi)\<close>
   unfolding lshm_bucket_contains_step_def lshm_bucket_contains_fold_inner_def
   apply (cases x; cases xi; simp only: prod_assn_pair_conv prod.case)
   supply [simp] = bool.assn_def bool1_rel_def bool.rel_def in_br_conv pure_def from_bool_def
   by vcg
 
+text \<open>The step function must not capture \<open>ki\<close> (LLVM has no closures), so we use
+  the lambda-lifted \<open>cl_fold_env\<close> that threads it through the recursion.\<close>
 definition lshm_bucket_contains_impl :: \<open>'ki \<Rightarrow> ('ki \<times> 'vi ptr) cl_list \<Rightarrow> 1 word llM\<close>
   where [llvm_code]:
-  \<open>lshm_bucket_contains_impl ki p \<equiv> cl_fold' (lshm_bucket_contains_step ki) 0 p\<close>
+  \<open>lshm_bucket_contains_impl ki p \<equiv> cl_fold_env lshm_bucket_contains_step (ki, p, 0)\<close>
 
 lemma lshm_bucket_contains_rule[vcg_rules]: \<open>llvm_htriple
   (boxed_buckets_assn b bi ** K k ki)
   (lshm_bucket_contains_impl ki bi)
   (\<lambda>r. boxed_buckets_assn b bi ** K k ki ** bool1_assn (lshm_bucket_contains k b) r)\<close>
   unfolding lshm_bucket_contains_impl_def lshm_bucket_contains_fold
-  supply [vcg_rules] = cl_fold'_rule[where R = \<open>\<lambda>a ai. K k ki ** bool1_assn a ai\<close>
-    and A = boxed_bucket_assn and fa = \<open>lshm_bucket_contains_fold_inner k\<close>
+  supply [vcg_rules] = cl_fold_env_rule[where P = K and R = bool1_assn
+    and A = boxed_bucket_assn and f = lshm_bucket_contains_step
+    and fa = lshm_bucket_contains_fold_inner
     and a = False, OF lshm_bucket_contains_step_rule]
   supply [simp] = bool1_rel_def bool.rel_def in_br_conv pure_def
   by vcg
@@ -629,7 +632,7 @@ qed
 
 subsection \<open>Update\<close>
 
-definition \<open>lshm_op_map_update_impl \<equiv> \<lambda>ki vi xsi. doM {
+definition [llvm_code]: \<open>lshm_op_map_update_impl \<equiv> \<lambda>ki vi xsi. doM {
     l \<leftarrow> arl_len xsi;
     bii \<leftarrow> lshm_bucket_of_impl l ki;
     bi \<leftarrow> arl_nth xsi bii; 
@@ -660,7 +663,7 @@ lemmas lshm_update_hnr[sepref_fr_rules] =
 
 subsection \<open>Delete\<close>
 
-definition \<open>lshm_op_map_delete_impl \<equiv> \<lambda>ki xsi. doM {
+definition [llvm_code]: \<open>lshm_op_map_delete_impl \<equiv> \<lambda>ki xsi. doM {
     l \<leftarrow> arl_len xsi;
     bii \<leftarrow> lshm_bucket_of_impl l ki;
     bi \<leftarrow> arl_nth xsi bii; 
@@ -692,7 +695,7 @@ lemma hm_opt_rel_restore:
   \<open>(xs', xs) \<in> hm_opt_rel \<Longrightarrow> i < length xs \<Longrightarrow> xs'[i := Some (xs ! i)] = xs'\<close>
   by (metis hm_opt_rel_nth list_update_id)
 
-definition \<open>lshm_op_map_contains_key_impl \<equiv> \<lambda>ki xsi. doM {
+definition [llvm_code]: \<open>lshm_op_map_contains_key_impl \<equiv> \<lambda>ki xsi. doM {
     l \<leftarrow> arl_len xsi;
     bii \<leftarrow> lshm_bucket_of_impl l ki;
     bi \<leftarrow> arl_nth xsi bii;
@@ -721,7 +724,7 @@ lemmas lshm_contains_key_hnr[sepref_fr_rules] =
 
 subsection \<open>Lookup\<close>
 
-definition \<open>lshm_op_map_lookup_impl \<equiv> \<lambda>ki xsi. doM {
+definition [llvm_code]: \<open>lshm_op_map_lookup_impl \<equiv> \<lambda>ki xsi. doM {
     l \<leftarrow> arl_len xsi;
     bii \<leftarrow> lshm_bucket_of_impl l ki;
     bi \<leftarrow> arl_nth xsi bii;
@@ -749,7 +752,7 @@ lemmas lshm_lookup_hnr[sepref_fr_rules] =
 
 subsection \<open>The-Lookup\<close>
 
-definition \<open>lshm_the_lookup_impl \<equiv> \<lambda>ki xsi. doM {
+definition [llvm_code]: \<open>lshm_the_lookup_impl \<equiv> \<lambda>ki xsi. doM {
     l \<leftarrow> arl_len xsi;
     bii \<leftarrow> lshm_bucket_of_impl l ki;
     bi \<leftarrow> arl_nth xsi bii;

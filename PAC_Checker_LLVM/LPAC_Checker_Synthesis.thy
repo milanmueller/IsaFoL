@@ -422,8 +422,6 @@ sepref_def full_checker_l_impl
   supply [sepref_fr_rules] = strl.hs_empty_2pow14_hnr
   by sepref
 
-export_llvm full_checker_l_impl
-
 (* sepref_definition PAC_empty_impl
  *   is \<open>uncurry0 (RETURN fmempty)\<close>
  *   :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a polys_assn_input\<close>

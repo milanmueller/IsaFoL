@@ -482,6 +482,65 @@ proof -
 qed
 
 
+subsection \<open>Lambda-lifted fold\<close>
+
+text \<open>LLVM cannot compile closures: a fold instance \<open>cl_fold (f e)\<close> whose step
+  function captures a runtime parameter \<open>e\<close> fails \<open>export_llvm\<close> with
+  "Expected ground term". \<open>cl_fold_env\<close> instead threads the environment through
+  the recursion, so the step function of every instance is a ground constant.\<close>
+
+definition cl_fold_env
+  :: \<open>('e::llvm_rep \<Rightarrow> 'a::llvm_rep \<Rightarrow> 'b::llvm_rep \<Rightarrow> 'a llM)
+      \<Rightarrow> 'e \<times> 'b cl_list \<times> 'a \<Rightarrow> 'a llM\<close>
+  where [llvm_code]:
+  \<open>cl_fold_env f \<equiv> MMonad.REC (\<lambda>ff (e, xi, a).
+    if xi = null then Mreturn a
+    else doM {
+      n \<leftarrow> ll_load xi;
+      a \<leftarrow> f e a (node.val n);
+      ff (e, node.next n, a)
+    })\<close>
+
+lemmas cl_fold_env_unfold = REC_unfold_extr[OF cl_fold_env_def, discharge_monos]
+
+lemma cl_fold_env_rule:
+  assumes F: \<open>\<And>a ai x xi. llvm_htriple
+      (P e ei ** R a ai ** A x xi) (f ei ai xi)
+      (\<lambda>r. P e ei ** R (fa e a x) r ** A x xi)\<close>
+  shows \<open>llvm_htriple
+    (P e ei ** R a ai ** cl_assn' A xs p)
+    (cl_fold_env f (ei, p, ai))
+    (\<lambda>r. P e ei ** R (foldl (fa e) a xs) r ** cl_assn' A xs p)\<close>
+proof (induction xs arbitrary: a ai p)
+  case Nil
+  show ?case
+    supply [simp] = cl_assn_simps
+    apply (subst cl_fold_env_unfold)
+    by vcg
+next
+  case (Cons x xs)
+  note [vcg_rules] = Cons.IH F
+  show ?case
+    supply [simp] = cl_assn_simps
+    apply (subst cl_fold_env_unfold)
+    by vcg
+qed
+
+text \<open>Lambda-lifted analogue of @{thm cl_fold_hfref_param}.\<close>
+lemma cl_fold_env_hfref_param:
+  assumes F: \<open>(uncurry2 fi, uncurry2 (RETURN ooo fa)) \<in> P\<^sup>k *\<^sub>a R\<^sup>d *\<^sub>a A\<^sup>k \<rightarrow>\<^sub>a R\<close>
+  shows \<open>(uncurry2 (\<lambda>pi ai xsi. cl_fold_env fi (pi, xsi, ai)),
+          uncurry2 (RETURN ooo (\<lambda>p. foldl (fa p))))
+        \<in> P\<^sup>k *\<^sub>a R\<^sup>d *\<^sub>a (cl_assn' A)\<^sup>k \<rightarrow>\<^sub>a R\<close>
+proof -
+  have BODY: \<open>llvm_htriple (P p pi ** R a ai ** A x xi) (fi pi ai xi)
+                (\<lambda>r. P p pi ** R (fa p a x) r ** A x xi)\<close> for p pi a ai x xi
+    by (rule hfref_htriple_k1_d2_k3[OF F])
+  show ?thesis
+    supply [vcg_rules] = cl_fold_env_rule[where P=P and R=R and A=A and f=fi, OF BODY]
+    by (sepref_to_hoare; vcg)
+qed
+
 text \<open>Guarded variant: the step function's rule only holds for elements
   satisfying \<open>P\<close>; the fold then requires all list elements to satisfy \<open>P\<close>.\<close>
 lemma cl_fold_rule_guard:
@@ -760,7 +819,6 @@ lemma cl_hd\<^sub>k_hnr[sepref_fr_rules]:
 
 end
 
-
 subsection \<open>@{term op_list_concat}\<close>
 
 definition cl_concat_impl :: \<open>'a::llvm_rep cl_list \<times> 'a cl_list \<Rightarrow> 'a cl_list llM\<close>
@@ -885,7 +943,7 @@ text \<open>Comparison operations only load elements, so they need neither free 
 context eq_assn
 begin
 
-definition cl_eq_impl :: \<open>'b cl_list \<times> 'b cl_list \<Rightarrow> 1 word llM\<close> where[llvm_code, llvm_inline]:
+definition cl_eq_impl :: \<open>'b cl_list \<times> 'b cl_list \<Rightarrow> 1 word llM\<close> where[llvm_code]:
   \<open>cl_eq_impl \<equiv> MMonad.REC (\<lambda>cl_eq_impl (ai, bi). doM {
     empa \<leftarrow> os_is_empty ai;
     llc_if empa (doM {
@@ -1011,7 +1069,7 @@ lemma lexordp_simps':
   \<open>lexordp r (x # xs) (y # ys) = (r x y \<or> (x = y \<and> lexordp r xs ys))\<close>
   by (simp_all add: lexordp_def)
 
-definition cl_less_impl :: \<open>'b cl_list \<times> 'b cl_list \<Rightarrow> 1 word llM\<close> where [llvm_code, llvm_inline]:
+definition cl_less_impl :: \<open>'b cl_list \<times> 'b cl_list \<Rightarrow> 1 word llM\<close> where [llvm_code]:
   \<open>cl_less_impl \<equiv> MMonad.REC (\<lambda>cl_less_impl (ai, bi). doM {
     empb \<leftarrow> os_is_empty bi;
     llc_if empb (Mreturn 0) (doM {
@@ -1030,7 +1088,7 @@ definition cl_less_impl :: \<open>'b cl_list \<times> 'b cl_list \<Rightarrow> 1
 
 lemmas cl_less_impl_unfold = REC_unfold_extr[OF cl_less_impl_def, discharge_monos]
 
-definition \<open>cl_less ai bi \<equiv> cl_less_impl (ai, bi)\<close>
+definition [llvm_code]: \<open>cl_less ai bi \<equiv> cl_less_impl (ai, bi)\<close>
 
 context begin
 interpretation llvm_prim_ctrl_setup .
