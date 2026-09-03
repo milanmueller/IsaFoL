@@ -10,38 +10,56 @@ session PAC_Checker_LLVM = "Isabelle_LLVM" +
     "Polynomials"
     Nested_Multisets_Ordinals
     BigInt_LLVM
+    Show
   theories
+    (* Abstract specification *)
+    PAC_More_Poly
+    PAC_Misc
+    PAC_Specification
+    LPAC_Specification
+    Finite_Map_Multiset
+    PAC_Checker_Specification
+    LPAC_Checker_Specification
+    (* Refinement infrastructure *)
+    Aux_Lemmas
     Assn_Env
     More_Loops
     More_EOArray
+    PAC_Map_Rel
+    PAC_Checker_Relation
+    (* Data structures *)
     IICF_Copying_List
-    IICF_HashSet
     IICF_PartialMap
+    IICF_HashSet
     IICF_HashMap
+    Char_Assn
+    LLVM_String
     LLVM_ASCII_String
     LLVM_List_Sorting
     LLVM_Polynomials
-    LPAC_Checker_Specification
+    Printing_Setup
+    (* Polynomial layer *)
+    PAC_Polynomials
+    PAC_Polynomials_Term
+    PAC_Polynomials_Operations
+    (* Checker layer *)
+    PAC_Checker
+    PAC_Step_Assn
+    LPAC_Step_Assn
     LPAC_Checker
-    LPAC_Perfectly_Shared
     LPAC_Error
-    LPAC_Efficient_Checker
+    LPAC_Perfectly_Shared
     LPAC_Perfectly_Shared_Vars
-    LPAC_Specification
-    More_Loops
+    LPAC_Efficient_Checker
+    LPAC_Efficient_Checker_Sorting
+    LPAC_Version
+    (* Synthesis *)
     PAC_Checker_Error
     PAC_Checker_Init
-    PAC_Checker_Relation
-    PAC_Checker_Specification
-    PAC_Checker
-    PAC_Map_Rel
-    PAC_Misc
-    PAC_More_Poly
-    PAC_Polynomials_Operations
-    PAC_Polynomials_Term
-    PAC_Polynomials
-    PAC_Specification
-    Printing_Setup
-    Aux_Lemmas
-    Char_Assn
-    Finite_Map_Multiset
+    PAC_Checker_Synthesis
+    LPAC_Checker_Init
+    LPAC_Efficient_Checker_Synthesis
+    LPAC_Checker_Synthesis
+    (* LLVM code export: writes code/pasteque.ll and code/pasteque_shared.ll
+       (plus the corresponding .h files) into the session directory *)
+    LPAC_CodeExport

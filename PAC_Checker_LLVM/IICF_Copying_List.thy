@@ -748,50 +748,6 @@ text \<open>Operations that additionally need to copy elements live in the
 context copyable_assn
 begin
 
-subsection \<open>@{term op_list_copy}\<close>
-
-definition cl_copy :: \<open>'b cl_list \<Rightarrow> 'b cl_list llM\<close> where [llvm_code]:
-  \<open>cl_copy \<equiv> MMonad.REC (\<lambda>cl_copy p.
-    if p = null then Mreturn null else doM {
-      n \<leftarrow> ll_load p;
-      cpy \<leftarrow> acopy (node.val n);
-      tl \<leftarrow> cl_copy (node.next n);
-      cl_prepend cpy tl
-    })\<close>
-
-(* Apparently, vcg does not support unfolding for `MMonad.REC`, so we do unfolding manually. *)
-lemmas cl_copy_unfold = REC_unfold_extr[OF cl_copy_def, discharge_monos]
-
-lemma cl_copy_rule[vcg_rules]:
-  \<open>llvm_htriple
-    (cl_assn' A xs xi)
-    (cl_copy xi)
-    (\<lambda>r. cl_assn' A xs xi ** cl_assn' A xs r)\<close>
-proof (induction xs arbitrary: xi)
-  case Nil
-  then show ?case
-    apply (rewrite cl_copy_unfold)
-    supply [simp] = cl_assn_simps 
-    by vcg
-next
-  case (Cons a xs)
-  note [vcg_rules] = Cons.IH
-  then show ?case
-    apply (rewrite cl_copy_unfold)
-    supply [simp] = cl_assn_simps sep_conj_exists
-    by vcg
-qed
-
-lemma cl_copy_hnr[sepref_fr_rules]:
-  \<open>(cl_copy, RETURN o COPY) \<in> (cl_assn' A)\<^sup>k \<rightarrow>\<^sub>a (cl_assn' A)\<close>
-  by (sepref_to_hoare; vcg)
-
-lemma cl_copy_is_copy[sepref_gen_algo_rules]:
-  \<open>GEN_ALGO cl_copy (is_copy (cl_assn' A))\<close>
-  unfolding GEN_ALGO_def is_copy_def
-  by (rule cl_copy_hnr)
-
-
 subsection \<open>@{term op_list_hd}\<close>
 
 definition cl_hd\<^sub>k :: \<open>'b cl_list \<Rightarrow> 'b llM\<close> where [llvm_code]:
@@ -1167,72 +1123,6 @@ lemma cl_le_hnr[sepref_fr_rules]:
 
 end
 
-section \<open>Regression Tests\<close>
-
-experiment begin
-
-text \<open>Inner lists hold pure elements (64-bit snat numbers), so their copy is @{term Mreturn}
-  and their free is a no-op. The outer instantiation then uses the inner list's
-  \<open>P.cl_copy\<close>/\<open>P.cl_free\<close> as element copy/free.\<close>
-
-interpretation P: copyable_assn \<open>snat_assn' TYPE(64)\<close> \<open>\<lambda>_. Mreturn ()\<close> Mreturn
-  apply unfold_locales
-  subgoal by (rule mk_free_pure)
-  subgoal by (rule hnr_pure_COPY) simp
-  done
-
-interpretation PP: copyable_assn \<open>cl_assn' (snat_assn' TYPE(64))\<close> P.cl_free P.cl_copy
-  apply unfold_locales
-  subgoal by (rule P.cl_assn_free)
-  subgoal by (rule P.cl_copy_hnr)
-  done
-
-text \<open>The order locale instantiated with 64-bit numbers as elements.\<close>
-
-interpretation N: linorder_assn \<open>snat_assn' TYPE(64)\<close> ll_icmp_eq ll_icmp_slt
-  apply unfold_locales
-  subgoal by (rule hn_snat_ops(7))
-  subgoal by (rule hn_snat_ops(10))
-  done
-
-sepref_definition test_lt_impl is \<open>uncurry (RETURN oo list_lt)\<close>
-  :: \<open>(cl_assn' (snat_assn' TYPE(64)))\<^sup>k *\<^sub>a (cl_assn' (snat_assn' TYPE(64)))\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
-  by sepref
-
-sepref_definition test_le_impl is \<open>uncurry (RETURN oo list_le)\<close>
-  :: \<open>(cl_assn' (snat_assn' TYPE(64)))\<^sup>k *\<^sub>a (cl_assn' (snat_assn' TYPE(64)))\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
-  by sepref
-
-sepref_definition test_concat_impl is \<open>uncurry (RETURN oo (@))\<close>
-  :: \<open>(cl_assn' (snat_assn' TYPE(64)))\<^sup>d *\<^sub>a (cl_assn' (snat_assn' TYPE(64)))\<^sup>d
-    \<rightarrow>\<^sub>a (cl_assn' (snat_assn' TYPE(64)))\<close>
-  by sepref
-
-sepref_definition test_rev_impl is \<open>RETURN o rev\<close>
-  :: \<open>(cl_assn' (snat_assn' TYPE(64)))\<^sup>d \<rightarrow>\<^sub>a (cl_assn' (snat_assn' TYPE(64)))\<close>
-  by sepref
-
-definition test_nested :: \<open>(nat list list \<times> nat list list) nres\<close> where
-  \<open>test_nested = doN {
-    let l1 = [1, 2];
-    let l2 = COPY l1;
-    let xss = [l1, l2];
-    let yss = COPY xss;
-    RETURN (xss, yss) 
-  }\<close>
-
-sepref_definition test_nested_impl is \<open>uncurry0 test_nested\<close>
-  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a (cl_assn' (cl_assn' (snat_assn' TYPE(64)))) \<times>\<^sub>a (cl_assn' (cl_assn' (snat_assn' TYPE(64))))\<close>
-  unfolding test_nested_def
-  apply (annot_snat_const "TYPE(64)")
-  by sepref
-
-sepref_definition test_nested2_impls is \<open>uncurry0 (RETURN ([[(1::nat),2],[3,4]]))\<close>
-  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a (cl_assn' (cl_assn' (snat_assn' TYPE(64))))\<close>
-  apply (annot_snat_const "TYPE(64)")
-  by sepref
-
-end
 
 section \<open>Tail-Pointer Builder List\<close>
 
@@ -1718,6 +1608,222 @@ lemma cl_to_clt_hnr[sepref_fr_rules]:
   supply [vcg_rules] = cl_to_clt_rule
   supply [simp] = cl_to_clt_id
   by (sepref_to_hoare; vcg)
+
+end
+
+section \<open>Copying_List operations, relying on clt\<close>
+subsection \<open>@{term op_list_copy}\<close>
+
+context copyable_assn
+begin
+
+definition cl_copy' :: \<open>'b cl_list \<Rightarrow> 'b clt_list llM\<close> where [llvm_code]:
+  \<open>cl_copy' p \<equiv> doM {
+    p' \<leftarrow> clt_empty;
+    (_,p') \<leftarrow> llc_while
+      (\<lambda>(p,p'). ll_cmp (p \<noteq> null))
+      (\<lambda>(p,p'). doM {
+        n \<leftarrow> ll_load p;
+        v \<leftarrow> acopy (node.val n);
+        p' \<leftarrow> clt_snoc p' v;
+        let p = node.next n;
+        Mreturn (p, p')
+      }) (p, p');
+    Mreturn p'
+  }\<close>
+
+context begin
+
+private lemma cl_assn'_pure_partD:
+  \<open>pure_part (cl_assn' A ys p) \<Longrightarrow> ys = [] \<longrightarrow> p = null\<close>
+  by (cases ys) (auto simp: cl_assn_simps)
+
+private lemma cl_copy'_step_entails:
+  assumes \<open>x < length xs\<close>
+  shows \<open>ENTAILS
+    (clt_assn' A (take x xs @ [xs ! x]) (aa, b) ** cl_assn' A (drop (Suc x) xs) xb
+      ** olseg A (take x xs) xi a ** \<upharpoonleft>ll_bpto (Node xa xb) a ** A (xs ! x) xa)
+    (EXS t. (EXS n. clt_assn' A (take n xs) (aa, b) ** cl_assn' A (drop n xs) xb
+        ** olseg A (take n xs) xi xb
+        ** \<up>(n \<le> length xs \<and> (n < length xs \<or> xb = null))
+        ** \<up>\<^sub>!(t = length xs - n))
+      ** \<up>\<^sub>d((t, length xs - x) \<in> measure id) ** \<box>)\<close>
+proof -
+  have E: \<open>take x xs @ [xs ! x] = take (Suc x) xs\<close>
+    using assms by (simp add: take_Suc_conv_app_nth)
+  have H: \<open>olseg A (take x xs) xi a ** \<upharpoonleft>ll_bpto (Node xa xb) a ** A (xs ! x) xa
+      \<turnstile> olseg A (take (Suc x) xs) xi xb\<close>
+    using olseg_snoc[of A \<open>take x xs\<close> xi a xa xb \<open>xs ! x\<close>] unfolding E .
+  have R: \<open>(clt_assn' A (take x xs @ [xs ! x]) (aa, b) ** cl_assn' A (drop (Suc x) xs) xb
+      ** olseg A (take x xs) xi a ** \<upharpoonleft>ll_bpto (Node xa xb) a ** A (xs ! x) xa)
+    = ((olseg A (take x xs) xi a ** \<upharpoonleft>ll_bpto (Node xa xb) a ** A (xs ! x) xa)
+      ** (clt_assn' A (take (Suc x) xs) (aa, b) ** cl_assn' A (drop (Suc x) xs) xb))\<close>
+    unfolding E by (simp add: sep_conj_aci)
+  have SP: \<open>clt_assn' A (take x xs @ [xs ! x]) (aa, b) ** cl_assn' A (drop (Suc x) xs) xb
+      ** olseg A (take x xs) xi a ** \<upharpoonleft>ll_bpto (Node xa xb) a ** A (xs ! x) xa
+    \<turnstile> olseg A (take (Suc x) xs) xi xb ** clt_assn' A (take (Suc x) xs) (aa, b)
+      ** cl_assn' A (drop (Suc x) xs) xb\<close>
+    unfolding R by (rule conj_entails_mono[OF H entails_refl])
+  have L: \<open>Suc x \<le> length xs\<close> and T: \<open>length xs - Suc x < length xs - x\<close>
+    using assms by auto
+  show ?thesis
+    unfolding ENTAILS_def
+  proof (rule entails_pureI)
+    assume \<open>pure_part (clt_assn' A (take x xs @ [xs ! x]) (aa, b)
+      ** cl_assn' A (drop (Suc x) xs) xb ** olseg A (take x xs) xi a
+      ** \<upharpoonleft>ll_bpto (Node xa xb) a ** A (xs ! x) xa)\<close>
+    then have D: \<open>Suc x < length xs \<or> xb = null\<close>
+      using L by (auto dest!: pure_part_split_conj dest: cl_assn'_pure_partD)
+    show \<open>clt_assn' A (take x xs @ [xs ! x]) (aa, b) ** cl_assn' A (drop (Suc x) xs) xb
+      ** olseg A (take x xs) xi a ** \<upharpoonleft>ll_bpto (Node xa xb) a ** A (xs ! x) xa
+      \<turnstile> (EXS t. (EXS n. clt_assn' A (take n xs) (aa, b) ** cl_assn' A (drop n xs) xb
+        ** olseg A (take n xs) xi xb
+        ** \<up>(n \<le> length xs \<and> (n < length xs \<or> xb = null))
+        ** \<up>\<^sub>!(t = length xs - n))
+      ** \<up>\<^sub>d((t, length xs - x) \<in> measure id) ** \<box>)\<close>
+      apply (rule entails_trans[OF SP])
+      apply (simp add: sep_algebra_simps)
+      apply (rule entails_exI[where x=\<open>length xs - Suc x\<close>])
+      apply (rule entails_exI[where x=\<open>Suc x\<close>])
+      apply (simp add: vcg_tag_defs L T D sep_algebra_simps pred_lift_extract_simps)
+      by (simp add: sep_conj_aci entails_refl)
+  qed
+qed
+
+text \<open>Frame-inference helpers for the loop entry: the invariant's index \<open>n\<close> is
+  existentially quantified, so nothing in the initial state pins it. These rules
+  let the frame solver instantiate \<open>n := 0\<close> via \<open>auto\<close> (cf. @{thm fri_abs_cong_rl}).\<close>
+
+private lemma clt_entry_fri:
+  \<open>PRECOND (SOLVE_AUTO ([] = ys)) \<Longrightarrow> clt_assn' A' [] pq \<turnstile> clt_assn' A ys pq\<close>
+  unfolding vcg_tag_defs by (cases pq) (simp add: clt_assn_conv)
+
+private lemma cl_assn'_cong_fri:
+  \<open>PRECOND (SOLVE_AUTO (a = a')) \<Longrightarrow> cl_assn' A a c \<turnstile> cl_assn' A a' c\<close>
+  unfolding vcg_tag_defs by simp
+
+private lemma olseg_empty_fri:
+  \<open>PRECOND (SOLVE_AUTO (ys = [] \<and> p = q)) \<Longrightarrow> \<box> \<turnstile> olseg A ys p q\<close>
+  unfolding vcg_tag_defs by (simp add: olseg_nil sep_algebra_simps)
+
+private lemma olseg_cl_fri:
+  \<open>PRECOND (SOLVE_AUTO (ys = xs)) \<Longrightarrow> olseg A ys p null \<turnstile> cl_assn' A xs p\<close>
+  unfolding vcg_tag_defs by (simp add: cl_assn_olseg)
+
+private lemma drop_head:
+  \<open>i < length xs \<Longrightarrow> drop i xs = xs ! i # drop (Suc i) xs\<close>
+  by (simp add: Cons_nth_drop_Suc)
+
+lemma cl_copy'_rule[vcg_rules]:
+  \<open>llvm_htriple
+    (cl_assn' A xs xi)
+    (cl_copy' xi)
+    (\<lambda>r. cl_assn' A xs xi ** clt_assn' A xs r)\<close>
+  unfolding cl_copy'_def
+  apply (rewrite annotate_llc_while [where
+    I = \<open>\<lambda>(p,p') t. EXS n. clt_assn' A (take n xs) p'
+        ** cl_assn' A (drop n xs) p ** olseg A (take n xs) xi p
+        ** \<up>(n \<le> length xs \<and> (n < length xs \<or> p = null)) ** \<up>\<^sub>!(t = length xs - n)\<close>
+    and R = \<open>measure id\<close>])
+  supply [simp] = cl_assn_simps olseg_nil sep_conj_exists drop_head
+  supply [fri_rules] = clt_entry_fri cl_assn'_cong_fri olseg_empty_fri olseg_cl_fri
+  apply vcg_monadify
+  apply vcg'
+  subgoal by (rule cl_copy'_step_entails; assumption)
+  subgoal for asf a aa b x r s
+    apply (rule impI)
+    apply hypsubst
+    apply vcg'
+    done
+  by (tactic \<open>Defer_Slot.remove_slot_tac\<close>)
+
+end
+
+definition[llvm_code]: \<open>cl_copy p \<equiv> doM{ p' \<leftarrow> cl_copy' p; clt_to_cl p' }\<close>
+
+lemma cl_copy_rule[vcg_rules]:
+  \<open>llvm_htriple
+    (cl_assn' A xs xi)
+    (cl_copy xi)
+    (\<lambda>r. cl_assn' A xs xi ** cl_assn' A xs r)\<close>
+  unfolding cl_copy_def
+  by vcg
+
+lemma cl_copy_hnr[sepref_fr_rules]:
+  \<open>(cl_copy, RETURN o COPY) \<in> (cl_assn' A)\<^sup>k \<rightarrow>\<^sub>a (cl_assn' A)\<close>
+  by (sepref_to_hoare; vcg)
+
+lemma cl_copy_is_copy[sepref_gen_algo_rules]:
+  \<open>GEN_ALGO cl_copy (is_copy (cl_assn' A))\<close>
+  unfolding GEN_ALGO_def is_copy_def
+  by (rule cl_copy_hnr)
+
+end 
+
+section \<open>Regression Tests\<close>
+
+experiment begin
+
+text \<open>Inner lists hold pure elements (64-bit snat numbers), so their copy is @{term Mreturn}
+  and their free is a no-op. The outer instantiation then uses the inner list's
+  \<open>P.cl_copy\<close>/\<open>P.cl_free\<close> as element copy/free.\<close>
+
+interpretation P: copyable_assn \<open>snat_assn' TYPE(64)\<close> \<open>\<lambda>_. Mreturn ()\<close> Mreturn
+  apply unfold_locales
+  subgoal by (rule mk_free_pure)
+  subgoal by (rule hnr_pure_COPY) simp
+  done
+
+interpretation PP: copyable_assn \<open>cl_assn' (snat_assn' TYPE(64))\<close> P.cl_free P.cl_copy
+  apply unfold_locales
+  subgoal by (rule P.cl_assn_free)
+  subgoal by (rule P.cl_copy_hnr)
+  done
+
+text \<open>The order locale instantiated with 64-bit numbers as elements.\<close>
+
+interpretation N: linorder_assn \<open>snat_assn' TYPE(64)\<close> ll_icmp_eq ll_icmp_slt
+  apply unfold_locales
+  subgoal by (rule hn_snat_ops(7))
+  subgoal by (rule hn_snat_ops(10))
+  done
+
+sepref_definition test_lt_impl is \<open>uncurry (RETURN oo list_lt)\<close>
+  :: \<open>(cl_assn' (snat_assn' TYPE(64)))\<^sup>k *\<^sub>a (cl_assn' (snat_assn' TYPE(64)))\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  by sepref
+
+sepref_definition test_le_impl is \<open>uncurry (RETURN oo list_le)\<close>
+  :: \<open>(cl_assn' (snat_assn' TYPE(64)))\<^sup>k *\<^sub>a (cl_assn' (snat_assn' TYPE(64)))\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  by sepref
+
+sepref_definition test_concat_impl is \<open>uncurry (RETURN oo (@))\<close>
+  :: \<open>(cl_assn' (snat_assn' TYPE(64)))\<^sup>d *\<^sub>a (cl_assn' (snat_assn' TYPE(64)))\<^sup>d
+    \<rightarrow>\<^sub>a (cl_assn' (snat_assn' TYPE(64)))\<close>
+  by sepref
+
+sepref_definition test_rev_impl is \<open>RETURN o rev\<close>
+  :: \<open>(cl_assn' (snat_assn' TYPE(64)))\<^sup>d \<rightarrow>\<^sub>a (cl_assn' (snat_assn' TYPE(64)))\<close>
+  by sepref
+
+definition test_nested :: \<open>(nat list list \<times> nat list list) nres\<close> where
+  \<open>test_nested = doN {
+    let l1 = [1, 2];
+    let l2 = COPY l1;
+    let xss = [l1, l2];
+    let yss = COPY xss;
+    RETURN (xss, yss) 
+  }\<close>
+
+sepref_definition test_nested_impl is \<open>uncurry0 test_nested\<close>
+  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a (cl_assn' (cl_assn' (snat_assn' TYPE(64)))) \<times>\<^sub>a (cl_assn' (cl_assn' (snat_assn' TYPE(64))))\<close>
+  unfolding test_nested_def
+  apply (annot_snat_const "TYPE(64)")
+  by sepref
+
+sepref_definition test_nested2_impls is \<open>uncurry0 (RETURN ([[(1::nat),2],[3,4]]))\<close>
+  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a (cl_assn' (cl_assn' (snat_assn' TYPE(64))))\<close>
+  apply (annot_snat_const "TYPE(64)")
+  by sepref
 
 end
 
