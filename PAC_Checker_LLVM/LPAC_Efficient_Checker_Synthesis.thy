@@ -4,6 +4,7 @@ theory LPAC_Efficient_Checker_Synthesis
     LPAC_Efficient_Checker_Sorting
     PAC_Checker_Synthesis
     LPAC_Error
+    Interleaving_Fold
 begin
 
 (* Overwrite the refinement target of check_linear_combi_l_pre_err *)
@@ -131,53 +132,74 @@ where
     RETURN b
   }\<close>
 
-lemma perfect_shared_term_order_rel_s_alt_def:
-  \<open>perfect_shared_term_order_rel_s \<V> xs ys = do {
-    (b, _, _) \<leftarrow> WHILE\<^sub>T (\<lambda>(b, xs, ys). b = UNKNOWN)
-    (\<lambda>(b, xs, ys). do {
-       if xs = [] \<and> ys = [] then RETURN (EQUAL, xs, ys)
-       else if xs = [] then RETURN (LESS, xs, ys)
-       else if ys = [] then RETURN (GREATER, xs, ys)
-       else do {
-         ASSERT(xs \<noteq> [] \<and> ys \<noteq> []);
-         (x, xs) \<leftarrow> mop_list_pop_hd xs;
-         (y, ys) \<leftarrow> mop_list_pop_hd ys;
-         eq \<leftarrow> perfect_shared_var_order_s \<V> x y;
-         if eq = EQUAL then RETURN (b, xs, ys)
-         else RETURN (eq, x # xs, y # ys)
-      }
-    }) (UNKNOWN, xs, ys);
-    RETURN b
+definition perfect_shared_term_order_rel_dir
+  :: \<open>nat \<Rightarrow> nat \<Rightarrow> (nat, string) shared_vars \<Rightarrow> direction nres\<close>
+where
+  \<open>perfect_shared_term_order_rel_dir x y \<V> \<equiv> doN {
+    eq \<leftarrow> perfect_shared_var_order_s \<V> x y;
+    if eq = EQUAL then RETURN BOTH else RETURN STOP
   }\<close>
-proof -
-  have 1: \<open>(\<lambda>(b, xs, ys). do {
-       if xs = [] \<and> ys = [] then RETURN (EQUAL, xs, ys)
-       else if xs = [] then RETURN (LESS, xs, ys)
-       else if ys = [] then RETURN (GREATER, xs, ys)
-       else do {
-         ASSERT(xs \<noteq> [] \<and> ys \<noteq> []);
-         (x, xs) \<leftarrow> mop_list_pop_hd xs;
-         (y, ys) \<leftarrow> mop_list_pop_hd ys;
-         eq \<leftarrow> perfect_shared_var_order_s \<V> x y;
-         if eq = EQUAL then RETURN (b, xs, ys)
-         else RETURN (eq, x # xs, y # ys)
-      }
-    }) = (\<lambda>(b, xs, ys). do {
-       if xs = [] \<and> ys = [] then RETURN (EQUAL, xs, ys)
-       else if xs = [] then RETURN (LESS, xs, ys)
-       else if ys = [] then RETURN (GREATER, xs, ys)
-       else do {
-         ASSERT(xs \<noteq> [] \<and> ys \<noteq> []);
-         eq \<leftarrow> perfect_shared_var_order_s \<V> (hd xs) (hd ys);
-         if eq = EQUAL then RETURN (b, tl xs, tl ys)
-         else RETURN (eq, xs, ys)
-      }
-    })\<close>
-    by (intro ext)
-      (auto simp: mop_list_pop_hd_def pw_eq_iff refine_pw_simps
-        split: prod.splits list.splits)
-  show ?thesis
-    unfolding perfect_shared_term_order_rel_s_def 1 by auto
+
+definition perfect_shared_term_order_rel_f
+  :: \<open>ordered \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> (nat, string) shared_vars \<Rightarrow> direction \<Rightarrow> ordered nres\<close>
+where
+  \<open>perfect_shared_term_order_rel_f b x y \<V> dir \<equiv>
+    if dir = STOP then perfect_shared_var_order_s \<V> x y else RETURN b\<close>
+
+lemma perfect_shared_var_order_s_det:
+  \<open>perfect_shared_var_order_s \<V> x y = FAIL \<or>
+    (\<exists>v. v \<noteq> UNKNOWN \<and> perfect_shared_var_order_s \<V> x y = RETURN v)\<close>
+  unfolding perfect_shared_var_order_s_def perfectly_shared_strings_equal_l_def
+    get_var_nameS_def
+  by (auto simp: bind_ASSERT_eq_if)
+
+lemma foldl_nres_const:
+  \<open>foldl_nres (\<lambda>_ _. RETURN c) acc xs = RETURN (if xs = [] then acc else c)\<close>
+  by (induction xs arbitrary: acc) (auto simp: foldl_nres_Cons)
+
+lemma perfect_shared_term_order_rel_s_alt_def:
+  \<open>perfect_shared_term_order_rel_s \<V> xs ys =
+    ifoldl_ext_nres perfect_shared_term_order_rel_f perfect_shared_term_order_rel_dir
+      (\<lambda>_ _. RETURN GREATER) (\<lambda>_ _. RETURN LESS) EQUAL xs ys \<V>\<close>
+proof (induction xs arbitrary: ys)
+  case Nil
+  show ?case
+    unfolding perfect_shared_term_order_rel_s_def ifoldl_ext_nres_Nil1 foldl_nres_const
+    by (cases ys) (subst WHILET_unfold; simp; subst WHILET_unfold; simp)+
+next
+  case (Cons x xs)
+  note IH = Cons.IH[unfolded perfect_shared_term_order_rel_s_def]
+  show ?case
+  proof (cases ys)
+    case Nil
+    show ?thesis
+      unfolding Nil perfect_shared_term_order_rel_s_def ifoldl_ext_nres_Nil2 foldl_nres_const
+      by (subst WHILET_unfold; simp; subst WHILET_unfold; simp)
+  next
+    case (Cons y ys')
+    show ?thesis
+      using perfect_shared_var_order_s_det[of \<V> x y]
+    proof (elim disjE exE conjE)
+      assume F: \<open>perfect_shared_var_order_s \<V> x y = FAIL\<close>
+      show ?thesis
+        unfolding Cons perfect_shared_term_order_rel_s_def ifoldl_ext_nres_Cons
+        by (subst WHILET_unfold) (simp add: F perfect_shared_term_order_rel_dir_def)
+    next
+      fix v
+      assume v: \<open>v \<noteq> UNKNOWN\<close> and R: \<open>perfect_shared_var_order_s \<V> x y = RETURN v\<close>
+      show ?thesis
+        unfolding Cons perfect_shared_term_order_rel_s_def ifoldl_ext_nres_Cons
+        apply (subst WHILET_unfold)
+        apply (simp add: R perfect_shared_term_order_rel_dir_def
+          perfect_shared_term_order_rel_f_def)
+        apply (cases v)
+        subgoal by (simp, subst WHILET_unfold, simp)
+        subgoal using IH[of ys'] by simp
+        subgoal by (simp, subst WHILET_unfold, simp)
+        subgoal using v by simp
+        done
+    qed
+  qed
 qed
 
 lemma perfect_shared_term_order_rel_s_perfect_shared_term_order_rel:
@@ -550,67 +572,143 @@ definition (in -)add_poly_l_s :: \<open>(nat,string)shared_vars \<Rightarrow> sl
     }
   })\<close>
 
-lemma add_poly_l_s_alt_def_aux:
-  \<open>add_poly_l_s \<D> (p,q) = REC\<^sub>T (\<lambda>add_poly_l (p, q). doN {
-    if q = [] then RETURN p
-    else if p = [] then RETURN q
-    else doN {
-      ((xs, n),p) \<leftarrow> mop_list_pop_hd p;
-      ((ys, m),q) \<leftarrow> mop_list_pop_hd q;
-      comp \<leftarrow> perfect_shared_term_order_rel_s \<D> xs ys;
-      if comp = EQUAL then if n + m = 0 then add_poly_l (p, q)
-      else do {
-        pq \<leftarrow> add_poly_l (p, q);
-        RETURN ((xs, n + m) # pq)
-      }
-      else if comp = LESS
-      then do {
-        pq \<leftarrow> add_poly_l (p, (ys, m) # q);
-        RETURN ((xs, n) # pq)
-      }
-      else do {
-        pq \<leftarrow> add_poly_l ((xs, n) # p, q);
-        RETURN ((ys, m) # pq)
-      }
+definition \<open>add_poly_l_s_dir \<equiv> \<lambda>(xs, n) (ys, m) \<D>. doN{
+    comp \<leftarrow> perfect_shared_term_order_rel_s \<D> xs ys; 
+    if comp = EQUAL then
+      RETURN BOTH
+    else if comp = LESS then
+      RETURN LEFT 
+    else
+      RETURN RIGHT
+  }\<close>
+
+text \<open>Note that copying is genuinely needed here, as we actually need
+  to duplicate the respective monomials.\<close>
+definition \<open>add_poly_l_s_f \<equiv> \<lambda>r (xs, n) (ys, m) \<D> dir. doN {
+    if dir = BOTH then doN {
+      let s = n + m;
+      if s = 0 then
+        RETURN r
+      else
+        RETURN (r@[(COPY xs, s)])    
+    } else if dir = LEFT then
+        RETURN (r@[(COPY xs, COPY n)])
+    else
+        RETURN (r@[(COPY ys, COPY m)])
+  }\<close>
+
+definition \<open>add_poly_l_s_cpy r x \<equiv> RETURN (r @ [COPY x])\<close>
+
+lemma add_poly_l_s_simps:
+  \<open>add_poly_l_s \<D> (p, []) = RETURN p\<close>
+  \<open>add_poly_l_s \<D> ([], q) = RETURN q\<close>
+  \<open>add_poly_l_s \<D> ((xs, n) # p, (ys, m) # q) = do {
+    comp \<leftarrow> perfect_shared_term_order_rel_s \<D> xs ys;
+    if comp = EQUAL then if n + m = 0 then add_poly_l_s \<D> (p, q)
+    else do {
+      pq \<leftarrow> add_poly_l_s \<D> (p, q);
+      RETURN ((xs, n + m) # pq)
     }
-  }) (COPY p, COPY q)\<close>
-  unfolding add_poly_l_s_def COPY_def
-  apply (rule arg_cong[where f = \<open>\<lambda>F. REC\<^sub>T F (p, q)\<close>])
-  apply (intro ext)
-  subgoal for f x
-    apply (cases x)
-    subgoal for p q
-      by (cases p; cases q)
-        (auto simp: mop_list_pop_hd_def pw_eq_iff refine_pw_simps split: prod.splits)
-    done
+    else if comp = LESS
+    then do {
+      pq \<leftarrow> add_poly_l_s \<D> (p, (ys, m) # q);
+      RETURN ((xs, n) # pq)
+    }
+    else do {
+      pq \<leftarrow> add_poly_l_s \<D> ((xs, n) # p, q);
+      RETURN ((ys, m) # pq)
+    }
+  }\<close>
+  subgoal
+    by (subst add_poly_l_s_def, subst RECT_unfold, refine_mono) (cases p; simp)
+  subgoal
+    apply (subst add_poly_l_s_def, subst RECT_unfold, refine_mono)
+    by (simp add: list.case_eq_if)
+  subgoal
+    apply (subst add_poly_l_s_def, subst RECT_unfold, refine_mono)
+    apply (subst add_poly_l_s_def[symmetric])+
+    by simp
   done
 
-lemma add_poly_l_s_alt_def:
-  \<open>add_poly_l_s \<D> = (\<lambda>(p, q). REC\<^sub>T (\<lambda>add_poly_l (p, q). doN {
-    if q = [] then RETURN p
-    else if p = [] then RETURN q
-    else doN {
-      ((xs, n),p) \<leftarrow> mop_list_pop_hd p;
-      ((ys, m),q) \<leftarrow> mop_list_pop_hd q;
-      comp \<leftarrow> perfect_shared_term_order_rel_s \<D> (COPY xs) (COPY ys);
-      if comp = EQUAL then if n + m = 0 then add_poly_l (p, q)
-      else do {
-        pq \<leftarrow> add_poly_l (p, q);
-        RETURN ((xs, n + m) # pq)
-      }
-      else if comp = LESS
-      then do {
-        pq \<leftarrow> add_poly_l (p, (ys, m) # q);
-        RETURN ((xs, n) # pq)
-      }
-      else do {
-        pq \<leftarrow> add_poly_l ((xs, n) # p, q);
-        RETURN ((ys, m) # pq)
-      }
-    }
-  }) (p, q))\<close>
-  unfolding COPY_def
-  by (intro ext) (clarsimp simp: add_poly_l_s_alt_def_aux split: prod.splits)
+lemma foldl_nres_add_poly_l_s_cpy:
+  \<open>foldl_nres add_poly_l_s_cpy acc xs = RETURN (acc @ xs)\<close>
+  by (induction xs arbitrary: acc) (auto simp: foldl_nres_Cons add_poly_l_s_cpy_def)
+
+lemma add_poly_l_s_ifoldl_acc:
+  \<open>ifoldl_ext_nres add_poly_l_s_f add_poly_l_s_dir add_poly_l_s_cpy add_poly_l_s_cpy acc p q \<D>
+    = do { r \<leftarrow> add_poly_l_s \<D> (p, q); RETURN (acc @ r) }\<close>
+proof (induction \<open>length p + length q\<close> arbitrary: p q acc rule: less_induct)
+  case less
+  consider
+      (N2) \<open>q = []\<close>
+    | (N1) \<open>p = []\<close> \<open>q \<noteq> []\<close>
+    | (C) xx p' yy q' where \<open>p = xx # p'\<close> \<open>q = yy # q'\<close>
+    by (cases p; cases q) auto
+  then show ?case
+  proof cases
+    case N2
+    then show ?thesis
+      by (simp add: ifoldl_ext_nres_Nil2 foldl_nres_add_poly_l_s_cpy add_poly_l_s_simps)
+  next
+    case N1
+    then show ?thesis
+      by (simp add: ifoldl_ext_nres_Nil1 foldl_nres_add_poly_l_s_cpy add_poly_l_s_simps)
+  next
+    case C
+    obtain xs n where xx: \<open>xx = (xs, n)\<close> by (cases xx)
+    obtain ys m where yy: \<open>yy = (ys, m)\<close> by (cases yy)
+    have L1: \<open>length p' + length q' < length p + length q\<close>
+      and L2: \<open>length p' + length ((ys, m) # q') < length p + length q\<close>
+      and L3: \<open>length ((xs, n) # p') + length q' < length p + length q\<close>
+      by (simp_all add: C)
+    have IH1: \<open>ifoldl_ext_nres add_poly_l_s_f add_poly_l_s_dir add_poly_l_s_cpy add_poly_l_s_cpy
+        acc' p' q' \<D> = do { r \<leftarrow> add_poly_l_s \<D> (p', q'); RETURN (acc' @ r) }\<close> for acc'
+      using L1 less.hyps by auto
+    have IH2: \<open>ifoldl_ext_nres add_poly_l_s_f add_poly_l_s_dir add_poly_l_s_cpy add_poly_l_s_cpy
+        acc' p' ((ys, m) # q') \<D>
+        = do { r \<leftarrow> add_poly_l_s \<D> (p', (ys, m) # q'); RETURN (acc' @ r) }\<close> for acc'
+      using L2 less by presburger
+    have IH3: \<open>ifoldl_ext_nres add_poly_l_s_f add_poly_l_s_dir add_poly_l_s_cpy add_poly_l_s_cpy
+        acc' ((xs, n) # p') q' \<D>
+        = do { r \<leftarrow> add_poly_l_s \<D> ((xs, n) # p', q'); RETURN (acc' @ r) }\<close> for acc'
+      using L3 less by auto
+    have dir_app: \<open>add_poly_l_s_dir (xs, n) (ys, m) \<D> = doN {
+        comp \<leftarrow> perfect_shared_term_order_rel_s \<D> xs ys;
+        if comp = EQUAL then RETURN BOTH
+        else if comp = LESS then RETURN LEFT
+        else RETURN RIGHT }\<close>
+      by (simp add: add_poly_l_s_dir_def)
+    have f_app: \<open>add_poly_l_s_f r (xs, n) (ys, m) \<D> dir =
+        (if dir = BOTH then (if n + m = 0 then RETURN r else RETURN (r @ [(xs, n + m)]))
+         else if dir = LEFT then RETURN (r @ [(xs, n)])
+         else RETURN (r @ [(ys, m)]))\<close> for r dir
+      by (simp add: add_poly_l_s_f_def Let_def)
+    show ?thesis
+      unfolding C xx yy ifoldl_ext_nres_Cons add_poly_l_s_simps(3) dir_app f_app
+      apply (simp only: nres_monad_laws)
+      apply (intro bind_cong[OF refl])
+      subgoal for comp
+        by (cases comp; simp_all add: IH1 IH2 IH3 nres_monad_laws Let_def)
+      done
+  qed
+qed
+
+definition add_poly_l_s_ifoldl
+  :: \<open>sllist_polynomial \<Rightarrow> sllist_polynomial \<Rightarrow> sllist_polynomial \<Rightarrow>
+      (nat, string) shared_vars \<Rightarrow> sllist_polynomial nres\<close>
+where
+  \<open>add_poly_l_s_ifoldl \<equiv>
+    ifoldl_ext_nres add_poly_l_s_f add_poly_l_s_dir add_poly_l_s_cpy add_poly_l_s_cpy\<close>
+
+sepref_register add_poly_l_s_ifoldl
+
+lemma add_poly_l_s_ifoldl_alt:
+  \<open>add_poly_l_s \<D> = (\<lambda>(p, q). doN {
+    rt \<leftarrow> add_poly_l_s_ifoldl op_clt_empty p q \<D>;
+    RETURN (op_clt_to_cl rt)
+  })\<close>
+  unfolding add_poly_l_s_ifoldl_def
+  by (auto simp: add_poly_l_s_ifoldl_acc nres_monad_laws split: prod.splits)
 
 lemma add_poly_l_s_add_poly_l:
   fixes xs :: \<open>sllist_polynomial \<times> sllist_polynomial\<close>
@@ -906,15 +1004,7 @@ definition \<open>perfect_shared_var_order_s_else \<D> x y \<equiv> doN {
   else RETURN (GREATER) 
 }\<close>
 
-text \<open>The synthesised implementation of @{term perfect_shared_var_order_s_else} would deep-copy
-  both variable names out of the string table (@{term strls.oa_nth} calls @{term strl.cl_copy}).
-  I therefore implement the operation by hand: the two names are only borrowed from the table
-  for the duration of the comparison.\<close>
-
 subsubsection \<open>Borrowing two elements of a string table\<close>
-
-text \<open>Focussing on two distinct positions of a @{term list_assn}: the remainder of the
-  assertion is irrelevant, so it is only named by Hilbert choice.\<close>
 
 lemma strls_list_assn_focus2_ex:
   assumes I: \<open>i < length xs\<close> and J: \<open>j < length xs\<close> and IJ: \<open>i \<noteq> j\<close>
@@ -1132,26 +1222,90 @@ sepref_def perfect_shared_var_order_s_impl
 
 lemmas [sepref_fr_rules] = perfect_shared_var_order_s_impl.refine
 
+sepref_def perfect_shared_term_order_rel_dir_impl
+  is \<open>uncurry2 perfect_shared_term_order_rel_dir\<close>
+  :: \<open>si64_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a dir_assn\<close>
+  unfolding perfect_shared_term_order_rel_dir_def fold_ordered_discriminators
+  by sepref
+
+sepref_def perfect_shared_var_order_s_rel_f_impl
+  is \<open>uncurry4 perfect_shared_term_order_rel_f\<close>
+  :: \<open>ordered_assn\<^sup>d *\<^sub>a si64_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k *\<^sub>a dir_assn\<^sup>k \<rightarrow>\<^sub>a ordered_assn\<close>
+  unfolding perfect_shared_term_order_rel_f_def
+  by sepref
+
+definition ordered_const_GREATER :: \<open>ordered \<Rightarrow> nat \<Rightarrow> ordered nres\<close> where
+  \<open>ordered_const_GREATER _ _ = RETURN GREATER\<close>
+
+definition ordered_const_LESS :: \<open>ordered \<Rightarrow> nat \<Rightarrow> ordered nres\<close> where
+  \<open>ordered_const_LESS _ _ = RETURN LESS\<close>
+
+sepref_def ordered_const_GREATER_impl is \<open>uncurry ordered_const_GREATER\<close>
+  :: \<open>ordered_assn\<^sup>d *\<^sub>a si64_assn\<^sup>k \<rightarrow>\<^sub>a ordered_assn\<close>
+  unfolding ordered_const_GREATER_def
+  by sepref
+
+sepref_def ordered_const_LESS_impl is \<open>uncurry ordered_const_LESS\<close>
+  :: \<open>ordered_assn\<^sup>d *\<^sub>a si64_assn\<^sup>k \<rightarrow>\<^sub>a ordered_assn\<close>
+  unfolding ordered_const_LESS_def
+  by sepref
+
+definition perfect_shared_term_order_rel_s_ifoldl
+  :: \<open>ordered \<Rightarrow> nat list \<Rightarrow> nat list \<Rightarrow> (nat, string) shared_vars \<Rightarrow> ordered nres\<close>
+where
+  \<open>perfect_shared_term_order_rel_s_ifoldl \<equiv>
+    ifoldl_ext_nres perfect_shared_term_order_rel_f perfect_shared_term_order_rel_dir
+      ordered_const_GREATER ordered_const_LESS\<close>
+
+sepref_register perfect_shared_term_order_rel_s_ifoldl
+
+lemma perfect_shared_term_order_rel_s_ifoldl_alt:
+  \<open>perfect_shared_term_order_rel_s \<V> xs ys =
+    perfect_shared_term_order_rel_s_ifoldl EQUAL xs ys \<V>\<close>
+  unfolding perfect_shared_term_order_rel_s_alt_def perfect_shared_term_order_rel_s_ifoldl_def
+    ordered_const_GREATER_def[abs_def] ordered_const_LESS_def[abs_def] ..
+
+lemmas perfect_shared_term_order_rel_s_ifoldl_hnr[sepref_fr_rules] =
+  cl_ifoldl_ext_nres_hfref[OF perfect_shared_var_order_s_rel_f_impl.refine
+    perfect_shared_term_order_rel_dir_impl.refine
+    ordered_const_GREATER_impl.refine ordered_const_LESS_impl.refine,
+    folded perfect_shared_term_order_rel_s_ifoldl_def]
+
 sepref_def perfect_shared_term_order_rel_s_impl
   is \<open>uncurry2 perfect_shared_term_order_rel_s\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a monom_s_assn\<^sup>d *\<^sub>a monom_s_assn\<^sup>d \<rightarrow>\<^sub>a ordered_assn\<close>
-  unfolding perfect_shared_term_order_rel_s_alt_def
-    fold_ordered_discriminators
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a monom_s_assn\<^sup>k *\<^sub>a monom_s_assn\<^sup>k \<rightarrow>\<^sub>a ordered_assn\<close>
+  unfolding perfect_shared_term_order_rel_s_ifoldl_alt
   by sepref
 
 lemmas [sepref_fr_rules] = perfect_shared_term_order_rel_s_impl.refine
 
-sepref_def add_poly_l_prep_impl
-  is \<open>uncurry add_poly_l_s\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a (poly_s_assn \<times>\<^sub>a poly_s_assn)\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
-  supply [[goals_limit=1]]
-  unfolding add_poly_l_s_alt_def
-    ls_emp ls_emp'
-    fold_ordered_discriminators
+abbreviation \<open>monomial_s_assn \<equiv> monom_s_assn \<times>\<^sub>a sbi_assn\<close>
+sepref_def add_poly_l_s_dir_impl is \<open>uncurry2 add_poly_l_s_dir\<close>
+  :: \<open>monomial_s_assn\<^sup>k *\<^sub>a monomial_s_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a dir_assn\<close> 
+  unfolding add_poly_l_s_dir_def fold_ordered_discriminators
   by sepref
 
-text \<open>Pop-front form of the monomial product; the keep-mode signature is obtained by
-  copying both monomials at entry.\<close>
+sepref_def add_poly_l_s_f_impl is \<open>uncurry4 add_poly_l_s_f\<close>
+  :: \<open>(clt_assn' monomial_s_assn)\<^sup>d *\<^sub>a monomial_s_assn\<^sup>k *\<^sub>a monomial_s_assn\<^sup>k
+      *\<^sub>a shared_vars_assn\<^sup>k *\<^sub>a dir_assn\<^sup>k \<rightarrow>\<^sub>a clt_assn' monomial_s_assn\<close>
+  unfolding add_poly_l_s_f_def
+  by sepref
+
+sepref_def add_poly_l_s_cpy_impl is \<open>uncurry add_poly_l_s_cpy\<close>
+  :: \<open>(clt_assn' monomial_s_assn)\<^sup>d *\<^sub>a monomial_s_assn\<^sup>k \<rightarrow>\<^sub>a clt_assn' monomial_s_assn\<close>
+  unfolding add_poly_l_s_cpy_def
+  by sepref 
+
+lemmas add_poly_l_s_ifoldl_hnr[sepref_fr_rules] =
+  cl_ifoldl_ext_nres_hfref[OF add_poly_l_s_f_impl.refine add_poly_l_s_dir_impl.refine
+    add_poly_l_s_cpy_impl.refine add_poly_l_s_cpy_impl.refine,
+    folded add_poly_l_s_ifoldl_def]
+
+sepref_def add_poly_l_prep_impl
+  is \<open>uncurry add_poly_l_s\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a (poly_s_assn \<times>\<^sub>a poly_s_assn)\<^sup>k \<rightarrow>\<^sub>a poly_s_assn\<close>
+  unfolding add_poly_l_s_ifoldl_alt
+  by sepref
 
 lemma mult_monoms_s_alt_def:
   \<open>mult_monoms_s \<D> xs ys = do { xs \<leftarrow> RETURN (COPY xs); ys \<leftarrow> RETURN (COPY ys); REC\<^sub>T (\<lambda>f (xs, ys).
@@ -2485,10 +2639,6 @@ sepref_def full_normalize_poly'_impl
   unfolding full_normalize_poly_s_def
   by sepref
 
-text \<open>Structural equality on shared polynomials: monoms compare via \<open>si64.cl_eq\<close>,
-  coefficients via \<open>signed_big_int_eq_impl\<close>; the \<open>eq_assn\<close> interpretation lifts
-  the pair equality to \<open>poly_s_assn\<close> (cf. \<open>mnml_eq_impl'\<close> in \<open>LLVM_Polynomials\<close>).\<close>
-
 definition mnml_s_eq_impl' where [llvm_code]:
   \<open>mnml_s_eq_impl' \<equiv> \<lambda>pii qii. doM {
     let (pm,pn) = pii;
@@ -2524,11 +2674,6 @@ sepref_def weak_equality_l_s_impl
   :: \<open>poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   unfolding weak_equality_l_s_alt_def
   by sepref
-
-text \<open>The map from ids to shared polynomials, built exactly like \<open>polys_assn\<close>
-  in \<open>PAC_Checker_Synthesis\<close>: a boxed copying partial map with \<open>poly_s_assn\<close>
-  values, composed to the \<open>fmap\<close> interface. The generic \<open>fref\<close> lemmas
-  (\<open>fmempty_empty\<close>, \<open>map_upd_fmupd\<close>, \<dots>) are inherited from that theory.\<close>
 
 interpretation polys_s: boxed_copying_pmap
   \<open>poly_s_assn\<close> \<open>poly_s.cl_free\<close> \<open>poly_s.cl_copy\<close>
