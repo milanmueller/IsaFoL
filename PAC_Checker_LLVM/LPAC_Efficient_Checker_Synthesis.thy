@@ -825,6 +825,121 @@ proof -
     done
 qed
 
+lemma mult_monoms_s_Nil2: \<open>mult_monoms_s \<V> xs [] = RETURN xs\<close>
+  by (subst mult_monoms_s_simps) simp
+
+lemma mult_monoms_s_Nil1: \<open>mult_monoms_s \<V> [] ys = RETURN ys\<close>
+  by (subst mult_monoms_s_simps) simp
+
+lemma mult_monoms_s_Cons:
+  \<open>mult_monoms_s \<V> (x # xs) (y # ys) = do {
+    comp \<leftarrow> perfect_shared_var_order_s \<V> x y;
+    if comp = EQUAL then do {
+      pq \<leftarrow> mult_monoms_s \<V> xs ys;
+      RETURN (x # pq)
+    }
+    else if comp = LESS then do {
+      pq \<leftarrow> mult_monoms_s \<V> xs (y # ys);
+      RETURN (x # pq)
+    }
+    else do {
+      pq \<leftarrow> mult_monoms_s \<V> (x # xs) ys;
+      RETURN (y # pq)
+    }
+  }\<close>
+  apply (subst mult_monoms_s_simps; simp)
+  by (smt (verit, best) bind_cong list.sel(1,3))
+
+definition \<open>mult_monoms_s_dir x y \<D> \<equiv> doN {
+    comp \<leftarrow> perfect_shared_var_order_s \<D> x y;
+    if comp = EQUAL then
+      RETURN BOTH
+    else if comp = LESS then
+      RETURN LEFT
+    else
+      RETURN RIGHT
+  }\<close>
+
+definition \<open>mult_monoms_s_f \<equiv> \<lambda>r x y \<D> dir.
+    if dir = RIGHT then RETURN (r @ [y]) else RETURN (r @ [x])\<close>
+
+definition \<open>mult_monoms_s_cpy r x \<equiv> RETURN (r @ [x])\<close>
+
+lemma foldl_nres_mult_monoms_s_cpy:
+  \<open>foldl_nres mult_monoms_s_cpy acc xs = RETURN (acc @ xs)\<close>
+  by (induction xs arbitrary: acc) (auto simp: foldl_nres_Cons mult_monoms_s_cpy_def)
+
+lemma mult_monoms_s_ifoldl_acc:
+  \<open>ifoldl_ext_nres mult_monoms_s_f mult_monoms_s_dir mult_monoms_s_cpy mult_monoms_s_cpy acc xs ys \<D>
+    = do { r \<leftarrow> mult_monoms_s \<D> xs ys; RETURN (acc @ r) }\<close>
+proof (induction \<open>length xs + length ys\<close> arbitrary: xs ys acc rule: less_induct)
+  case less
+  consider
+      (N2) \<open>ys = []\<close>
+    | (N1) \<open>xs = []\<close> \<open>ys \<noteq> []\<close>
+    | (C) x xs' y ys' where \<open>xs = x # xs'\<close> \<open>ys = y # ys'\<close>
+    by (cases xs; cases ys) auto
+  then show ?case
+  proof cases
+    case N2
+    then show ?thesis
+      by (simp add: ifoldl_ext_nres_Nil2 foldl_nres_mult_monoms_s_cpy mult_monoms_s_Nil2)
+  next
+    case N1
+    then show ?thesis
+      by (simp add: ifoldl_ext_nres_Nil1 foldl_nres_mult_monoms_s_cpy mult_monoms_s_Nil1)
+  next
+    case C
+    have L1: \<open>length xs' + length ys' < length xs + length ys\<close>
+      and L2: \<open>length xs' + length (y # ys') < length xs + length ys\<close>
+      and L3: \<open>length (x # xs') + length ys' < length xs + length ys\<close>
+      by (simp_all add: C)
+    have IH1: \<open>ifoldl_ext_nres mult_monoms_s_f mult_monoms_s_dir mult_monoms_s_cpy mult_monoms_s_cpy
+        acc' xs' ys' \<D> = do { r \<leftarrow> mult_monoms_s \<D> xs' ys'; RETURN (acc' @ r) }\<close> for acc'
+      using L1 less.hyps by auto
+    have IH2: \<open>ifoldl_ext_nres mult_monoms_s_f mult_monoms_s_dir mult_monoms_s_cpy mult_monoms_s_cpy
+        acc' xs' (y # ys') \<D>
+        = do { r \<leftarrow> mult_monoms_s \<D> xs' (y # ys'); RETURN (acc' @ r) }\<close> for acc'
+      using L2 less by presburger
+    have IH3: \<open>ifoldl_ext_nres mult_monoms_s_f mult_monoms_s_dir mult_monoms_s_cpy mult_monoms_s_cpy
+        acc' (x # xs') ys' \<D>
+        = do { r \<leftarrow> mult_monoms_s \<D> (x # xs') ys'; RETURN (acc' @ r) }\<close> for acc'
+      using L3 less by auto
+    have dir_app: \<open>mult_monoms_s_dir x y \<D> = doN {
+        comp \<leftarrow> perfect_shared_var_order_s \<D> x y;
+        if comp = EQUAL then RETURN BOTH
+        else if comp = LESS then RETURN LEFT
+        else RETURN RIGHT }\<close>
+      by (simp add: mult_monoms_s_dir_def)
+    have f_app: \<open>mult_monoms_s_f r x y \<D> dir =
+        (if dir = RIGHT then RETURN (r @ [y]) else RETURN (r @ [x]))\<close> for r dir
+      by (simp add: mult_monoms_s_f_def)
+    show ?thesis
+      unfolding C ifoldl_ext_nres_Cons mult_monoms_s_Cons dir_app f_app
+      apply (simp only: nres_monad_laws)
+      apply (intro bind_cong[OF refl])
+      subgoal for comp
+        by (cases comp; simp_all add: IH1 IH2 IH3 nres_monad_laws)
+      done
+  qed
+qed
+
+definition mult_monoms_s_ifoldl
+  :: \<open>nat list \<Rightarrow> nat list \<Rightarrow> nat list \<Rightarrow> (nat, string) shared_vars \<Rightarrow> nat list nres\<close>
+where
+  \<open>mult_monoms_s_ifoldl \<equiv>
+    ifoldl_ext_nres mult_monoms_s_f mult_monoms_s_dir mult_monoms_s_cpy mult_monoms_s_cpy\<close>
+
+sepref_register mult_monoms_s_ifoldl
+
+lemma mult_monoms_s_ifoldl_alt:
+  \<open>mult_monoms_s \<D> xs ys = doN {
+    rt \<leftarrow> mult_monoms_s_ifoldl op_clt_empty xs ys \<D>;
+    RETURN (op_clt_to_cl rt)
+  }\<close>
+  unfolding mult_monoms_s_ifoldl_def
+  by (simp add: mult_monoms_s_ifoldl_acc nres_monad_laws)
+
 
 definition (in -) mult_term_s
   :: \<open>(nat,string)shared_vars\<Rightarrow> sllist_polynomial \<Rightarrow>  _ \<Rightarrow> sllist_polynomial \<Rightarrow> sllist_polynomial nres\<close>
@@ -1307,87 +1422,31 @@ sepref_def add_poly_l_prep_impl
   unfolding add_poly_l_s_ifoldl_alt
   by sepref
 
-lemma mult_monoms_s_alt_def:
-  \<open>mult_monoms_s \<D> xs ys = do { xs \<leftarrow> RETURN (COPY xs); ys \<leftarrow> RETURN (COPY ys); REC\<^sub>T (\<lambda>f (xs, ys).
- do {
-    if xs = [] then RETURN ys
-    else if ys = [] then RETURN xs
-    else do {
-      ASSERT(xs \<noteq> [] \<and> ys \<noteq> []);
-      (x, xs) \<leftarrow> mop_list_pop_hd xs;
-      (y, ys) \<leftarrow> mop_list_pop_hd ys;
-      comp \<leftarrow> perfect_shared_var_order_s \<D> x y;
-      if comp = EQUAL then do {
-        pq \<leftarrow> f (xs, ys);
-        RETURN (x # pq)
-      }
-      else if comp = LESS then do {
-        pq \<leftarrow> f (xs, y # ys);
-        RETURN (x # pq)
-      }
-      else do {
-        pq \<leftarrow> f (x # xs, ys);
-        RETURN (y # pq)
-      }
-   }
- }) (xs, ys)}\<close>
-proof -
-  have 1: \<open>(\<lambda>f (xs, ys).
- do {
-    if xs = [] then RETURN ys
-    else if ys = [] then RETURN xs
-    else do {
-      ASSERT(xs \<noteq> [] \<and> ys \<noteq> []);
-      (x, xs) \<leftarrow> mop_list_pop_hd xs;
-      (y, ys) \<leftarrow> mop_list_pop_hd ys;
-      comp \<leftarrow> perfect_shared_var_order_s \<D> x y;
-      if comp = EQUAL then do {
-        pq \<leftarrow> f (xs, ys);
-        RETURN (x # pq)
-      }
-      else if comp = LESS then do {
-        pq \<leftarrow> f (xs, y # ys);
-        RETURN (x # pq)
-      }
-      else do {
-        pq \<leftarrow> f (x # xs, ys);
-        RETURN (y # pq)
-      }
-   }
- }) = (\<lambda>f (xs, ys).
- do {
-    if xs = [] then RETURN ys
-    else if ys = [] then RETURN xs
-    else do {
-      ASSERT(xs \<noteq> [] \<and> ys \<noteq> []);
-      comp \<leftarrow> perfect_shared_var_order_s \<D> (hd xs) (hd ys);
-      if comp = EQUAL then do {
-        pq \<leftarrow> f (tl xs, tl ys);
-        RETURN (hd xs # pq)
-      }
-      else if comp = LESS then do {
-        pq \<leftarrow> f (tl xs, ys);
-        RETURN (hd xs # pq)
-      }
-      else do {
-        pq \<leftarrow> f (xs, tl ys);
-        RETURN (hd ys # pq)
-      }
-   }
- })\<close>
-    by (intro ext)
-      (auto simp: mop_list_pop_hd_def pw_eq_iff refine_pw_simps
-        split: prod.splits list.splits)
-  show ?thesis
-    unfolding COPY_def nres_monad1 1 mult_monoms_s_def ..
-qed
+sepref_def mult_monoms_s_dir_impl is \<open>uncurry2 mult_monoms_s_dir\<close>
+  :: \<open>si64_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a dir_assn\<close>
+  unfolding mult_monoms_s_dir_def fold_ordered_discriminators
+  by sepref
+
+sepref_def mult_monoms_s_f_impl is \<open>uncurry4 mult_monoms_s_f\<close>
+  :: \<open>(clt_assn' si64_assn)\<^sup>d *\<^sub>a si64_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k
+      *\<^sub>a shared_vars_assn\<^sup>k *\<^sub>a dir_assn\<^sup>k \<rightarrow>\<^sub>a clt_assn' si64_assn\<close>
+  unfolding mult_monoms_s_f_def
+  by sepref
+
+sepref_def mult_monoms_s_cpy_impl is \<open>uncurry mult_monoms_s_cpy\<close>
+  :: \<open>(clt_assn' si64_assn)\<^sup>d *\<^sub>a si64_assn\<^sup>k \<rightarrow>\<^sub>a clt_assn' si64_assn\<close>
+  unfolding mult_monoms_s_cpy_def
+  by sepref
+
+lemmas mult_monoms_s_ifoldl_hnr[sepref_fr_rules] =
+  cl_ifoldl_ext_nres_hfref[OF mult_monoms_s_f_impl.refine mult_monoms_s_dir_impl.refine
+    mult_monoms_s_cpy_impl.refine mult_monoms_s_cpy_impl.refine,
+    folded mult_monoms_s_ifoldl_def]
 
 sepref_def mult_monoms_s_impl
   is \<open>uncurry2 mult_monoms_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a monom_s_assn\<^sup>k *\<^sub>a monom_s_assn\<^sup>k \<rightarrow>\<^sub>a monom_s_assn\<close>
-  supply [[goals_limit=1]]
-  unfolding mult_monoms_s_alt_def
-    ls_emp ls_emp' fold_ordered_discriminators
+  unfolding mult_monoms_s_ifoldl_alt
   by sepref
 
 lemmas [sepref_fr_rules] =
@@ -1395,84 +1454,92 @@ lemmas [sepref_fr_rules] =
 
 sepref_register mult_monoms_s mult_term_s
 
-lemma nfoldli_to_pop_RECT:
-  fixes body :: \<open>'a \<Rightarrow> 'b \<Rightarrow> 'b nres\<close>
-  shows \<open>nfoldli qs (\<lambda>_. True) body b = REC\<^sub>T (\<lambda>f (qs, b).
-     if qs = [] then RETURN b
-     else do {
-       (x, qs) \<leftarrow> mop_list_pop_hd qs;
-       b \<leftarrow> body x b;
-       f (qs, b)
-     }) (qs, b)\<close>
-proof (induction qs arbitrary: b)
+lemma nfoldli_foldl_nres:
+  \<open>nfoldli xs (\<lambda>_. True) (\<lambda>x a. f a x) a = foldl_nres f a xs\<close>
+proof (induction xs arbitrary: a)
   case Nil
-  show ?case
-    by (subst RECT_unfold, refine_mono) auto
+  then show ?case by simp
 next
-  case (Cons x qs)
+  case (Cons x xs)
   show ?case
-    apply (subst RECT_unfold, refine_mono)
-    apply (simp add: mop_list_pop_hd_def nfoldli_simps Cons.IH[symmetric]
-      pw_eq_iff refine_pw_simps)
-    done
+    by (simp add: foldl_nres_Cons) (intro bind_cong[OF refl], simp add: Cons.IH)
 qed
 
+text \<open>Both multiplication loops only read the traversed list, so we implement them
+  with the read-only @{term cl_fold_env} instead of copying the list and popping
+  it. The fixed operands of each loop form the (kept) environment of the fold.\<close>
+
+definition mult_term_s_step
+  :: \<open>(nat,string) shared_vars \<Rightarrow> nat list \<times> int \<Rightarrow> sllist_polynomial \<Rightarrow> nat list \<times> int
+      \<Rightarrow> sllist_polynomial nres\<close>
+where
+  \<open>mult_term_s_step = (\<lambda>\<V> (p, m) b (q, n). do {
+     pq \<leftarrow> mult_monoms_s \<V> p q;
+     RETURN ((pq, m * n) # b)})\<close>
+
+sepref_def mult_term_s_step_impl
+  is \<open>uncurry3 mult_term_s_step\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a monomial_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>d *\<^sub>a monomial_s_assn\<^sup>k
+      \<rightarrow>\<^sub>a poly_s_assn\<close>
+  unfolding mult_term_s_step_def
+  by sepref
+
+definition mult_term_s_foldl where
+  \<open>mult_term_s_foldl \<equiv> \<lambda>\<V> pm. foldl_nres (mult_term_s_step \<V> pm)\<close>
+
+sepref_register mult_term_s_foldl
+
+lemmas mult_term_s_foldl_hnr[sepref_fr_rules] =
+  cl_fold_env2_nres_hfref[OF mult_term_s_step_impl.refine, folded mult_term_s_foldl_def]
+
 lemma mult_term_s_alt_def:
-  \<open>mult_term_s = (\<lambda>\<V> qs (p, m) b. do {
-     qs \<leftarrow> RETURN (COPY qs);
-     REC\<^sub>T (\<lambda>f (qs, b).
-       if qs = [] then RETURN b
-       else do {
-         ((q, n), qs) \<leftarrow> mop_list_pop_hd qs;
-         pq \<leftarrow> mult_monoms_s \<V> p q;
-         f (qs, ((pq, m * n) # b))
-       }) (qs, b)})\<close>
-proof -
-  show ?thesis
-    unfolding mult_term_s_def COPY_def nres_monad1
-    apply (intro ext)
-    subgoal for \<V> qs pm b
-      apply (cases pm)
-      apply (simp only: prod.case)
-      apply (subst nfoldli_to_pop_RECT)
-      apply (rule arg_cong2[where f = \<open>REC\<^sub>T\<close>])
-      apply (auto simp: mop_list_pop_hd_def pw_eq_iff refine_pw_simps
-          intro!: ext split: prod.splits)
-      apply blast
-      by blast
-    done
-qed
+  \<open>mult_term_s = (\<lambda>\<V> qs pm b. mult_term_s_foldl \<V> pm b qs)\<close>
+  unfolding mult_term_s_def mult_term_s_foldl_def mult_term_s_step_def
+  apply (intro ext)
+  subgoal for \<V> qs pm b
+    by (cases pm) (simp add: nfoldli_foldl_nres[symmetric] split_def)
+  done
 
 sepref_def mult_term_s_impl
   is \<open>uncurry3 mult_term_s\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a (monom_s_assn \<times>\<^sub>a sbi_assn)\<^sup>k *\<^sub>a poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_s_assn\<close>
-  supply [[goals_limit=1]]
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a monomial_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>d
+      \<rightarrow>\<^sub>a poly_s_assn\<close>
   unfolding mult_term_s_alt_def
-    ls_emp ls_emp'
   by sepref
 
 lemmas [sepref_fr_rules] =
   mult_term_s_impl.refine
 
+definition mult_poly_s_step
+  :: \<open>(nat,string) shared_vars \<Rightarrow> sllist_polynomial \<Rightarrow> sllist_polynomial \<Rightarrow> nat list \<times> int
+      \<Rightarrow> sllist_polynomial nres\<close>
+where
+  \<open>mult_poly_s_step = (\<lambda>\<V> q b pm. mult_term_s \<V> q pm b)\<close>
+
+sepref_def mult_poly_s_step_impl
+  is \<open>uncurry3 mult_poly_s_step\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>d *\<^sub>a monomial_s_assn\<^sup>k
+      \<rightarrow>\<^sub>a poly_s_assn\<close>
+  unfolding mult_poly_s_step_def
+  by sepref
+
+definition mult_poly_s_foldl where
+  \<open>mult_poly_s_foldl \<equiv> \<lambda>\<V> q. foldl_nres (mult_poly_s_step \<V> q)\<close>
+
+sepref_register mult_poly_s_foldl
+
+lemmas mult_poly_s_foldl_hnr[sepref_fr_rules] =
+  cl_fold_env2_nres_hfref[OF mult_poly_s_step_impl.refine, folded mult_poly_s_foldl_def]
+
 lemma mult_poly_s_alt_def:
-  \<open>mult_poly_s \<V> p q = do {
-     p \<leftarrow> RETURN (COPY p);
-     REC\<^sub>T (\<lambda>f (p, b).
-       if p = [] then RETURN b
-       else do {
-         (pm, p) \<leftarrow> mop_list_pop_hd p;
-         b \<leftarrow> mult_term_s \<V> q pm b;
-         f (p, b)
-       }) (p, [])}\<close>
-  unfolding mult_poly_s_def COPY_def nres_monad1
-  by (subst nfoldli_to_pop_RECT) (rule refl)
+  \<open>mult_poly_s \<V> p q = mult_poly_s_foldl \<V> q [] p\<close>
+  unfolding mult_poly_s_def mult_poly_s_foldl_def mult_poly_s_step_def
+  by (simp add: nfoldli_foldl_nres[symmetric])
 
 sepref_def mult_poly_s_impl
   is \<open>uncurry2 mult_poly_s\<close>
   :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a poly_s_assn\<close>
-  supply [[goals_limit=1]]
   unfolding mult_poly_s_alt_def
-    ls_emp ls_emp'
   by sepref
 
 lemmas [sepref_fr_rules] =
@@ -2497,7 +2564,7 @@ sepref_def msort_coeffs_impl is \<open>uncurry msort_coeffs\<close>
 
 lemma term_mcmp_alt_def:
   \<open>term_mcmp \<V> = (\<lambda>(xs, n) (ys, m). doN {
-    a \<leftarrow> perfect_shared_term_order_rel_s \<V> (COPY xs) (COPY ys);
+    a \<leftarrow> perfect_shared_term_order_rel_s \<V> xs ys;
     RETURN (a \<noteq> GREATER)
   })\<close>
   unfolding term_mcmp_def COPY_def
@@ -3030,13 +3097,14 @@ lemma linear_combi_l_prep_s_alt:
         RETURN (p, (q, i) # xt, error_msg i err)
       } else do {
         ASSERT(fmlookup A i \<noteq> None);
-        let r = the (fmlookup A i);
         if q = [([], 1)]
         then do {
+          let r = the (fmlookup A i);
           pq \<leftarrow> add_poly_l_s \<V> (p, r);
           RETURN (pq, xt, CSUCCESS)}
         else do {
           (no_new, q) \<leftarrow> normalize_poly_sharedS \<V> (q);
+          let r = the (fmlookup A i);
           q \<leftarrow> mult_poly_full_s \<V> q r;
           pq \<leftarrow> add_poly_l_s \<V> (p, q);
           RETURN (pq, xt, CSUCCESS)

@@ -296,6 +296,111 @@ proof -
     by (sepref_to_hoare; vcg)
 qed
 
+subsection \<open>Environment-threaded monadic fold\<close>
+
+lemma cl_fold_env_nres_rule:
+  assumes F: \<open>\<And>a ai b bi. nofail (f e a b) \<Longrightarrow> llvm_htriple
+    (P e ei ** A a ai ** B b bi) (fi ei ai bi)
+    (\<lambda>r. P e ei ** B b bi ** (EXS x. A x r ** \<up>(RETURN x \<le> f e a b)))\<close>
+  assumes NF: \<open>nofail (foldl_nres (f e) a bs)\<close>
+  shows \<open>llvm_htriple
+    (P e ei ** A a ai ** cl_assn' B bs bsi)
+    (cl_fold_env fi (ei, bsi, ai))
+    (\<lambda>r. P e ei ** cl_assn' B bs bsi ** (EXS x. A x r ** \<up>(RETURN x \<le> foldl_nres (f e) a bs)))\<close>
+  using NF
+proof (induction bs arbitrary: a ai bsi)
+  case Nil
+  show ?case
+    supply [simp] = cl_assn_simps
+    apply (subst cl_fold_env_unfold)
+    apply (subst foldl_nres_unfold)
+    by vcg
+next
+  case (Cons b bs)
+  note [vcg_rules] = F Cons.IH
+  show ?case
+    using Cons.prems
+    supply [simp] = cl_assn_simps refine_pw_simps pw_le_iff mop_list_pop_hd_def
+    apply (subst (asm) foldl_nres_unfold)
+    apply (subst cl_fold_env_unfold)
+    apply (subst foldl_nres_unfold)
+    by vcg
+qed
+
+lemma hfref_nres_htriple_k1_d2_k3:
+  assumes R: \<open>(uncurry2 fi, uncurry2 fn) \<in> P\<^sup>k *\<^sub>a A\<^sup>d *\<^sub>a B\<^sup>k \<rightarrow>\<^sub>a A\<close>
+    and NF: \<open>nofail (fn e a b)\<close>
+  shows \<open>llvm_htriple (P e ei ** A a ai ** B b bi) (fi ei ai bi)
+    (\<lambda>r. P e ei ** B b bi ** (EXS x. A x r ** \<up>(RETURN x \<le> fn e a b)))\<close>
+proof -
+  note HT = R[to_hnr, unfolded autoref_tag_defs, THEN hn_refineD, OF NF]
+  show ?thesis
+    apply (rule htriple_ent_pre[OF _ htriple_ent_post[OF _ HT]])
+    unfolding hn_ctxt_def
+    subgoal by (rule entails_refl)
+    subgoal
+      by (auto simp: entails_def sep_algebra_simps sep_conj_exists invalid_assn_def
+          pred_lift_extract_simps)
+    done
+qed
+
+lemma cl_fold_env_nres_hfref:
+  assumes F: \<open>(uncurry2 fi, uncurry2 fn) \<in> P\<^sup>k *\<^sub>a A\<^sup>d *\<^sub>a B\<^sup>k \<rightarrow>\<^sub>a A\<close>
+  shows \<open>(uncurry2 (\<lambda>ei ai bsi. cl_fold_env fi (ei, bsi, ai)),
+          uncurry2 (\<lambda>e. foldl_nres (fn e)))
+    \<in> P\<^sup>k *\<^sub>a A\<^sup>d *\<^sub>a (cl_assn' B)\<^sup>k \<rightarrow>\<^sub>a A\<close>
+  supply [vcg_rules] = cl_fold_env_nres_rule[where P=P and A=A and B=B and fi=fi and f=fn,
+      OF hfref_nres_htriple_k1_d2_k3[OF F]]
+  by (sepref_to_hoare; vcg)
+
+text \<open>Two-component environment. Sepref's pair constructor (@{thm hn_Pair}) destroys
+  both components, so an environment pair cannot be built from kept arguments at the
+  abstract level; this variant forms the tuple on the LLVM side instead and exposes the
+  components as separate kept arguments.\<close>
+
+lemma hfref_nres_htriple_k1_k2_d3_k4:
+  assumes R: \<open>(uncurry3 fi, uncurry3 fn) \<in> P\<^sup>k *\<^sub>a Q\<^sup>k *\<^sub>a A\<^sup>d *\<^sub>a B\<^sup>k \<rightarrow>\<^sub>a A\<close>
+    and NF: \<open>nofail (fn p q a b)\<close>
+  shows \<open>llvm_htriple ((P p pii ** Q q qc) ** A a ai ** B b bi) (fi pii qc ai bi)
+    (\<lambda>r. (P p pii ** Q q qc) ** B b bi ** (EXS x. A x r ** \<up>(RETURN x \<le> fn p q a b)))\<close>
+proof -
+  note HT = R[to_hnr, unfolded autoref_tag_defs, THEN hn_refineD, OF NF]
+  show ?thesis
+    apply (rule htriple_ent_pre[OF _ htriple_ent_post[OF _ HT]])
+    unfolding hn_ctxt_def
+    subgoal by (simp add: sep_conj_assoc entails_refl)
+    subgoal
+      by (auto simp: entails_def sep_algebra_simps sep_conj_exists invalid_assn_def
+          pred_lift_extract_simps)
+    done
+qed
+
+lemma cl_fold_env2_nres_hfref:
+  assumes F: \<open>(uncurry3 fi, uncurry3 fn) \<in> P\<^sup>k *\<^sub>a Q\<^sup>k *\<^sub>a A\<^sup>d *\<^sub>a B\<^sup>k \<rightarrow>\<^sub>a A\<close>
+  shows \<open>(uncurry3 (\<lambda>pii qc ai bsi. cl_fold_env (\<lambda>p x y. case p of (pii, qc) \<Rightarrow> fi pii qc x y) ((pii, qc), bsi, ai)),
+          uncurry3 (\<lambda>p q. foldl_nres (fn p q)))
+    \<in> P\<^sup>k *\<^sub>a Q\<^sup>k *\<^sub>a A\<^sup>d *\<^sub>a (cl_assn' B)\<^sup>k \<rightarrow>\<^sub>a A\<close>
+proof -
+  have RULE: \<open>nofail (foldl_nres (fn p q) a bs) \<Longrightarrow> llvm_htriple
+      (P p pii ** Q q qc ** A a ai ** cl_assn' B bs bsi)
+      (cl_fold_env (\<lambda>p x y. case p of (pii, qc) \<Rightarrow> fi pii qc x y) ((pii, qc), bsi, ai))
+      (\<lambda>r. P p pii ** Q q qc ** cl_assn' B bs bsi
+        ** (EXS x. A x r ** \<up>(RETURN x \<le> foldl_nres (fn p q) a bs)))\<close>
+    for p pii q qc a ai bs bsi
+  proof -
+    note R = cl_fold_env_nres_rule[where P=\<open>\<lambda>(p, q) (pii, qc). P p pii ** Q q qc\<close>
+        and f=\<open>\<lambda>(p, q). fn p q\<close> and fi=\<open>\<lambda>p x y. case p of (pii, qc) \<Rightarrow> fi pii qc x y\<close>
+        and e=\<open>(p, q)\<close> and ei=\<open>(pii, qc)\<close> and A=A and B=B and a=a and ai=ai
+        and bs=bs and bsi=bsi, unfolded prod.case]
+    assume \<open>nofail (foldl_nres (fn p q) a bs)\<close>
+    from R[OF hfref_nres_htriple_k1_k2_d3_k4[OF F] this] show ?thesis
+      by (simp add: sep_conj_assoc)
+  qed
+  show ?thesis
+    supply [vcg_rules] = RULE
+    by (sepref_to_hoare; vcg)
+qed
+
 definition cl_ifoldl_guard
   :: \<open>'a::llvm_rep \<times> 'b::llvm_rep cl_list \<times> 'c::llvm_rep cl_list \<times> 1 word \<Rightarrow> 1 word llM\<close>
   where [llvm_code, llvm_inline]:

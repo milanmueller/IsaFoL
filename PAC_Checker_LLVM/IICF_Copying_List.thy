@@ -54,16 +54,6 @@ text \<open>coverage of the @{theory Isabelle_LLVM.IICF_List} interface
   might be interesting for merge sort...
 \<close>
 
-(* TODO:
-  We might want to explore the feasibility of a read-only generic fold implementation
-  in such a fold, we could deliberately only copy the inner elements where needed,
-  which might even compose. With the function we currently have, List walks can
-  only be done by also destroying the list. Providing a fold operation parameterized
-  over the inner function might avoid that.
-
-  c.f. The String hashing stuff for where this might actually help quite a bit...
-*)
-
 section \<open>Extending List Interface\<close>
 
 text \<open>The list interface (see above) does not define a `pop_first` operation.

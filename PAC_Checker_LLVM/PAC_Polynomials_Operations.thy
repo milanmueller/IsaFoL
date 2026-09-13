@@ -7,11 +7,16 @@ begin
 
 subsection \<open>Addition\<close>
 
-fun add_poly_l' :: \<open>llist_polynomial \<times> llist_polynomial \<Rightarrow> llist_polynomial\<close> where
+fun
+add_poly_l'
+  :: \<open>llist_polynomial \<times> llist_polynomial \<Rightarrow> llist_polynomial\<close> where
   \<open>add_poly_l' (p, []) = p\<close> |
   \<open>add_poly_l' ([], q) = q\<close> |
   \<open>add_poly_l' ((xs, n) # p, (ys, m) # q) =
-            (if xs = ys then if n + m = 0 then add_poly_l' (p, q) else
+           (if xs = ys then
+              if n + m = 0 then
+                add_poly_l' (p, q)
+              else
                  let pq = add_poly_l' (p, q) in
                  ((xs, n + m) # pq)
             else if (xs, ys) \<in> term_order_rel
