@@ -69,6 +69,30 @@ definition \<open>opt_list_is_empty \<equiv> list_all (\<lambda>x. x = None)\<cl
 definition \<open>opt_list_lookup k m \<equiv> if k < length m then m!k else None\<close>
 definition \<open>opt_list_the_lookup k m \<equiv> the (m!k)\<close>
 
+text \<open>In addition, we propose a non-copying lookup which moves ownership out of the map\<close>
+term op_map_lookup
+sepref_decl_op map_extract: \<open>\<lambda>k (m::'k\<rightharpoonup>'v). (m k, fun_upd m k None)\<close>
+  :: \<open>K \<rightarrow> \<langle>K,V\<rangle>map_rel \<rightarrow> \<langle>V\<rangle>option_rel \<times>\<^sub>r \<langle>K,V\<rangle>map_rel\<close>
+  where \<open>single_valued K\<close> \<open>single_valued (K\<inverse>)\<close>
+  apply (rule fref_ncI)
+  apply parametricity
+  subgoal
+    unfolding map_rel_def
+    apply (elim IntE)
+    apply parametricity
+    done
+  subgoal
+    unfolding map_rel_def
+    apply (elim IntE; rule IntI)
+    apply (intro fun_relI)
+    apply parametricity
+    apply (simp add: pres_eq_iff_svb)
+    apply auto
+    done
+  done
+
+definition \<open>opt_list_extract k m \<equiv> if k < length m then (m!k,m[k:=None]) else (None,m)\<close>
+
 lemma opt_list_empty_refine:
   \<open>(uncurry0 (RETURN opt_list_empty), uncurry0 (RETURN op_map_empty))
   \<in> unit_rel \<rightarrow>\<^sub>f \<langle>opt_list_map_rel\<rangle>nres_rel\<close>
@@ -118,6 +142,15 @@ lemma opt_list_the_lookup_refine:
     \<in> [\<lambda>(k,m). m k \<noteq> None]\<^sub>f nat_rel \<times>\<^sub>r opt_list_map_rel \<rightarrow> \<langle>Id\<rangle>nres_rel\<close>
   apply (intro frefI nres_relI)
   by (auto simp: opt_list_map_rel_def in_br_conv opt_list_the_lookup_def opt_list_\<alpha>_def split: if_splits)
+
+lemma opt_list_extract_refine:
+  \<open>(uncurry (RETURN oo opt_list_extract), uncurry (RETURN oo op_map_extract))
+  \<in> nat_rel \<times>\<^sub>r opt_list_map_rel \<rightarrow>\<^sub>f \<langle>\<langle>Id\<rangle>option_rel \<times>\<^sub>r opt_list_map_rel\<rangle>nres_rel\<close>
+  apply (intro frefI nres_relI)
+  apply (auto simp: opt_list_map_rel_def in_br_conv opt_list_extract_def
+                    opt_list_\<alpha>_def)
+  apply fastforce+
+  done
 
 definition opt_list_dom_ub :: \<open>'a opt_list \<Rightarrow> nat\<close> where
   \<open>opt_list_dom_ub m \<equiv> length m\<close>
@@ -724,6 +757,63 @@ lemma pmap_lookup_opt_list_lookup:
   unfolding snat_rel_def snat.rel_def in_br_conv
   apply vcg
   oops (* Not sure if we even want to finish this one... *)
+
+definition pmap_extract :: \<open>64 word \<Rightarrow> 'a pmap_conc \<Rightarrow> ('a \<times> 'a pmap_conc) llM\<close>
+  where[llvm_code]:
+  \<open>pmap_extract ii ai \<equiv> doM {
+    l \<leftarrow> arl_len ai;
+    b \<leftarrow> ll_icmp_ult ii l;
+    llc_if b (doM {
+      a \<leftarrow> arl_nth ai ii;
+      arl_upd ai ii init;
+      Mreturn (a, ai)
+    })
+    (Mreturn (init, ai))
+  }\<close>
+
+lemma pmap_extract_rule':
+  \<open>llvm_htriple
+    (\<upharpoonleft>snat.assn i ii ** pmap_assn' xs ai)
+    (pmap_extract ii ai)
+    (\<lambda>(a, ai'). pmap_assn' (xs[i := Option.None]) ai' ** option_assn (opt_list_lookup i xs) a)\<close>
+  unfolding pmap_extract_def opt_list_lookup_def
+  supply [simp] = pmap_assn_def dflt_is_init[symmetric]
+  apply vcg
+  subgoal by (rule pmap_lookup_reassemble_present)
+  apply vcg
+  subgoal by (rule pmap_lookup_reassemble_oob)
+  done
+
+lemma pmap_extract_rule[vcg_rules]:
+  \<open>llvm_htriple
+    (\<upharpoonleft>snat.assn i ii ** pmap_assn' xs ai)
+    (pmap_extract ii ai)
+    (\<lambda>r. (option_assn \<times>\<^sub>a pmap_assn') (opt_list_extract i xs) r)\<close>
+  unfolding opt_list_extract_def
+  supply [vcg_rules] = pmap_extract_rule'
+  apply vcg
+  subgoal
+    unfolding ENTAILS_def
+    by (cases \<open>i < length xs\<close>)
+       (simp_all add: opt_list_lookup_def prod_assn_def list_update_beyond
+                      sep_conj_aci entails_refl)
+  done
+
+lemma pmap_extract_opt_list_extract:
+  \<open>(uncurry pmap_extract, uncurry (RETURN oo opt_list_extract))
+  \<in> (snat_assn' TYPE(64))\<^sup>k *\<^sub>a pmap_assn'\<^sup>d \<rightarrow>\<^sub>a option_assn \<times>\<^sub>a pmap_assn'\<close>
+  unfolding snat_rel_def snat.assn_is_rel[symmetric]
+  apply sepref_to_hoare
+  apply vcg
+  subgoal for b ab ai asf a aa ac ba sa
+    unfolding ENTAILS_def
+    apply (simp add: snat.assn_pure[THEN extract_pure_assn] sep_algebra_simps
+      pred_lift_extract_simps)
+    apply (rule entails_exI[where x=\<open>fst (opt_list_extract ab b)\<close>])
+    apply (rule entails_exI[where x=\<open>snd (opt_list_extract ab b)\<close>])
+    by (simp add: sep_algebra_simps pred_lift_extract_simps prod_assn_def
+      entails_refl split: prod.splits)
+  done
 
 definition pmap_free :: \<open>'a pmap_conc \<Rightarrow> unit llM\<close> where[llvm_code]:
   \<open>pmap_free ai \<equiv> doM {

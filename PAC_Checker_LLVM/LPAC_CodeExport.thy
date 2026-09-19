@@ -1010,7 +1010,7 @@ proof -
 qed
 
 section \<open>Checker Entry Points\<close>
-
+(*
 definition run_checker
   :: \<open>c_inputs ptr \<Rightarrow> c_proof ptr \<Rightarrow> c_target ptr \<Rightarrow>
       stra_conc ptr \<Rightarrow> 8 word llM\<close>
@@ -1029,9 +1029,10 @@ definition run_checker
       Mreturn st
     }
   }\<close>
-
+*)
+(*
 export_llvm
-  run_checker is \<open>char run_checker(inputs*, proof*, polynomial*, slice*)\<close>
+  run_checker is \<open>char run_checker(inputs*, proof*, polynomial*, slice* )\<close>
   defines \<open>
     typedef struct {uint64_t len; char *ptr;} slice;
     typedef struct {uint64_t num_vars; slice *vars_ptr;} term;
@@ -1047,7 +1048,7 @@ export_llvm
     typedef struct {uint64_t num_rules; rule *rules_ptr;} proof;
   \<close>
   file "./code/pasteque.ll"
-
+*)
 text \<open>Efficient checker\<close>
 
 definition run_shared_checker

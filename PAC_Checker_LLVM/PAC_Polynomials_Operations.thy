@@ -862,11 +862,7 @@ lemma distinct_var_order_Id_var_order:
           sorted_wrt var_order a\<close>
   by (induction a) (auto simp: rel2p_def)
 
-text \<open>TODO: candidate for \<open>cl_fold\<close> \<comment> \<open>full walk, prepend-only accumulator, and the
-  \<open>shuffle_coefficients\<close> spec below is already permutation-level, so the fold's reversal
-  needs no new abstract reasoning. Step: copy the monom, sort the copy, prepend.
-  Only worthwhile if the input polynomial must be kept (\<open>\<^sup>k\<close>); if \<open>full_normalize_poly\<close>
-  consumes its argument anyway, a destructive pop-walk is cheaper (no copies).\<close>\<close>
+text \<open>TODO: candidate for \<open>cl_fold\<close>\<close>
 definition sort_all_coeffs :: \<open>llist_polynomial \<Rightarrow> llist_polynomial nres\<close> where
 \<open>sort_all_coeffs xs = monadic_nfoldli xs (\<lambda>_. RETURN True) (\<lambda>(a, n) b. do {a \<leftarrow> sort_coeff a; RETURN ((a, n) # b)}) []\<close>
 
