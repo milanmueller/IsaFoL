@@ -235,7 +235,7 @@ lemma strls_less_impl_rule[vcg_rules]:
 
 definition perfect_shared_var_order_c_else_impl ::
   \<open>(64 word \<times> 64 word \<times> 8 word node ptr ptr) \<times>
-   64 word \<times> 64 word \<times> (8 word node ptr \<times> 64 word ptr) node ptr ptr
+   (64 word \<times> 64 word \<times> (8 word node ptr \<times> 64 word ptr) node ptr ptr) \<times> 64 word
     \<Rightarrow> 64 word \<Rightarrow> 64 word \<Rightarrow> 8 word llM\<close> where [llvm_code]:
   \<open>perfect_shared_var_order_c_else_impl \<D> xi yi \<equiv> doM {
     let (strs, _) = \<D>;

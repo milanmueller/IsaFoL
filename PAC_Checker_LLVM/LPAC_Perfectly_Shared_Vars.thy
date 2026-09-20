@@ -294,7 +294,7 @@ instance
   ..
 end
 
-lemmas [sepref_fr_rules] = snhm.lshm_update_hnr[FCOMP map_upd_fmupd]
+lemmas [sepref_fr_rules] = snhm.lshm_update_resize_hnr[FCOMP map_upd_fmupd]
 
 lemma insert_variable_c_synth_def:
   \<open>insert_variable_c v k' = (\<lambda>(\<V>, \<A>). (\<V> @ [COPY v], fmupd (COPY v) k' \<A>))\<close>
@@ -371,8 +371,10 @@ proof -
     unfolding hr_comp_def
     apply (simp add: sep_conj_exists)
     apply (rule entails_exI[where x = \<open>op_map_empty\<close>])
-    apply (rule entails_exI[where x = \<open>snhm.lshm_op_map_empty 16384\<close>])
-    using 1 2 by (simp add: sep_algebra_simps pred_lift_extract_simps entails_refl)
+    apply (rule entails_exI[where x = \<open>replicate 16384 []\<close>])
+    apply (rule entails_exI[where x = 0])
+    using 1 2
+    by (smt (verit, best) entailsD2 entails_lift_extract_simps(2) mem_alloc_pure_reassembly(25) sep_conj_aci(1) snhm.lshm_op_map_empty_def)
 qed
 
 lemma empty_vars_hm_impl_rule[vcg_rules]:
