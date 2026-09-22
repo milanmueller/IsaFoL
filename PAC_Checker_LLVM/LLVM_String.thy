@@ -131,16 +131,188 @@ end
 
 section \<open>String by Array\<close>
 
-text \<open>To be able to print constant strings (like @{term \<open>''string''\<close>},
-  we need to convert the HOL String representation into @{term \<open>8 word\<close>})\<close>
-
-text \<open>The conversion of HOL chars to ascii chars is provided by
-  @{term asciichar_of_holchar} in \<open>Char_Assn\<close>: the @{term Char}
-  constructor is registered as a sepref operation, so string literals synthesize
-  at @{term \<open>cl_assn' char_assn\<close>} (via @{thm cl_empty_hnr} and @{thm cl_prepend_hnr})
-  out of the box.\<close>
-
 abbreviation \<open>stra_assn \<equiv> larray_assn' TYPE(64) char_assn\<close>
+
+subsection \<open>Comparisons\<close>
+
+definition \<open>list_eq_nres \<equiv> \<lambda>xs ys. doN {
+    let xl = length xs;  
+    let yl = length ys;
+    if xl \<noteq> yl then
+      RETURN False 
+    else doN {
+      ASSERT (xl = yl);
+      (_, r) \<leftarrow> WHILEIT
+        (\<lambda>(i, r). i \<le> xl \<and> xl = yl \<and> length xs = xl \<and> length ys = yl
+                  \<and> (r \<longleftrightarrow> take i xs = take i ys))
+        (\<lambda>(i, r). r \<and> i < xl)
+        (\<lambda>(i, r). doN {
+          ASSERT(i < length xs \<and> i < length ys);        
+          if (xs!i = ys!i) then
+            RETURN (i+1, r)
+          else
+            RETURN (i+1, False)
+        }) (0, True);
+      RETURN r
+    }
+  }\<close> 
+
+lemma list_eq_spec: \<open>list_eq_nres xs ys \<le> RETURN (xs = ys)\<close>
+  unfolding list_eq_nres_def
+  apply (refine_vcg WHILEIT_rule[where R = \<open>measure (\<lambda>(i, _). length xs - i)\<close>])
+  subgoal by auto
+  subgoal by auto
+  subgoal by auto
+  subgoal by auto
+  subgoal by auto
+  subgoal by auto
+  subgoal by auto
+  subgoal by auto
+  subgoal by auto
+  subgoal by auto
+  subgoal by auto
+  subgoal by auto
+  subgoal
+    apply auto
+    by (metis take_Suc_conv_app_nth)
+  subgoal by auto
+  subgoal by auto
+  subgoal by auto
+  subgoal by auto
+  subgoal
+    apply auto
+    by (metis nat_in_between_eq(2) nth_take)
+  subgoal by auto
+  subgoal by auto
+  done
+
+lemma list_eq_fref:
+  \<open>(uncurry list_eq_nres, uncurry (RETURN oo (=))) \<in> Id \<times>\<^sub>r Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  by (intro frefI nres_relI) (auto simp: list_eq_spec)
+
+sepref_def list_eq_impl is \<open>uncurry list_eq_nres\<close>
+  :: \<open>stra_assn\<^sup>k *\<^sub>a stra_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding list_eq_nres_def
+  apply (annot_snat_const "TYPE(64)")
+  by sepref
+
+lemmas list_eq_hnr[sepref_fr_rules] = list_eq_impl.refine[FCOMP list_eq_fref]
+
+
+definition list_lt_nres :: \<open>'a::linorder list \<Rightarrow> 'a list \<Rightarrow> bool nres\<close> where
+  \<open>list_lt_nres \<equiv> \<lambda>xs ys. doN {
+    let xl = length xs;
+    let yl = length ys;
+    (i, _) \<leftarrow> WHILEIT
+      (\<lambda>(i, cont). i \<le> xl \<and> i \<le> yl \<and> length xs = xl \<and> length ys = yl
+                  \<and> take i xs = take i ys
+                  \<and> (\<not>cont \<longrightarrow> i < xl \<and> i < yl \<and> xs!i \<noteq> ys!i))
+      (\<lambda>(i, cont). cont \<and> i < xl \<and> i < yl)
+      (\<lambda>(i, cont). doN {
+        ASSERT(i < length xs \<and> i < length ys);
+        if (xs!i = ys!i) then
+          RETURN (i+1, cont)
+        else
+          RETURN (i, False)
+      }) (0, True);
+    if i < xl \<and> i < yl then doN {
+      ASSERT(i < length xs \<and> i < length ys);
+      RETURN (xs!i < ys!i)
+    } else
+      RETURN (xl < yl)
+  }\<close>
+
+lemma list_less_take_index_conv:
+  \<open>xs < ys \<longleftrightarrow>
+    (length xs < length ys \<and> take (length xs) ys = xs) \<or>
+    (\<exists>i < min (length xs) (length ys). take i xs = take i ys \<and> xs!i < ys!i)\<close>
+  for xs ys :: \<open>'a::linorder list\<close> 
+  unfolding less_list_def List.lexordp_def lexord_take_index_conv by simp
+
+lemma list_less_first_diff:
+  fixes xs ys :: \<open>'a::linorder list\<close>
+  assumes \<open>take i xs = take i ys\<close> \<open>i < length xs\<close> \<open>i < length ys\<close> \<open>xs!i \<noteq> ys!i\<close>
+  shows \<open>xs < ys \<longleftrightarrow> xs!i < ys!i\<close>
+proof -
+  have eq: \<open>xs!j = ys!j\<close> if \<open>j < i\<close> for j
+    using assms(1) that by (metis nth_take)
+  show ?thesis
+    unfolding list_less_take_index_conv
+    using assms eq apply (auto simp: not_less_iff_gr_or_eq)
+    subgoal by (metis nth_take)
+    subgoal by (metis nat_neq_iff nth_take order_less_asym')
+    done
+qed
+
+lemma list_less_no_diff:
+  fixes xs ys :: \<open>'a::linorder list\<close>
+  assumes \<open>take (min (length xs) (length ys)) xs = take (min (length xs) (length ys)) ys\<close>
+  shows \<open>xs < ys \<longleftrightarrow> length xs < length ys\<close>
+  using assms unfolding list_less_take_index_conv
+  apply (auto simp: min_def)
+  subgoal by (metis nth_take not_less_iff_gr_or_eq)
+  subgoal by (metis not_less_iff_gr_or_eq nth_take)
+  done
+
+lemma list_lt_spec: \<open>list_lt_nres xs ys \<le> RETURN (list_lt xs ys)\<close>
+  unfolding list_lt_nres_def list_lt_less
+  apply (refine_vcg WHILEIT_rule[where
+    R = \<open>measure (\<lambda>(i, cont). length xs - i + (if cont then 1 else 0))\<close>])
+  apply (clarsimp_all simp: take_Suc_conv_app_nth list_less_first_diff)
+  subgoal by auto
+  subgoal by auto
+  subgoal
+    by (metis list_less_no_diff min.absorb2 min_simps(1)
+    order_neq_le_trans)
+  done
+
+lemma list_lt_fref:
+  \<open>(uncurry list_lt_nres, uncurry (RETURN oo list_lt)) \<in> Id \<times>\<^sub>r Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  by (intro frefI nres_relI) (auto simp: list_lt_spec)
+
+sepref_register list_lt_nres
+sepref_def list_lt_impl is \<open>uncurry (list_lt_nres :: string \<Rightarrow> _)\<close>
+  :: \<open>stra_assn\<^sup>k *\<^sub>a stra_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding list_lt_nres_def
+  apply (annot_snat_const "TYPE(64)")
+  by sepref
+
+lemmas list_lt_hnr[sepref_fr_rules] = list_lt_impl.refine[FCOMP list_lt_fref]
+lemmas stra_less_hnr[sepref_fr_rules] = list_lt_hnr[unfolded list_lt_less]
+
+definition list_le_nres :: \<open>'a::linorder list \<Rightarrow> 'a list \<Rightarrow> bool nres\<close> where
+  \<open>list_le_nres \<equiv> \<lambda>xs ys. doN {
+    lt \<leftarrow> list_lt_nres ys xs;
+    RETURN (\<not>lt)
+  }\<close>
+
+lemma list_le_spec: \<open>list_le_nres xs ys \<le> RETURN (list_le xs ys)\<close>
+  unfolding list_le_nres_def list_le_less_eq
+  by (refine_vcg list_lt_spec[THEN order_trans]) (simp add: list_lt_less not_less)
+
+lemma list_le_fref:
+  \<open>(uncurry list_le_nres, uncurry (RETURN oo list_le)) \<in> Id \<times>\<^sub>r Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  by (intro frefI nres_relI) (auto simp: list_le_spec)
+
+sepref_def list_le_impl is \<open>uncurry (list_le_nres :: string \<Rightarrow> _)\<close>
+  :: \<open>stra_assn\<^sup>k *\<^sub>a stra_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  unfolding list_le_nres_def
+  by sepref
+
+lemmas list_le_hnr[sepref_fr_rules] = list_le_impl.refine[FCOMP list_le_fref]
+lemmas stra_le_hnr[sepref_fr_rules] = list_le_hnr[unfolded list_le_less_eq]
+
+interpretation strla_ls: eq_assn stra_assn list_eq_impl
+  apply unfold_locales
+  apply (rule list_eq_hnr)
+  done
+
+interpretation strla_ls: linorder_assn stra_assn list_eq_impl list_lt_impl
+  apply (unfold_locales)
+  apply (rule stra_less_hnr)
+  done
+
+term la_length_impl
 
 subsection \<open>Conversion from list based string to array based string\<close>
 text \<open>Since the length of list based string is not bounded, we can not
@@ -283,20 +455,17 @@ sepref_definition tststra_impl is \<open>uncurry0 (stra_of_strl tststr)\<close>
 
 sepref_definition strl_lt_test is \<open>uncurry (RETURN oo list_lt)\<close>
   :: \<open>stra_assn\<^sup>k *\<^sub>a stra_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
-  apply sepref_dbg_keep
-  oops
+  by sepref
 
 sepref_definition strl_le_test is \<open>uncurry (RETURN oo list_le)\<close>
   :: \<open>stra_assn\<^sup>k *\<^sub>a stra_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
-  apply sepref_dbg_keep
-  oops
+  by sepref
 
 sepref_register \<open>(=) :: char list \<Rightarrow> char list \<Rightarrow> bool\<close>
 
 sepref_definition strl_eq_test is \<open>uncurry (RETURN oo (=))\<close>
   :: \<open>stra_assn\<^sup>k *\<^sub>a stra_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
-  apply sepref_dbg_keep
-  oops
+  by sepref
 
 sepref_definition strl_copy_test is \<open>RETURN o COPY\<close>
   :: \<open>stra_assn\<^sup>k \<rightarrow>\<^sub>a stra_assn\<close>
