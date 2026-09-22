@@ -24,7 +24,7 @@ session PAC_Checker_LLVM = "Isabelle_LLVM" +
     Aux_Lemmas
     Assn_Env
     More_Loops
-    More_EOArray
+    (* More_EOArray *)
     PAC_Map_Rel
     PAC_Checker_Relation
     (* Data structures *)
@@ -33,7 +33,7 @@ session PAC_Checker_LLVM = "Isabelle_LLVM" +
     IICF_HashSet
     IICF_HashMap
     Char_Assn
-    LLVM_String
+    (* LLVM_String *)
     LLVM_ASCII_String
     LLVM_List_Sorting
     LLVM_Polynomials
@@ -47,21 +47,21 @@ session PAC_Checker_LLVM = "Isabelle_LLVM" +
     PAC_Step_Assn
     LPAC_Step_Assn
     LPAC_Checker
-    LPAC_Error
-    LPAC_Perfectly_Shared
-    LPAC_Perfectly_Shared_Vars
-    LPAC_Efficient_Checker
-    LPAC_Efficient_Checker_Sorting
+    (* LPAC_Error *)
+    (* LPAC_Perfectly_Shared *)
+    (* LPAC_Perfectly_Shared_Vars *)
+    (* LPAC_Efficient_Checker *)
+    (* LPAC_Efficient_Checker_Sorting *)
     LPAC_Version
     (* Synthesis *)
     PAC_Checker_Error
     PAC_Checker_Init
     PAC_Checker_Synthesis
-    LPAC_Checker_Init
-    LPAC_Efficient_Checker_Refinement
-    LPAC_Efficient_Checker_Synthesis
-    LPAC_Efficient_Checker_Correctness
-    LPAC_Checker_Synthesis
+    (* LPAC_Checker_Init *)
+    (* LPAC_Efficient_Checker_Refinement *)
+    (* LPAC_Efficient_Checker_Synthesis *)
+    (* LPAC_Efficient_Checker_Correctness *)
+    (* LPAC_Checker_Synthesis *)
     (* LLVM code export: writes code/pasteque.ll and code/pasteque_shared.ll
        (plus the corresponding .h files) into the session directory *)
-    LPAC_CodeExport
+    (* LPAC_CodeExport *)

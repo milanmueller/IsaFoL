@@ -133,6 +133,41 @@ section \<open>String by Array\<close>
 
 abbreviation \<open>stra_assn \<equiv> larray_assn' TYPE(64) char_assn\<close>
 
+definition \<open>fnv1a_of_stra \<equiv> \<lambda>xs. doN {
+  (r,i) \<leftarrow> WHILET
+    (\<lambda>(r,i). i<length xs)
+    (\<lambda>(r,i). doN {
+      ASSERT(i < length xs);
+      let xi = w64_of_char (xs!i);
+      let r = r XOR xi;
+      let r = r * fnv_prime;
+      RETURN(r,i+1)
+    }) (fnv_offset, 0);
+  RETURN r
+}\<close>
+
+lemma fnv1a_of_stra_correct: \<open>fnv1a_of_stra xs \<le> RETURN (fnv1a_of_strl xs)\<close>
+  unfolding fnv1a_of_stra_def fnv1a_of_strl_def
+  apply (refine_vcg WHILET_rule[where
+      I = \<open>\<lambda>(r,i). i \<le> length xs \<and>
+        r = foldl (\<lambda>acc x. (acc XOR w64_of_char x) * fnv_prime) fnv_offset (take i xs)\<close>
+      and R = \<open>measure (\<lambda>(_,i). length xs - i)\<close>])
+  by (auto simp: take_Suc_conv_app_nth)
+
+lemma fnv1a_of_stra_fref:
+  \<open>(fnv1a_of_stra, RETURN o fnv1a_of_strl)
+  \<in> \<langle>Id\<rangle>list_rel \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
+  by (intro frefI nres_relI) (auto simp: fnv1a_of_stra_correct)
+
+sepref_def fnv1a_of_stra_impl is \<open>fnv1a_of_stra\<close>
+  :: \<open>stra_assn\<^sup>k \<rightarrow>\<^sub>a (word_assn' TYPE(64))\<close>
+  unfolding fnv1a_of_stra_def
+  apply (annot_snat_const "TYPE(64)")
+  by sepref
+
+lemmas fnv1a_of_stra_hnr[sepref_fr_rules] =
+  fnv1a_of_stra_impl.refine[FCOMP fnv1a_of_stra_fref]
+
 subsection \<open>Comparisons\<close>
 
 definition \<open>list_eq_nres \<equiv> \<lambda>xs ys. doN {
@@ -190,13 +225,13 @@ lemma list_eq_fref:
   \<open>(uncurry list_eq_nres, uncurry (RETURN oo (=))) \<in> Id \<times>\<^sub>r Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
   by (intro frefI nres_relI) (auto simp: list_eq_spec)
 
-sepref_def list_eq_impl is \<open>uncurry list_eq_nres\<close>
+sepref_def stra_eq_impl is \<open>uncurry list_eq_nres\<close>
   :: \<open>stra_assn\<^sup>k *\<^sub>a stra_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   unfolding list_eq_nres_def
   apply (annot_snat_const "TYPE(64)")
   by sepref
 
-lemmas list_eq_hnr[sepref_fr_rules] = list_eq_impl.refine[FCOMP list_eq_fref]
+lemmas list_eq_hnr[sepref_fr_rules] = stra_eq_impl.refine[FCOMP list_eq_fref]
 
 
 definition list_lt_nres :: \<open>'a::linorder list \<Rightarrow> 'a list \<Rightarrow> bool nres\<close> where
@@ -302,14 +337,54 @@ sepref_def list_le_impl is \<open>uncurry (list_le_nres :: string \<Rightarrow> 
 lemmas list_le_hnr[sepref_fr_rules] = list_le_impl.refine[FCOMP list_le_fref]
 lemmas stra_le_hnr[sepref_fr_rules] = list_le_hnr[unfolded list_le_less_eq]
 
-interpretation strla_ls: eq_assn stra_assn list_eq_impl
+interpretation strla_ls: eq_assn stra_assn stra_eq_impl
   apply unfold_locales
   apply (rule list_eq_hnr)
   done
 
-interpretation strla_ls: linorder_assn stra_assn list_eq_impl list_lt_impl
+interpretation strla_ls: linorder_assn stra_assn stra_eq_impl list_lt_impl
   apply (unfold_locales)
   apply (rule stra_less_hnr)
+  done
+
+interpretation strla_ls: freeable_assn stra_assn la_free_impl
+  apply (unfold_locales)
+  apply (rule larray_mk_free)
+  done
+
+definition la_copy :: \<open>('a::llvm_rep, 'l::len2) larray \<Rightarrow> ('a, 'l) larray llM\<close> where [llvm_code]:
+  \<open>la_copy la \<equiv> doM {
+    let (l, a) = la;
+    a' \<leftarrow> narray_new TYPE('a) l;
+    arraycpy a' a l;
+    Mreturn (l, a')
+  }\<close>
+
+lemma raw_larray_assn_decomp:
+  \<open>raw_larray_assn xs (n, p) = (\<upharpoonleft>snat.assn (length xs) n ** \<upharpoonleft>narray_assn xs p)\<close>
+  unfolding raw_larray_assn_def hr_comp_def
+  apply (intro ext)
+  apply (auto simp: larray1_rel_prenorm array_assn_def snat_rel_def
+    snat.assn_is_rel[symmetric] sep_algebra_simps pred_lift_extract_simps)
+  done
+
+lemma la_copy_rule[vcg_rules]: \<open>llvm_htriple
+  (raw_larray_assn xs c) (la_copy c) (\<lambda>r. raw_larray_assn xs c ** raw_larray_assn xs r)\<close>
+  apply (cases c; hypsubst)
+  apply (simp only: la_copy_def prod.case raw_larray_assn_decomp)
+  supply [simp] = raw_larray_assn_decomp
+  apply vcg_monadify
+  apply vcg'
+  done
+
+lemma la_copy_hnr:
+  \<open>(la_copy, RETURN o COPY) \<in> (larray_assn' TYPE('l::len2) A)\<^sup>k \<rightarrow>\<^sub>a larray_assn' TYPE('l) A\<close>
+  unfolding larray_assn_def hr_comp_def
+  by (sepref_to_hoare; vcg)
+
+interpretation strla_ls: copyable_assn stra_assn la_free_impl la_copy
+  apply unfold_locales
+  apply (rule la_copy_hnr)
   done
 
 term la_length_impl

@@ -147,18 +147,18 @@ interpretation snhm: hashmap_env
   subgoal by (metis free_thms(2))
   subgoal by (metis COPY_def eq_id_iff prio_impl_refine)  
   subgoal by (rule fnv1a_of_strl_hnr) 
-  done 
+  done
 
-term perfect_shared_vars_rel_c
-typ \<open>(string, nat) shared_vars_c\<close>
-term strl_assn'
-term strls_assn 
-term map_fmap_rel
-term snhm.hm_assn
+interpretation sahm: hashmap_env
+  \<open>stra_assn\<close> \<open>la_free_impl\<close>
+  \<open>si64_assn\<close> \<open>\<lambda>_. Mreturn ()\<close> \<open>\<lambda>n. Mreturn n\<close>
+  \<open>stra_eq_impl\<close> \<open>fnv1a_of_strl\<close> \<open>fnv1a_of_stra_impl\<close>
+  apply unfold_locales
+  using fnv1a_of_stra_hnr by auto
 
-abbreviation \<open>hm_fmap_assn \<equiv> hr_comp snhm.hm_assn map_fmap_rel\<close>
+abbreviation \<open>hm_fmap_assn \<equiv> hr_comp sahm.hm_assn map_fmap_rel\<close>
 abbreviation perfect_shared_vars_assn :: \<open>(string, nat) shared_vars_c \<Rightarrow> _ \<Rightarrow> assn\<close> where
-  \<open>perfect_shared_vars_assn \<equiv> strls_assn \<times>\<^sub>a hm_fmap_assn\<close>
+  \<open>perfect_shared_vars_assn \<equiv> stras_assn \<times>\<^sub>a hm_fmap_assn\<close>
 abbreviation shared_vars_assn where
   \<open>shared_vars_assn \<equiv> hr_comp perfect_shared_vars_assn (perfect_shared_vars_rel_c Id)\<close>
 
@@ -181,9 +181,11 @@ lemmas [sepref_fr_rules] = snhm.lshm_the_lookup_hnr[FCOMP op_map_the_lookup_fmlo
 
 sepref_def get_var_pos_c_impl
   is \<open>uncurry get_var_pos_c\<close>
-  :: \<open>perfect_shared_vars_assn\<^sup>k *\<^sub>a strl_assn'\<^sup>k \<rightarrow>\<^sub>a si64_assn\<close>
+  :: \<open>perfect_shared_vars_assn\<^sup>k *\<^sub>a stra_assn\<^sup>k \<rightarrow>\<^sub>a si64_assn\<close>
   supply [simp] = in_dom_m_lookup_iff
   unfolding get_var_pos_c_def fmlookup_the_def[symmetric]
+  apply sepref_dbg_keep
+  apply sepref_dbg_trans_keep
   by sepref
 
 definition fmap_contains where

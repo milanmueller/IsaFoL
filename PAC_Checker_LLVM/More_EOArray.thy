@@ -246,5 +246,6 @@ interpretation strls: copyable_assn strl_assn' strl.cl_free strl.cl_copy
   done
 
 abbreviation \<open>strls_assn \<equiv> \<upharpoonleft>strls.oa_assn\<close>
+abbreviation \<open>stras_assn \<equiv> \<upharpoonleft>strla_ls.oa_assn\<close>
 
 end
