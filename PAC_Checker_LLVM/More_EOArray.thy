@@ -246,6 +246,19 @@ interpretation strls: copyable_assn strl_assn' strl.cl_free strl.cl_copy
   done
 
 abbreviation \<open>strls_assn \<equiv> \<upharpoonleft>strls.oa_assn\<close>
-abbreviation \<open>stras_assn \<equiv> \<upharpoonleft>strla_ls.oa_assn\<close>
+
+definition stra_free :: \<open>(8 word, 64) larray \<Rightarrow> unit llM\<close> where [llvm_code]:
+  \<open>stra_free \<equiv> la_free_impl\<close>
+
+lemma stra_free_mk_free[sepref_frame_free_rules]: \<open>MK_FREE stra_assn stra_free\<close>
+  unfolding stra_free_def by (rule larray_mk_free)
+
+interpretation stra: copyable_assn stra_assn stra_free la_copy
+  apply unfold_locales
+  subgoal by (rule stra_free_mk_free)
+  subgoal by (rule la_copy_hnr)
+  done
+
+abbreviation \<open>stras_assn \<equiv> \<upharpoonleft>stra.oa_assn\<close>
 
 end

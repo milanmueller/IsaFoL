@@ -5,6 +5,7 @@ theory LPAC_Error
     PAC_Checker_Relation
     PAC_Checker_Synthesis
     LPAC_Efficient_Checker_Refinement
+    LLVM_Polynomials_Array
 begin
 hide_fact (open) PAC_Checker.PAC_checker_l_def
 hide_const (open) PAC_Checker.PAC_checker_l
@@ -96,9 +97,18 @@ where
   cl_to_clt '' polynomial is '' @ poly_print p' @
   cl_to_clt '' side condition p*p - p = '' @ poly_print q @ cl_to_clt '' and should be 0''\<close>
 
+text \<open>Two implementations: one over list-based strings and polynomials (used by
+  \<^file>\<open>LPAC_Checker_Synthesis.thy\<close>) and one over array-based strings and polynomials.
+  Both are registered; \<^text>\<open>sepref\<close> selects by the assertions of the arguments.\<close>
 sepref_def check_extension_l2_side_cond_err_impl is
   \<open>uncurry2 (RETURN ooo check_extension_l2_side_cond_err_imp)\<close>
   :: \<open>strl_assn'\<^sup>k *\<^sub>a polynomial_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
+  unfolding check_extension_l2_side_cond_err_imp_def
+  by sepref
+
+sepref_def check_extension_l2_side_cond_erra_impl is
+  \<open>uncurry2 (RETURN ooo check_extension_l2_side_cond_err_imp)\<close>
+  :: \<open>stra_assn\<^sup>k *\<^sub>a polynomiala_assn\<^sup>k *\<^sub>a polynomiala_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
   unfolding check_extension_l2_side_cond_err_imp_def
   by sepref
 
@@ -113,6 +123,9 @@ lemma check_extension_l2_side_cond_err_fref:
 
 lemmas check_extension_l2_side_cond_err_hnr[sepref_fr_rules] =
   check_extension_l2_side_cond_err_impl.refine[FCOMP check_extension_l2_side_cond_err_fref]
+
+lemmas check_extension_l2_side_cond_erra_hnr[sepref_fr_rules] =
+  check_extension_l2_side_cond_erra_impl.refine[FCOMP check_extension_l2_side_cond_err_fref]
 
 definition check_linear_combi_l_pre_err_imp_s  where
   \<open>check_linear_combi_l_pre_err_imp_s i pd p mem =
@@ -299,7 +312,7 @@ lemma check_extension_l_s_new_var_multiple_err_fref:
   by auto
 sepref_def check_extension_l_s_new_var_multiple_err_impl is
   \<open>uncurry (RETURN oo check_extension_l_s_new_var_multiple_err_imp)\<close>
-  :: \<open>strl_assn'\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
+  :: \<open>stra_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
   unfolding check_extension_l_s_new_var_multiple_err_imp_def
   by sepref
 
@@ -325,7 +338,7 @@ lemma check_extension_l_s_side_cond_err_fref:
 
 sepref_def check_extension_l_s_side_cond_err_impl is
   \<open>uncurry3 (RETURN oooo check_extension_l_s_side_cond_err_imp)\<close>
-  :: \<open>strl_assn'\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
+  :: \<open>stra_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
   unfolding check_extension_l_s_side_cond_err_imp_def
   by sepref
 

@@ -1,7 +1,6 @@
 theory LPAC_CodeExport
   imports
     LPAC_Efficient_Checker_Synthesis
-    LPAC_Checker_Synthesis
     LLVM_ASCII_String
     IICF_Copying_List
 begin
@@ -600,26 +599,25 @@ lemma si64_is_import: \<open>is_import si64_assn si64_assn Mreturn\<close>
 
 subsection \<open>Terms (variable lists)\<close>
 
-lemma slice_to_str_is_import: \<open>is_import stra_assn strl_assn' slice_to_str_impl\<close>
-proof -
-  have \<open>slice_to_str = COPY\<close> by (auto simp: slice_to_str_def ARR2LS_def)
-  then show ?thesis
-    unfolding is_import_def using slice_to_str_impl.refine by simp
-qed
+text \<open>Variable names stay array strings: importing a term copies each slice into a
+  fresh array (\<open>la_copy\<close>) and collects the copies in a cl-list.\<close>
+
+lemma la_copy_is_import: \<open>is_import stra_assn stra_assn la_copy\<close>
+  by (rule is_copy_is_import[OF stra.acopy_is_copy])
 
 text \<open>The \<open>llvm_inline\<close> instance equation must be registered BEFORE the
   \<open>llvm_code\<close> definition that calls it: the code attribute's preprocessing
   only M_CONST-wraps occurrences of already-registered constants, and the
   inline rule can never match an unwrapped occurrence afterwards.\<close>
 lemmas arr_to_list_import_slice_inline[llvm_inline] =
-  arr_to_list_import_impl_def[OF slice_to_str_is_import]
+  arr_to_list_import_impl_def[OF la_copy_is_import]
 
-definition imp_term :: \<open>c_term \<Rightarrow> monom_conc llM\<close> where [llvm_code]:
-  \<open>imp_term \<equiv> \<lambda>(ni, ai). arr_to_list_import_impl slice_to_str_impl ni ai\<close>
+definition imp_term :: \<open>c_term \<Rightarrow> monoma_conc llM\<close> where [llvm_code]:
+  \<open>imp_term \<equiv> \<lambda>(ni, ai). arr_to_list_import_impl la_copy ni ai\<close>
 
 lemma imp_term_is_import:
-  \<open>is_import (arr_with_len_assn stra_assn) monom_assn imp_term\<close>
-  using arr_to_list_import_is_import[OF slice_to_str_is_import]
+  \<open>is_import (arr_with_len_assn stra_assn) monoma_assn imp_term\<close>
+  using arr_to_list_import_is_import[OF la_copy_is_import]
   unfolding imp_term_def .
 
 definition import_term :: \<open>char list list \<Rightarrow> char list list\<close> where
@@ -628,7 +626,7 @@ definition import_term :: \<open>char list list \<Rightarrow> char list list\<cl
 sepref_register import_term
 
 lemma import_term_hnr[sepref_fr_rules]:
-  \<open>(imp_term, RETURN o import_term) \<in> (arr_with_len_assn stra_assn)\<^sup>k \<rightarrow>\<^sub>a monom_assn\<close>
+  \<open>(imp_term, RETURN o import_term) \<in> (arr_with_len_assn stra_assn)\<^sup>k \<rightarrow>\<^sub>a monoma_assn\<close>
   using imp_term_is_import unfolding is_import_def import_term_def .
 
 subsection \<open>Coefficients\<close>
@@ -683,7 +681,7 @@ lemma parse_monomial_m_import_fref:
     (auto simp: parse_monomial_m_def parse_monomial_def in_br_conv)
 
 sepref_def imp_monomial is \<open>parse_monomial_m\<close>
-  :: \<open>(stra_assn \<times>\<^sub>a sgn_assn \<times>\<^sub>a arr_with_len_assn stra_assn)\<^sup>k \<rightarrow>\<^sub>a monomial_assn\<close>
+  :: \<open>(stra_assn \<times>\<^sub>a sgn_assn \<times>\<^sub>a arr_with_len_assn stra_assn)\<^sup>k \<rightarrow>\<^sub>a monomiala_assn\<close>
   unfolding parse_monomial_m_def
   by sepref
 
@@ -693,7 +691,7 @@ definition c_mnml_assn :: \<open>char list list \<times> int \<Rightarrow> c_mon
      (br parse_monomial (\<lambda>_. True))\<close>
 
 context notes [fcomp_norm_unfold] = c_mnml_assn_def[symmetric] begin
-lemma imp_monomial_is_import: \<open>is_import c_mnml_assn monomial_assn imp_monomial\<close>
+lemma imp_monomial_is_import: \<open>is_import c_mnml_assn monomiala_assn imp_monomial\<close>
   unfolding is_import_def
   by (rule imp_monomial.refine[FCOMP parse_monomial_m_import_fref])
 end
@@ -705,10 +703,10 @@ abbreviation \<open>c_poly_assn \<equiv> arr_with_len_assn c_mnml_assn\<close>
 lemmas arr_to_list_import_mnml_inline[llvm_inline] =
   arr_to_list_import_impl_def[OF imp_monomial_is_import]
 
-definition imp_poly :: \<open>c_polynomial \<Rightarrow> poly_conc llM\<close> where [llvm_code]:
+definition imp_poly :: \<open>c_polynomial \<Rightarrow> polya_conc llM\<close> where [llvm_code]:
   \<open>imp_poly \<equiv> \<lambda>(ni, ai). arr_to_list_import_impl imp_monomial ni ai\<close>
 
-lemma imp_poly_is_import: \<open>is_import c_poly_assn polynomial_assn imp_poly\<close>
+lemma imp_poly_is_import: \<open>is_import c_poly_assn polynomiala_assn imp_poly\<close>
   using arr_to_list_import_is_import[OF imp_monomial_is_import]
   unfolding imp_poly_def .
 
@@ -718,10 +716,10 @@ definition import_poly :: \<open>llist_polynomial \<Rightarrow> llist_polynomial
 sepref_register import_poly
 
 lemma import_poly_hnr[sepref_fr_rules]:
-  \<open>(imp_poly, RETURN o import_poly) \<in> c_poly_assn\<^sup>k \<rightarrow>\<^sub>a polynomial_assn\<close>
+  \<open>(imp_poly, RETURN o import_poly) \<in> c_poly_assn\<^sup>k \<rightarrow>\<^sub>a polynomiala_assn\<close>
   using imp_poly_is_import unfolding is_import_def import_poly_def .
 
-abbreviation imp_target :: \<open>c_target \<Rightarrow> poly_conc llM\<close> where
+abbreviation imp_target :: \<open>c_target \<Rightarrow> polya_conc llM\<close> where
   \<open>imp_target \<equiv> imp_poly\<close>
 
 subsection \<open>The constant-one polynomial\<close>
@@ -733,7 +731,7 @@ definition poly_one :: \<open>llist_polynomial\<close> where
   \<open>poly_one = [([], 1)]\<close>
 
 sepref_def poly_one_impl is \<open>uncurry0 (RETURN poly_one)\<close>
-  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a polynomial_assn\<close>
+  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a polynomiala_assn\<close>
   unfolding poly_one_def
   by sepref
 
@@ -743,12 +741,12 @@ definition poly_ptr_assn :: \<open>llist_polynomial \<Rightarrow> c_polynomial p
   \<open>poly_ptr_assn p \<equiv> \<lambda>ppi. if ppi = null then \<up>(p = poly_one)
      else (EXS pc. \<upharpoonleft>ll_bpto pc ppi ** c_poly_assn p pc)\<close>
 
-definition imp_summand_poly :: \<open>c_polynomial ptr \<Rightarrow> poly_conc llM\<close> where [llvm_code]:
+definition imp_summand_poly :: \<open>c_polynomial ptr \<Rightarrow> polya_conc llM\<close> where [llvm_code]:
   \<open>imp_summand_poly ppi = (if ppi = null then poly_one_impl
      else doM { pc \<leftarrow> ll_load ppi; imp_poly pc })\<close>
 
 lemma imp_summand_poly_is_import:
-  \<open>is_import poly_ptr_assn polynomial_assn imp_summand_poly\<close>
+  \<open>is_import poly_ptr_assn polynomiala_assn imp_summand_poly\<close>
   unfolding is_import_def
   supply [vcg_rules] = hfref_htriple_k0[OF poly_one_impl.refine]
     hfref_htriple_k1[OF imp_poly_is_import[unfolded is_import_def]]
@@ -769,48 +767,48 @@ lemma imp_summand_poly_is_import:
 
 abbreviation \<open>c_summand_assn \<equiv> poly_ptr_assn \<times>\<^sub>a si64_assn\<close>
 
-definition imp_summand :: \<open>c_summand \<Rightarrow> (poly_conc \<times> 64 word) llM\<close>
+definition imp_summand :: \<open>c_summand \<Rightarrow> (polya_conc \<times> 64 word) llM\<close>
   where [llvm_code]:
   \<open>imp_summand \<equiv> \<lambda>(ppi, ii). doM {
      p \<leftarrow> imp_summand_poly ppi; i \<leftarrow> Mreturn ii; Mreturn (p, i) }\<close>
 
 lemma imp_summand_is_import:
-  \<open>is_import c_summand_assn (polynomial_assn \<times>\<^sub>a si64_assn) imp_summand\<close>
+  \<open>is_import c_summand_assn (polynomiala_assn \<times>\<^sub>a si64_assn) imp_summand\<close>
   using is_import_prod[OF imp_summand_poly_is_import si64_is_import]
   unfolding imp_summand_def .
 
 lemmas arr_to_list_import_summand_inline[llvm_inline] =
   arr_to_list_import_impl_def[OF imp_summand_is_import]
 
-definition imp_srcs :: \<open>c_summands \<Rightarrow> srcs_conc llM\<close> where [llvm_code]:
+definition imp_srcs :: \<open>c_summands \<Rightarrow> srcsa_conc llM\<close> where [llvm_code]:
   \<open>imp_srcs \<equiv> \<lambda>(ni, ai). arr_to_list_import_impl imp_summand ni ai\<close>
 
 abbreviation \<open>c_summands_assn \<equiv> arr_with_len_assn c_summand_assn\<close>
 
-lemma imp_srcs_is_import: \<open>is_import c_summands_assn srcs_assn imp_srcs\<close>
+lemma imp_srcs_is_import: \<open>is_import c_summands_assn srcsa_assn imp_srcs\<close>
   using arr_to_list_import_is_import[OF imp_summand_is_import]
   unfolding imp_srcs_def .
 
 subsection \<open>Proof steps\<close>
 
 lemma mk_cl_rule:
-  \<open>llvm_htriple (srcs_assn a ai ** si64_assn n ni ** polynomial_assn p ri)
-     (mk_cl_impl ai ni ri)
-     (\<lambda>r. lpac_step_assn (CL a n p) r ** si64_assn n ni)\<close>
-  unfolding mk_cl_impl_def
+  \<open>llvm_htriple (srcsa_assn a ai ** si64_assn n ni ** polynomiala_assn p ri)
+     (mk_cla_impl ai ni ri)
+     (\<lambda>r. lpac_stepa_assn (CL a n p) r ** si64_assn n ni)\<close>
+  unfolding mk_cla_impl_def
   by (vcg; auto simp: step_pure_reassembly)
 
 lemma mk_lext_rule:
-  \<open>llvm_htriple (si64_assn n ni ** strl_assn' v vi ** polynomial_assn p ri)
-     (mk_lext_impl ni vi ri)
-     (\<lambda>r. lpac_step_assn (Extension n v p) r ** si64_assn n ni)\<close>
-  unfolding mk_lext_impl_def
+  \<open>llvm_htriple (si64_assn n ni ** stra_assn v vi ** polynomiala_assn p ri)
+     (mk_lexta_impl ni vi ri)
+     (\<lambda>r. lpac_stepa_assn (Extension n v p) r ** si64_assn n ni)\<close>
+  unfolding mk_lexta_impl_def
   by (vcg; auto simp: step_pure_reassembly)
 
 lemma mk_ldel_rule:
-  \<open>llvm_htriple (si64_assn i ii) (mk_ldel_impl ii)
-     (\<lambda>r. lpac_step_assn (Del i) r ** si64_assn i ii)\<close>
-  unfolding mk_ldel_impl_def
+  \<open>llvm_htriple (si64_assn i ii) (mk_ldela_impl ii)
+     (\<lambda>r. lpac_stepa_assn (Del i) r ** si64_assn i ii)\<close>
+  unfolding mk_ldela_impl_def
   by (vcg; auto simp: step_pure_reassembly)
 
 definition c_rule_assn :: \<open>lpac_step_hol \<Rightarrow> c_rule \<Rightarrow> assn\<close> where
@@ -841,34 +839,34 @@ lemma c_rule_assn_Del[simp]:
   \<open>c_rule_assn (Del i) (t, u) = (\<up>(t = 1 \<and> is_U3b u) ** si64_assn i (the_u3b u))\<close>
   unfolding c_rule_assn_def by simp
 
-definition imp_step :: \<open>c_rule \<Rightarrow> lpac_step_conc llM\<close> where [llvm_code]:
+definition imp_step :: \<open>c_rule \<Rightarrow> lpac_stepa_conc llM\<close> where [llvm_code]:
   \<open>imp_step \<equiv> \<lambda>(t, u). doM {
      if t = 0 then doM {
        lc \<leftarrow> ll_u3_extr_a u;
        case lc of (nii, smdsi, resi) \<Rightarrow> doM {
          srcsi \<leftarrow> imp_srcs smdsi;
          ri \<leftarrow> imp_poly resi;
-         mk_cl_impl srcsi nii ri
+         mk_cla_impl srcsi nii ri
        }
      } else if t = 1 then doM {
        ii \<leftarrow> ll_u3_extr_b u;
-       mk_ldel_impl ii
+       mk_ldela_impl ii
      } else doM {
        er \<leftarrow> ll_u3_extr_c u;
        case er of (nii, vsli, resi) \<Rightarrow> doM {
-         vi \<leftarrow> slice_to_str_impl vsli;
+         vi \<leftarrow> la_copy vsli;
          ri \<leftarrow> imp_poly resi;
-         mk_lext_impl nii vi ri
+         mk_lexta_impl nii vi ri
        }
      }
    }\<close>
 
-lemma imp_step_is_import: \<open>is_import c_rule_assn lpac_step_assn imp_step\<close>
+lemma imp_step_is_import: \<open>is_import c_rule_assn lpac_stepa_assn imp_step\<close>
   unfolding is_import_def
   supply [vcg_rules] = mk_cl_rule mk_lext_rule mk_ldel_rule
     hfref_htriple_k1[OF imp_srcs_is_import[unfolded is_import_def]]
     hfref_htriple_k1[OF imp_poly_is_import[unfolded is_import_def]]
-    hfref_htriple_k1[OF slice_to_str_is_import[unfolded is_import_def]]
+    hfref_htriple_k1[OF la_copy_is_import[unfolded is_import_def]]
   apply sepref_to_hoare
   apply (clarsimp simp: refine_pw_simps)
   subgoal for step tu
@@ -898,11 +896,11 @@ subsection \<open>The proof (rule list)\<close>
 lemmas arr_to_list_import_step_inline[llvm_inline] =
   arr_to_list_import_impl_def[OF imp_step_is_import]
 
-definition imp_proof :: \<open>c_proof \<Rightarrow> lpac_step_conc cl_list llM\<close> where [llvm_code]:
+definition imp_proof :: \<open>c_proof \<Rightarrow> lpac_stepa_conc cl_list llM\<close> where [llvm_code]:
   \<open>imp_proof \<equiv> \<lambda>(ni, ai). arr_to_list_import_impl imp_step ni ai\<close>
 
 lemma imp_proof_is_import:
-  \<open>is_import (arr_with_len_assn c_rule_assn) (cl_assn' lpac_step_assn) imp_proof\<close>
+  \<open>is_import (arr_with_len_assn c_rule_assn) (cl_assn' lpac_stepa_assn) imp_proof\<close>
   using arr_to_list_import_is_import[OF imp_step_is_import]
   unfolding imp_proof_def .
 
@@ -910,13 +908,13 @@ subsection \<open>Inputs (indexed polynomials as a finite map)\<close>
 
 abbreviation \<open>c_input_assn \<equiv> si64_assn \<times>\<^sub>a c_poly_assn\<close>
 
-definition imp_input :: \<open>c_input \<Rightarrow> (64 word \<times> poly_conc) llM\<close>
+definition imp_input :: \<open>c_input \<Rightarrow> (64 word \<times> polya_conc) llM\<close>
   where [llvm_code, llvm_inline]:
   \<open>imp_input \<equiv> \<lambda>(ii, ai). doM {
      i \<leftarrow> Mreturn ii; p \<leftarrow> imp_poly ai; Mreturn (i, p) }\<close>
 
 lemma imp_input_is_import:
-  \<open>is_import c_input_assn (si64_assn \<times>\<^sub>a polynomial_assn) imp_input\<close>
+  \<open>is_import c_input_assn (si64_assn \<times>\<^sub>a polynomiala_assn) imp_input\<close>
   using is_import_prod[OF si64_is_import imp_poly_is_import]
   unfolding imp_input_def .
 
@@ -971,7 +969,7 @@ lemma imp_inputs_m_correct:
   by fast
 
 sepref_def imp_inputs_arr is \<open>uncurry imp_inputs_m\<close>
-  :: \<open>si64_assn\<^sup>k *\<^sub>a (woarray_assn c_input_assn)\<^sup>k \<rightarrow>\<^sub>a polys_assn\<close>
+  :: \<open>si64_assn\<^sup>k *\<^sub>a (woarray_assn c_input_assn)\<^sup>k \<rightarrow>\<^sub>a polysa_assn\<close>
   unfolding imp_inputs_m_def op_fmap_empty_def[symmetric]
   supply [sepref_fr_rules] = wo_nth_import_hnr[OF imp_input_is_import]
   apply (annot_snat_const size_t)
@@ -985,7 +983,7 @@ definition imp_inputs where [llvm_code]:
 lemma imp_inputs_import:
   \<open>(imp_inputs, RETURN o inputs_fmap)
     \<in> [\<lambda>xs. \<forall>(k, _) \<in> set xs. k + 1 < max_snat 64]\<^sub>a
-      (arr_with_len_assn c_input_assn)\<^sup>k \<rightarrow> polys_assn\<close>
+      (arr_with_len_assn c_input_assn)\<^sup>k \<rightarrow> polysa_assn\<close>
 proof -
   note HT = hfref_htriple_k1_k2_guard[OF imp_inputs_arr_hnr]
   show ?thesis

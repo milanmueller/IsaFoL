@@ -4,6 +4,7 @@ theory LPAC_Efficient_Checker_Synthesis
     LPAC_Perfectly_Shared_Vars
     PAC_Checker_Synthesis
     LPAC_Error
+    LPAC_Step_Assn_Array
 begin
 
 sepref_register add_poly_l_s_ifoldl
@@ -126,14 +127,14 @@ lemma ordered_discriminators_hnr[sepref_fr_rules]:
 
 subsubsection \<open>Borrowing two elements of a string table\<close>
 
-lemma strls_list_assn_focus2_ex:
+lemma stras_list_assn_focus2_ex:
   assumes I: \<open>i < length xs\<close> and J: \<open>j < length xs\<close> and IJ: \<open>i \<noteq> j\<close>
-  shows \<open>\<exists>F. \<upharpoonleft>(list_assn (mk_assn strl_assn')) xs xsi =
-    (strl_assn' (xs ! i) (xsi ! i) ** strl_assn' (xs ! j) (xsi ! j) **
+  shows \<open>\<exists>F. \<upharpoonleft>(list_assn (mk_assn stra_assn)) xs xsi =
+    (stra_assn (xs ! i) (xsi ! i) ** stra_assn (xs ! j) (xsi ! j) **
       \<up>(length xsi = length xs) ** F)\<close>
 proof -
-  have KEY: \<open>\<exists>F. \<upharpoonleft>(list_assn (mk_assn strl_assn')) xs xsi =
-      (strl_assn' (xs ! a) (xsi ! a) ** strl_assn' (xs ! b) (xsi ! b) **
+  have KEY: \<open>\<exists>F. \<upharpoonleft>(list_assn (mk_assn stra_assn)) xs xsi =
+      (stra_assn (xs ! a) (xsi ! a) ** stra_assn (xs ! b) (xsi ! b) **
         \<up>(length xsi = length xs) ** F)\<close>
     if ab: \<open>a < b\<close> and b: \<open>b < length xs\<close> for a b
   proof -
@@ -142,8 +143,8 @@ proof -
     show ?thesis
     proof (cases \<open>length xsi = length xs\<close>)
       case False
-      then have \<open>\<upharpoonleft>(list_assn (mk_assn strl_assn')) xs xsi = sep_false\<close>
-        by (simp add: strls.list_assn_focus[OF A])
+      then have \<open>\<upharpoonleft>(list_assn (mk_assn stra_assn)) xs xsi = sep_false\<close>
+        by (simp add: stra.list_assn_focus[OF A])
       then show ?thesis
         using False by (intro exI[of _ \<open>\<box>\<close>]) simp
     next
@@ -151,13 +152,13 @@ proof -
       have E1: \<open>drop (Suc a) xs ! (b - Suc a) = xs ! b\<close> using ab b by simp
       have E2: \<open>drop (Suc a) xsi ! (b - Suc a) = xsi ! b\<close> using ab b True by simp
       show ?thesis
-        apply (rule exI[of _ \<open>\<upharpoonleft>(list_assn (mk_assn strl_assn')) (take a xs) (take a xsi) **
-            \<upharpoonleft>(list_assn (mk_assn strl_assn')) (take (b - Suc a) (drop (Suc a) xs))
+        apply (rule exI[of _ \<open>\<upharpoonleft>(list_assn (mk_assn stra_assn)) (take a xs) (take a xsi) **
+            \<upharpoonleft>(list_assn (mk_assn stra_assn)) (take (b - Suc a) (drop (Suc a) xs))
                (take (b - Suc a) (drop (Suc a) xsi)) **
-            \<upharpoonleft>(list_assn (mk_assn strl_assn')) (drop (Suc (b - Suc a)) (drop (Suc a) xs))
+            \<upharpoonleft>(list_assn (mk_assn stra_assn)) (drop (Suc (b - Suc a)) (drop (Suc a) xs))
                (drop (Suc (b - Suc a)) (drop (Suc a) xsi))\<close>])
-        apply (subst strls.list_assn_focus[OF A])
-        apply (subst strls.list_assn_focus[OF K])
+        apply (subst stra.list_assn_focus[OF A])
+        apply (subst stra.list_assn_focus[OF K])
         apply (simp only: E1 E2)
         apply (simp add: True sep_algebra_simps)
         apply (simp add: sep_conj_c)
@@ -172,8 +173,8 @@ proof -
     case False
     then have \<open>j < i\<close> using IJ by auto
     from KEY[OF this I] obtain F where
-      F: \<open>\<upharpoonleft>(list_assn (mk_assn strl_assn')) xs xsi =
-        (strl_assn' (xs ! j) (xsi ! j) ** strl_assn' (xs ! i) (xsi ! i) **
+      F: \<open>\<upharpoonleft>(list_assn (mk_assn stra_assn)) xs xsi =
+        (stra_assn (xs ! j) (xsi ! j) ** stra_assn (xs ! i) (xsi ! i) **
           \<up>(length xsi = length xs) ** F)\<close>
       by blast
     show ?thesis
@@ -184,64 +185,64 @@ proof -
   qed
 qed
 
-definition strls_focus2_rest ::
-  \<open>string list \<Rightarrow> 8 word cl_list list \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> assn\<close> where
-  \<open>strls_focus2_rest xs xsi i j = (SOME F. \<upharpoonleft>(list_assn (mk_assn strl_assn')) xs xsi =
-    (strl_assn' (xs ! i) (xsi ! i) ** strl_assn' (xs ! j) (xsi ! j) **
+definition stras_focus2_rest ::
+  \<open>string list \<Rightarrow> (8 word, 64) larray list \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> assn\<close> where
+  \<open>stras_focus2_rest xs xsi i j = (SOME F. \<upharpoonleft>(list_assn (mk_assn stra_assn)) xs xsi =
+    (stra_assn (xs ! i) (xsi ! i) ** stra_assn (xs ! j) (xsi ! j) **
       \<up>(length xsi = length xs) ** F))\<close>
 
-lemma strls_list_assn_focus2:
+lemma stras_list_assn_focus2:
   assumes \<open>i < length xs\<close> and \<open>j < length xs\<close> and \<open>i \<noteq> j\<close>
-  shows \<open>\<upharpoonleft>(list_assn (mk_assn strl_assn')) xs xsi =
-    (strl_assn' (xs ! i) (xsi ! i) ** strl_assn' (xs ! j) (xsi ! j) **
-      \<up>(length xsi = length xs) ** strls_focus2_rest xs xsi i j)\<close>
-  unfolding strls_focus2_rest_def
-  by (rule someI_ex[OF strls_list_assn_focus2_ex[OF assms]])
+  shows \<open>\<upharpoonleft>(list_assn (mk_assn stra_assn)) xs xsi =
+    (stra_assn (xs ! i) (xsi ! i) ** stra_assn (xs ! j) (xsi ! j) **
+      \<up>(length xsi = length xs) ** stras_focus2_rest xs xsi i j)\<close>
+  unfolding stras_focus2_rest_def
+  by (rule someI_ex[OF stras_list_assn_focus2_ex[OF assms]])
 
 subsubsection \<open>Comparing two entries of the string table in place\<close>
 
-definition strls_less_impl :: \<open>(8 word cl_list, 64) array_list \<Rightarrow> 64 word \<Rightarrow> 64 word \<Rightarrow> 1 word llM\<close>
+definition stras_less_impl :: \<open>((8 word, 64) larray, 64) array_list \<Rightarrow> 64 word \<Rightarrow> 64 word \<Rightarrow> 1 word llM\<close>
   where [llvm_code]:
-  \<open>strls_less_impl ali ii ji \<equiv> doM {
+  \<open>stras_less_impl ali ii ji \<equiv> doM {
     xi \<leftarrow> arl_nth ali ii;
     yi \<leftarrow> arl_nth ali ji;
-    strl.cl_less xi yi
+    list_lt_impl xi yi
   }\<close>
 
-lemma strls_less_impl_rule_aux:
+lemma stras_less_impl_rule_aux:
   assumes \<open>i < length xs\<close> and \<open>j < length xs\<close> and \<open>i \<noteq> j\<close>
   shows \<open>llvm_htriple
-    (strls_assn xs ali ** \<upharpoonleft>snat.assn i ii ** \<upharpoonleft>snat.assn j ji)
-    (strls_less_impl ali ii ji)
-    (\<lambda>r. strls_assn xs ali ** bool1_assn (list_lt (xs ! i) (xs ! j)) r)\<close>
-  unfolding strls_less_impl_def strls.oa_assn_def
-  supply [vcg_rules] = strl.cl_less_rule[unfolded list_lt_less]
+    (stras_assn xs ali ** \<upharpoonleft>snat.assn i ii ** \<upharpoonleft>snat.assn j ji)
+    (stras_less_impl ali ii ji)
+    (\<lambda>r. stras_assn xs ali ** bool1_assn (xs ! i < xs ! j) r)\<close>
+  unfolding stras_less_impl_def stra.oa_assn_def
+  supply [vcg_rules] = hfref_htriple_k2[OF list_lt_hnr]
   supply [simp] = assms
-  apply (simp only: sel_mk_assn strls_list_assn_focus2[OF assms])
+  apply (simp only: sel_mk_assn stras_list_assn_focus2[OF assms])
   apply vcg
   done
 
-lemma strls_less_impl_rule[vcg_rules]:
+lemma stras_less_impl_rule[vcg_rules]:
   \<open>llvm_htriple
-    (strls_assn xs ali ** \<upharpoonleft>snat.assn i ii ** \<upharpoonleft>snat.assn j ji
+    (stras_assn xs ali ** \<upharpoonleft>snat.assn i ii ** \<upharpoonleft>snat.assn j ji
       ** \<up>\<^sub>d(i < length xs \<and> j < length xs \<and> i \<noteq> j))
-    (strls_less_impl ali ii ji)
-    (\<lambda>r. strls_assn xs ali ** bool1_assn (xs ! i < xs ! j) r)\<close>
+    (stras_less_impl ali ii ji)
+    (\<lambda>r. stras_assn xs ali ** bool1_assn (xs ! i < xs ! j) r)\<close>
   apply (rule htriple_pure_preI)
   apply (clarsimp dest!: pure_part_split_conj simp: vcg_tag_defs sep_algebra_simps
     pred_lift_extract_simps)
-  apply (rule strls_less_impl_rule_aux[unfolded list_lt_less]; assumption)
+  apply (rule stras_less_impl_rule_aux; assumption)
   done
 
 definition perfect_shared_var_order_c_else_impl ::
-  \<open>(64 word \<times> 64 word \<times> 8 word node ptr ptr) \<times>
-   (64 word \<times> 64 word \<times> (8 word node ptr \<times> 64 word ptr) node ptr ptr) \<times> 64 word
+  \<open>((8 word, 64) larray, 64) array_list \<times>
+   (64 word \<times> 64 word \<times> ((8 word, 64) larray \<times> 64 word ptr) node ptr ptr) \<times> 64 word
     \<Rightarrow> 64 word \<Rightarrow> 64 word \<Rightarrow> 8 word llM\<close> where [llvm_code]:
   \<open>perfect_shared_var_order_c_else_impl \<D> xi yi \<equiv> doM {
     let (strs, _) = \<D>;
     same \<leftarrow> ll_icmp_eq xi yi;
     llc_if same (Mreturn 2) (doM {
-      cmp \<leftarrow> strls_less_impl strs xi yi;
+      cmp \<leftarrow> stras_less_impl strs xi yi;
       llc_if cmp (Mreturn 1) (Mreturn 2)
     })
   }\<close>
@@ -252,10 +253,10 @@ interpretation llvm_prim_ctrl_setup .
 
 lemma perfect_shared_var_order_c_else_impl_rule[vcg_rules]:
   \<open>llvm_htriple
-    (strls_assn xs strsi ** \<upharpoonleft>snat.assn i ii ** \<upharpoonleft>snat.assn j ji
+    (stras_assn xs strsi ** \<upharpoonleft>snat.assn i ii ** \<upharpoonleft>snat.assn j ji
       ** \<up>\<^sub>d(i < length xs \<and> j < length xs))
     (perfect_shared_var_order_c_else_impl (strsi, \<V>i) ii ji)
-    (\<lambda>r. strls_assn xs strsi ** ordered_assn (if xs ! i < xs ! j then LESS else GREATER) r)\<close>
+    (\<lambda>r. stras_assn xs strsi ** ordered_assn (if xs ! i < xs ! j then LESS else GREATER) r)\<close>
   unfolding perfect_shared_var_order_c_else_impl_def
   supply [simp] = pure_def bool1_rel_def bool.rel_def in_br_conv ordered_rel_def
     bool.assn_def from_bool_def
@@ -652,7 +653,7 @@ sepref_register import_monom_no_newS import_poly_no_newS check_linear_combi_l_pr
 
 sepref_def import_monom_no_newS_impl
   is \<open>uncurry (import_monom_no_newS :: (nat,string)shared_vars \<Rightarrow> _ \<Rightarrow>( bool \<times> _) nres)\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a monom_assn\<^sup>d \<rightarrow>\<^sub>a bool1_assn \<times>\<^sub>a monom_s_assn\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a monoma_assn\<^sup>d \<rightarrow>\<^sub>a bool1_assn \<times>\<^sub>a monom_s_assn\<close>
   unfolding import_monom_no_newS_alt_def ls_emp ls_emp'
   by sepref
 
@@ -661,7 +662,7 @@ lemmas [sepref_fr_rules] =
 
 sepref_def import_poly_no_newS_impl
   is \<open>uncurry (import_poly_no_newS :: (nat,string)shared_vars \<Rightarrow> llist_polynomial \<Rightarrow>( bool \<times> sllist_polynomial) nres)\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>d \<rightarrow>\<^sub>a bool1_assn \<times>\<^sub>a poly_s_assn\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a polynomiala_assn\<^sup>d \<rightarrow>\<^sub>a bool1_assn \<times>\<^sub>a poly_s_assn\<close>
   unfolding import_poly_no_newS_alt_def ls_emp ls_emp'
   by sepref
 
@@ -669,7 +670,7 @@ lemmas [sepref_fr_rules] =
   import_poly_no_newS_impl.refine
 
 sepref_def s_fold_inner_impl is \<open>uncurry2 (RETURN ooo s_fold_inner)\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a strl_assn'\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a stra_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   unfolding s_fold_inner_alt
   by sepref
 
@@ -678,22 +679,22 @@ definition [llvm_code]:
 
 lemma s_fold_inner_step_rule:
   \<open>llvm_htriple
-    (shared_vars_assn \<V> vi ** bool1_assn b bi ** strl_assn' x xi)
+    (shared_vars_assn \<V> vi ** bool1_assn b bi ** stra_assn x xi)
     (s_fold_inner_impl vi bi xi)
-    (\<lambda>r. shared_vars_assn \<V> vi ** bool1_assn (s_fold_inner \<V> b x) r ** strl_assn' x xi)\<close>
+    (\<lambda>r. shared_vars_assn \<V> vi ** bool1_assn (s_fold_inner \<V> b x) r ** stra_assn x xi)\<close>
   supply [vcg_rules] = hfref_htriple_k3[OF s_fold_inner_impl.refine]
   apply vcg
   unfolding ENTAILS_def
   by (auto simp: entails_def pure_def sep_algebra_simps)
 
 lemmas vars_of_monom_in_s_walk_rule =
-  cl_fold_env_rule[where P = shared_vars_assn and R = bool1_assn and A = strl_assn'
+  cl_fold_env_rule[where P = shared_vars_assn and R = bool1_assn and A = stra_assn
     and f = s_fold_inner_impl and fa = s_fold_inner,
     OF s_fold_inner_step_rule]
 
 lemma vars_of_monom_in_s_impl_hnr[sepref_fr_rules]:
   \<open>(uncurry vars_of_monom_in_s_impl, uncurry (RETURN oo vars_of_monom_in_s))
-  \<in> monom_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  \<in> monoma_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   unfolding vars_of_monom_in_s_impl_def
   apply sepref_to_hoare
   supply [vcg_rules] = vars_of_monom_in_s_walk_rule
@@ -704,7 +705,7 @@ lemma vars_of_monom_in_s_impl_hnr[sepref_fr_rules]:
 sepref_register vars_of_monom_in_s
 
 sepref_def s_poly_inner_impl is \<open>uncurry2 (RETURN ooo s_poly_inner)\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a monomial_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a bool1_assn\<^sup>k *\<^sub>a monomiala_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   unfolding s_poly_inner_def
   by sepref
 
@@ -713,22 +714,22 @@ definition [llvm_code]:
 
 lemma s_poly_inner_step_rule:
   \<open>llvm_htriple
-    (shared_vars_assn \<V> vi ** bool1_assn b bi ** monomial_assn x xi)
+    (shared_vars_assn \<V> vi ** bool1_assn b bi ** monomiala_assn x xi)
     (s_poly_inner_impl vi bi xi)
-    (\<lambda>r. shared_vars_assn \<V> vi ** bool1_assn (s_poly_inner \<V> b x) r ** monomial_assn x xi)\<close>
+    (\<lambda>r. shared_vars_assn \<V> vi ** bool1_assn (s_poly_inner \<V> b x) r ** monomiala_assn x xi)\<close>
   supply [vcg_rules] = hfref_htriple_k3[OF s_poly_inner_impl.refine]
   apply vcg
   unfolding ENTAILS_def
   by (auto simp: entails_def pure_def sep_algebra_simps)
 
 lemmas vars_of_poly_in_s_walk_rule =
-  cl_fold_env_rule[where P = shared_vars_assn and R = bool1_assn and A = monomial_assn
+  cl_fold_env_rule[where P = shared_vars_assn and R = bool1_assn and A = monomiala_assn
     and f = s_poly_inner_impl and fa = s_poly_inner,
     OF s_poly_inner_step_rule]
 
 lemma vars_of_poly_in_s_impl_hnr[sepref_fr_rules]:
   \<open>(uncurry vars_of_poly_in_s_impl, uncurry (RETURN oo vars_of_poly_in_s))
-  \<in> polynomial_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  \<in> polynomiala_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   unfolding vars_of_poly_in_s_impl_def
   apply sepref_to_hoare
   supply [vcg_rules] = vars_of_poly_in_s_walk_rule
@@ -740,7 +741,7 @@ sepref_register vars_of_poly_in_s
 
 sepref_def vars_llist_in_s_impl
   is \<open>uncurry (RETURN oo vars_llist_in_s)\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a polynomiala_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   unfolding vars_llist_in_s_alt_def
   by sepref
 
@@ -750,7 +751,7 @@ sepref_register mult_poly_s normalize_poly_s
 
 sepref_def normalize_poly_sharedS_impl
   is \<open>uncurry normalize_poly_sharedS\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>d \<rightarrow>\<^sub>a bool1_assn \<times>\<^sub>a poly_s_assn\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a polynomiala_assn\<^sup>d \<rightarrow>\<^sub>a bool1_assn \<times>\<^sub>a poly_s_assn\<close>
   unfolding normalize_poly_sharedS_def
   by sepref
 
@@ -1215,8 +1216,8 @@ sepref_register add_poly_l_s
 sepref_def linear_combi_l_prep_s_impl
   is \<open>uncurry3 linear_combi_l_prep_s\<close>
   :: \<open>si64_assn\<^sup>k *\<^sub>a polys_s_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k *\<^sub>a
-  (cl_assn' (polynomial_assn \<times>\<^sub>a si64_assn))\<^sup>d  \<rightarrow>\<^sub>a
-  poly_s_assn \<times>\<^sub>a (cl_assn' (polynomial_assn \<times>\<^sub>a si64_assn)) \<times>\<^sub>a status_assn
+  (cl_assn' (polynomiala_assn \<times>\<^sub>a si64_assn))\<^sup>d  \<rightarrow>\<^sub>a
+  poly_s_assn \<times>\<^sub>a (cl_assn' (polynomiala_assn \<times>\<^sub>a si64_assn)) \<times>\<^sub>a status_assn
   \<close>
   supply [[goals_limit=1]]
   unfolding linear_combi_l_prep_s_alt
@@ -1237,7 +1238,7 @@ sepref_register linear_combi_l_prep_s ::
 sepref_def check_linear_combi_l_s_impl
   is \<open>uncurry5 check_linear_combi_l_s\<close>
   :: \<open>poly_s_assn\<^sup>k *\<^sub>a polys_s_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k *\<^sub>a
-  (cl_assn' (polynomial_assn \<times>\<^sub>a si64_assn))\<^sup>d *\<^sub>a polynomial_assn\<^sup>d \<rightarrow>\<^sub>a status_assn \<times>\<^sub>a poly_s_assn
+  (cl_assn' (polynomiala_assn \<times>\<^sub>a si64_assn))\<^sup>d *\<^sub>a polynomiala_assn\<^sup>d \<rightarrow>\<^sub>a status_assn \<times>\<^sub>a poly_s_assn
   \<close>
   supply [[goals_limit=1]]
   unfolding check_linear_combi_l_s_def
@@ -1261,7 +1262,7 @@ sepref_register import_monomS import_polyS
 
 sepref_def import_monomS_impl
   is \<open>uncurry (import_monomS :: (nat, string) shared_vars \<Rightarrow> _)\<close>
-  :: \<open>shared_vars_assn\<^sup>d *\<^sub>a monom_assn\<^sup>k \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a monom_s_assn \<times>\<^sub>a shared_vars_assn\<close>
+  :: \<open>shared_vars_assn\<^sup>d *\<^sub>a monoma_assn\<^sup>k \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a monom_s_assn \<times>\<^sub>a shared_vars_assn\<close>
   supply [[goals_limit=1]]
   unfolding import_monomS_alt_def
     ls_emp ls_emp'
@@ -1271,7 +1272,7 @@ lemmas [sepref_fr_rules] = import_monomS_impl.refine
 
 sepref_def import_polyS_impl
   is \<open>uncurry (import_polyS :: (nat, string) shared_vars \<Rightarrow> llist_polynomial \<Rightarrow> _)\<close>
-  :: \<open>shared_vars_assn\<^sup>d *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a poly_s_assn \<times>\<^sub>a shared_vars_assn\<close>
+  :: \<open>shared_vars_assn\<^sup>d *\<^sub>a polynomiala_assn\<^sup>k \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a poly_s_assn \<times>\<^sub>a shared_vars_assn\<close>
   supply [[goals_limit=1]]
   unfolding import_polyS_alt_def
     ls_emp ls_emp'
@@ -1295,7 +1296,7 @@ sepref_register check_linear_combi_l_s ::
 sepref_def check_extension_l_impl
   is \<open>uncurry5 check_extension_l2_s\<close>
     :: \<open>poly_s_assn\<^sup>k *\<^sub>a polys_s_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>d *\<^sub>a si64_assn\<^sup>k *\<^sub>a
-    strl_assn'\<^sup>k *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a status_assn \<times>\<^sub>a poly_s_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a si64_assn
+    stra_assn\<^sup>k *\<^sub>a polynomiala_assn\<^sup>k \<rightarrow>\<^sub>a status_assn \<times>\<^sub>a poly_s_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a si64_assn
   \<close>
   supply [[goals_limit=1]]
   unfolding check_extension_l2_s_alt_def
@@ -1317,7 +1318,7 @@ lemmas [sepref_fr_rules] =
 
 sepref_def check_step_s_impl
   is \<open>uncurry4 PAC_checker_l_step_s_alt\<close>
-  :: \<open>poly_s_assn\<^sup>k *\<^sub>a status_assn\<^sup>d *\<^sub>a shared_vars_assn\<^sup>d *\<^sub>a polys_s_assn\<^sup>d *\<^sub>a lpac_step_assn\<^sup>d \<rightarrow>\<^sub>a
+  :: \<open>poly_s_assn\<^sup>k *\<^sub>a status_assn\<^sup>d *\<^sub>a shared_vars_assn\<^sup>d *\<^sub>a polys_s_assn\<^sup>d *\<^sub>a lpac_stepa_assn\<^sup>d \<rightarrow>\<^sub>a
     status_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a polys_s_assn\<close>
   supply [[goals_limit=1]]
   supply [sepref_frame_free_rules] = poly.cl_assn_free (* Need this to force our custom free *)
@@ -1337,7 +1338,7 @@ sepref_register PAC_checker_l_step_s' ::
 sepref_def PAC_checker_l_s_impl
   is \<open>uncurry4 PAC_checker_l_s_loop\<close>
   :: \<open>poly_s_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>d *\<^sub>a polys_s_assn\<^sup>d *\<^sub>a status_assn\<^sup>d *\<^sub>a
-     (cl_assn' lpac_step_assn)\<^sup>d \<rightarrow>\<^sub>a
+     (cl_assn' lpac_stepa_assn)\<^sup>d \<rightarrow>\<^sub>a
      status_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a polys_s_assn\<close>
   supply [[goals_limit=1]]
   unfolding PAC_checker_l_s_loop_def is_success_alt_def[symmetric]
@@ -1359,7 +1360,7 @@ sepref_register import_variablesS import_poly_varsS memory_out_msg
 
 sepref_def import_variablesS_impl
   is \<open>uncurry (import_variablesS :: string list \<Rightarrow> (nat, string) shared_vars \<Rightarrow> _)\<close>
-  :: \<open>monom_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>d \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a shared_vars_assn\<close>
+  :: \<open>monoma_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>d \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a shared_vars_assn\<close>
   supply [[goals_limit=1]]
   unfolding import_variablesS_alt_def
     ls_emp ls_emp'
@@ -1370,7 +1371,7 @@ lemmas [sepref_fr_rules] =
 
 sepref_def import_poly_varsS_impl
   is \<open>uncurry import_poly_varsS\<close>
-  :: \<open>shared_vars_assn\<^sup>d *\<^sub>a polynomial_assn\<^sup>k \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a shared_vars_assn\<close>
+  :: \<open>shared_vars_assn\<^sup>d *\<^sub>a polynomiala_assn\<^sup>k \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a shared_vars_assn\<close>
   supply [[goals_limit=1]]
   unfolding import_poly_varsS_def
     ls_emp ls_emp'
@@ -1380,7 +1381,7 @@ lemmas [sepref_fr_rules] = import_poly_varsS_impl.refine
 
 sepref_def remap_polys_l2_with_err_s_impl
   is \<open>uncurry3 remap_polys_l2_with_err_s\<close>
-  :: \<open>polynomial_assn\<^sup>k *\<^sub>a polynomial_assn\<^sup>k *\<^sub>a polys_assn_input\<^sup>k *\<^sub>a shared_vars_assn\<^sup>d \<rightarrow>\<^sub>a
+  :: \<open>polynomiala_assn\<^sup>k *\<^sub>a polynomiala_assn\<^sup>k *\<^sub>a polysa_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>d \<rightarrow>\<^sub>a
   status_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a polys_s_assn \<times>\<^sub>a poly_s_assn\<close>
   supply [[goals_limit=1]] indom_mI[dest]
   unfolding remap_polys_l2_with_err_s_alt
@@ -1409,7 +1410,7 @@ sepref_register full_checker_l_s2 ::
 
 sepref_def full_checker_l_s2_impl
   is \<open>uncurry2 full_checker_l_s2\<close>
-  :: \<open>polynomial_assn\<^sup>k *\<^sub>a polys_assn_input\<^sup>k *\<^sub>a (cl_assn' lpac_step_assn)\<^sup>d \<rightarrow>\<^sub>a
+  :: \<open>polynomiala_assn\<^sup>k *\<^sub>a polysa_assn\<^sup>k *\<^sub>a (cl_assn' lpac_stepa_assn)\<^sup>d \<rightarrow>\<^sub>a
   status_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a polys_s_assn\<close>
   supply [[goals_limit=1]]
   unfolding full_checker_l_s2_def

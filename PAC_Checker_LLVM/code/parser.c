@@ -36,6 +36,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <time.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -705,6 +706,14 @@ int lex_file(const char *path, char **buf_out, token_array *ta_out) {
   char *buf = read_file(path, &n);
   if (buf == NULL)
     return 1;
+  /* Every slice handed to the verified checker must have a length below 2^63:
+   * the exported code represents strings as arrays with a signed 64-bit length.
+   * All slices point into this buffer, so bounding the file bounds them all. */
+  if (n >= ((size_t)1 << 63)) {
+    fprintf(stderr, "%s: file too large (%zu bytes)\n", path, n);
+    free(buf);
+    return 1;
+  }
 
   token_vec tv = {0};
   size_t pos = 0, line = 1;
@@ -774,17 +783,21 @@ int main(int argc, char **argv) {
    * slices point into them, and the importers read the bytes through. */
   char *ibuf = NULL, *pbuf = NULL, *tbuf = NULL;
   token_array ita = {0}, pta = {0}, tta = {0};
+  struct timespec t0, t1, t2, t3, t4;
+  clock_gettime(CLOCK_MONOTONIC, &t0);
   if (lex_file(argv[argi], &ibuf, &ita) != 0)
     return 2;
   if (lex_file(argv[argi + 1], &pbuf, &pta) != 0)
     return 2;
   if (lex_file(argv[argi + 2], &tbuf, &tta) != 0)
     return 2;
+  clock_gettime(CLOCK_MONOTONIC, &t1);
 
   arena a = {0};
   inputs ins = parse_inputs(&a, &ita);
   proof prf = parse_proof(&a, &pta);
   target tgt = parse_target(&a, &tta);
+  clock_gettime(CLOCK_MONOTONIC, &t2);
 
   if (verbose)
     dump_parsed(&ins, &prf, &tgt);
@@ -801,6 +814,7 @@ int main(int argc, char **argv) {
    * left as {0, NULL}. */
   slice msg = {0};
   char status = RUN_CHECKER(&ins, &prf, &tgt.poly, &msg);
+  clock_gettime(CLOCK_MONOTONIC, &t3);
 
   const char *status_msg;
   switch (status) {
@@ -831,6 +845,17 @@ int main(int argc, char **argv) {
   free(pbuf);
   free((void *)tta.data);
   free(tbuf);
+  clock_gettime(CLOCK_MONOTONIC, &t4);
+
+  /* Phase timings (wall clock), in the style of the SML driver's stats block. */
+#define SECS(a, b) ((double)((b).tv_sec - (a).tv_sec) + 1e-9 * (double)((b).tv_nsec - (a).tv_nsec))
+  fprintf(stderr, "c ***** stats *****\n");
+  fprintf(stderr, "c lexing: %.3f s\n", SECS(t0, t1));
+  fprintf(stderr, "c parsing: %.3f s\n", SECS(t1, t2));
+  fprintf(stderr, "c checker (import + check): %.3f s\n", SECS(t2, t3));
+  fprintf(stderr, "c teardown: %.3f s\n", SECS(t3, t4));
+  fprintf(stderr, "c overall: %.3f s\n", SECS(t0, t4));
+#undef SECS
 
   /* Exit 0 iff the proof is a valid derivation of the target (FOUND). */
   return status == 1 ? 0 : 1;

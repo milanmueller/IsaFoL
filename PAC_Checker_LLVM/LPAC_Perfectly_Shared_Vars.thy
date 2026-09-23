@@ -139,6 +139,9 @@ lemma get_var_name_c_get_var_nameS:
       dest: multi_member_split)
   done
 
+section \<open>LLVM implementation\<close>
+
+(* Not used any more TODO: remove *)
 interpretation snhm: hashmap_env
   \<open>strl_assn'\<close> \<open>strl.cl_free\<close>
   \<open>si64_assn\<close> \<open>\<lambda>_. Mreturn ()\<close> \<open>\<lambda>n. Mreturn n\<close>
@@ -150,11 +153,11 @@ interpretation snhm: hashmap_env
   done
 
 interpretation sahm: hashmap_env
-  \<open>stra_assn\<close> \<open>la_free_impl\<close>
+  \<open>stra_assn\<close> \<open>stra_free\<close>
   \<open>si64_assn\<close> \<open>\<lambda>_. Mreturn ()\<close> \<open>\<lambda>n. Mreturn n\<close>
   \<open>stra_eq_impl\<close> \<open>fnv1a_of_strl\<close> \<open>fnv1a_of_stra_impl\<close>
   apply unfold_locales
-  using fnv1a_of_stra_hnr by auto
+  using fnv1a_of_stra_hnr stra_free_mk_free by auto
 
 abbreviation \<open>hm_fmap_assn \<equiv> hr_comp sahm.hm_assn map_fmap_rel\<close>
 abbreviation perfect_shared_vars_assn :: \<open>(string, nat) shared_vars_c \<Rightarrow> _ \<Rightarrow> assn\<close> where
@@ -162,7 +165,7 @@ abbreviation perfect_shared_vars_assn :: \<open>(string, nat) shared_vars_c \<Ri
 abbreviation shared_vars_assn where
   \<open>shared_vars_assn \<equiv> hr_comp perfect_shared_vars_assn (perfect_shared_vars_rel_c Id)\<close>
 
-lemmas [sepref_fr_rules] = snhm.lshm_lookup_hnr[FCOMP op_map_lookup_fmlookup]
+lemmas [sepref_fr_rules] = sahm.lshm_lookup_hnr[FCOMP op_map_lookup_fmlookup]
 
 definition fmlookup_the where
   [simp]: \<open>fmlookup_the k A = the (fmlookup A k)\<close>
@@ -177,15 +180,13 @@ lemma op_map_the_lookup_fmlookup_the:
   by (intro frefI nres_relI)
     (auto simp: map_fmap_rel_def br_def fmap.Abs_fmap_inverse in_dom_m_lookup_iff)
 
-lemmas [sepref_fr_rules] = snhm.lshm_the_lookup_hnr[FCOMP op_map_the_lookup_fmlookup_the]
+lemmas [sepref_fr_rules] = sahm.lshm_the_lookup_hnr[FCOMP op_map_the_lookup_fmlookup_the]
 
 sepref_def get_var_pos_c_impl
   is \<open>uncurry get_var_pos_c\<close>
   :: \<open>perfect_shared_vars_assn\<^sup>k *\<^sub>a stra_assn\<^sup>k \<rightarrow>\<^sub>a si64_assn\<close>
   supply [simp] = in_dom_m_lookup_iff
   unfolding get_var_pos_c_def fmlookup_the_def[symmetric]
-  apply sepref_dbg_keep
-  apply sepref_dbg_trans_keep
   by sepref
 
 definition fmap_contains where
@@ -195,35 +196,35 @@ lemma op_map_contains_key_fmap_contains:
   \<open>(op_map_contains_key, fmap_contains) \<in> Id \<rightarrow> map_fmap_rel \<rightarrow> bool_rel\<close>
   by (auto simp: map_fmap_rel_def br_def fmap.Abs_fmap_inverse in_dom_m_lookup_iff dom_def)
 
-lemmas [sepref_fr_rules] = snhm.lshm_contains_key_hnr[FCOMP op_map_contains_key_fmap_contains]
+lemmas [sepref_fr_rules] = sahm.lshm_contains_key_hnr[FCOMP op_map_contains_key_fmap_contains]
 
 sepref_def is_new_variable_c_impl
   is \<open>uncurry is_new_variable_c\<close>
-  :: \<open>strl_assn'\<^sup>k  *\<^sub>a  perfect_shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  :: \<open>stra_assn\<^sup>k  *\<^sub>a  perfect_shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   unfolding is_new_variable_c_def fmap_contains_def[symmetric]
   by sepref
 
 lemmas [sepref_fr_rules] =
-  strls.oa_hnr strls.oa_len_hnr strls.oa_upd_hnr strls.oa_push_back_hnr
+  stra.oa_hnr stra.oa_len_hnr stra.oa_upd_hnr stra.oa_push_back_hnr
 
 sepref_def get_var_name_c_impl
   is \<open>uncurry get_var_name_c\<close>
-  :: \<open>perfect_shared_vars_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k \<rightarrow>\<^sub>a strl_assn'\<close>
+  :: \<open>perfect_shared_vars_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k \<rightarrow>\<^sub>a stra_assn\<close>
   unfolding get_var_name_c_def
   by sepref
 
 lemma [sepref_fr_rules]:
-  \<open>(uncurry is_new_variable_c_impl, uncurry is_new_variableS) \<in> strl_assn'\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
+  \<open>(uncurry is_new_variable_c_impl, uncurry is_new_variableS) \<in> stra_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a bool1_assn\<close>
   using is_new_variable_c_impl.refine[FCOMP is_new_variable_c_is_new_variableS, of Id]
   by auto
 
 lemma [sepref_fr_rules]:
-  \<open>(uncurry get_var_pos_c_impl, uncurry get_var_posS) \<in> shared_vars_assn\<^sup>k *\<^sub>a strl_assn'\<^sup>k \<rightarrow>\<^sub>a si64_assn\<close>
+  \<open>(uncurry get_var_pos_c_impl, uncurry get_var_posS) \<in> shared_vars_assn\<^sup>k *\<^sub>a stra_assn\<^sup>k \<rightarrow>\<^sub>a si64_assn\<close>
   using get_var_pos_c_impl.refine[FCOMP get_var_pos_c_get_var_posS, of Id]
   by auto
 
 lemma [sepref_fr_rules]:
-  \<open>(uncurry get_var_name_c_impl, uncurry get_var_nameS) \<in> shared_vars_assn\<^sup>k *\<^sub>a  si64_assn\<^sup>k \<rightarrow>\<^sub>a strl_assn'\<close>
+  \<open>(uncurry get_var_name_c_impl, uncurry get_var_nameS) \<in> shared_vars_assn\<^sup>k *\<^sub>a  si64_assn\<^sup>k \<rightarrow>\<^sub>a stra_assn\<close>
   using get_var_name_c_impl.refine[FCOMP get_var_name_c_get_var_nameS, of Id]
  by auto
 
@@ -296,7 +297,7 @@ instance
   ..
 end
 
-lemmas [sepref_fr_rules] = snhm.lshm_update_resize_hnr[FCOMP map_upd_fmupd]
+lemmas [sepref_fr_rules] = sahm.lshm_update_resize_hnr[FCOMP map_upd_fmupd]
 
 lemma insert_variable_c_synth_def:
   \<open>insert_variable_c v k' = (\<lambda>(\<V>, \<A>). (\<V> @ [COPY v], fmupd (COPY v) k' \<A>))\<close>
@@ -305,7 +306,7 @@ lemma insert_variable_c_synth_def:
 sepref_def insert_variable_c_impl
   is \<open>uncurry2 (RETURN ooo insert_variable_c)\<close>
   :: \<open>[\<lambda>((v, k), (xs, \<A>)). length xs + 1 < max_snat 64]\<^sub>a
-      strl_assn'\<^sup>k *\<^sub>a si64_assn\<^sup>k *\<^sub>a perfect_shared_vars_assn\<^sup>d \<rightarrow> perfect_shared_vars_assn\<close>
+      stra_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k *\<^sub>a perfect_shared_vars_assn\<^sup>d \<rightarrow> perfect_shared_vars_assn\<close>
   unfolding insert_variable_c_synth_def
   by sepref
 
@@ -330,7 +331,7 @@ lemma import_variable_c_synth_def:
 sepref_register find_new_idx_c 
 sepref_def import_variable_c_impl
   is \<open>uncurry import_variable_c\<close>
-  :: \<open>strl_assn'\<^sup>k *\<^sub>a perfect_shared_vars_assn\<^sup>d \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a perfect_shared_vars_assn \<times>\<^sub>a si64_assn\<close>
+  :: \<open>stra_assn\<^sup>k *\<^sub>a perfect_shared_vars_assn\<^sup>d \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a perfect_shared_vars_assn \<times>\<^sub>a si64_assn\<close>
   unfolding import_variable_c_synth_def
   by sepref
 
@@ -343,7 +344,7 @@ lemma import_variable_c_import_variableS':
 
 lemma [sepref_fr_rules]:
   \<open>(uncurry import_variable_c_impl, uncurry import_variableS)
-  \<in> strl_assn'\<^sup>k *\<^sub>a  shared_vars_assn\<^sup>d \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a si64_assn\<close>
+  \<in> stra_assn\<^sup>k *\<^sub>a  shared_vars_assn\<^sup>d \<rightarrow>\<^sub>a memory_allocation_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a si64_assn\<close>
   using import_variable_c_impl.refine[FCOMP import_variable_c_import_variableS', of Id]
  by auto
 
@@ -359,14 +360,14 @@ definition empty_vars_hm :: \<open>(string, nat) fmap\<close> where
 definition empty_vars_hm_impl where [llvm_code]:
   \<open>empty_vars_hm_impl \<equiv> doM {
     ni \<leftarrow> ll_const (signed_nat 16384);
-    snhm.lshm_empty ni
+    sahm.lshm_empty ni
   }\<close>
 
 lemma empty_vars_hm_aux:
-  \<open>snhm.hm_assn'' (snhm.lshm_op_map_empty 16384) r \<turnstile> hm_fmap_assn empty_vars_hm r\<close>
+  \<open>sahm.hm_assn'' (sahm.lshm_op_map_empty 16384) r \<turnstile> hm_fmap_assn empty_vars_hm r\<close>
 proof -
-  have 1: \<open>(snhm.lshm_op_map_empty 16384, op_map_empty) \<in> snhm.lshm_rel\<close>
-    by (rule snhm.lshm_empty_fref) simp
+  have 1: \<open>(sahm.lshm_op_map_empty 16384, op_map_empty) \<in> sahm.lshm_rel\<close>
+    by (rule sahm.lshm_empty_fref) simp
   have 2: \<open>(op_map_empty, empty_vars_hm) \<in> map_fmap_rel\<close>
     by (auto simp: map_fmap_rel_def br_def empty_vars_hm_def fmempty.abs_eq)
   show ?thesis
@@ -376,7 +377,7 @@ proof -
     apply (rule entails_exI[where x = \<open>replicate 16384 []\<close>])
     apply (rule entails_exI[where x = 0])
     using 1 2
-    by (smt (verit, best) entailsD2 entails_lift_extract_simps(2) mem_alloc_pure_reassembly(25) sep_conj_aci(1) snhm.lshm_op_map_empty_def)
+    by (smt (verit, best) entailsD2 entails_lift_extract_simps(2) mem_alloc_pure_reassembly(25) sep_conj_aci(1) sahm.lshm_op_map_empty_def)
 qed
 
 lemma empty_vars_hm_impl_rule[vcg_rules]:
@@ -399,20 +400,20 @@ lemma empty_vars_hm_hnr[sepref_fr_rules]:
 
 sepref_register empty_vars_hm
 
-definition op_strls_empty :: \<open>string list\<close> where
-  [simp]: \<open>op_strls_empty = op_list_empty\<close>
+definition op_stras_empty :: \<open>string list\<close> where
+  [simp]: \<open>op_stras_empty = op_list_empty\<close>
 
-interpretation strls_empty: list_custom_empty strls_assn strls.oa_empty op_strls_empty
+interpretation stras_empty: list_custom_empty stras_assn stra.oa_empty op_stras_empty
   apply unfold_locales
-  subgoal by (rule strls.oa_empty_hnr)
-  subgoal by (rule op_strls_empty_def)
+  subgoal by (rule stra.oa_empty_hnr)
+  subgoal by (rule op_stras_empty_def)
   done
 
 sepref_def empty_shared_vars_int_impl
   is \<open>uncurry0 (RETURN empty_shared_vars_int)\<close>
   :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a perfect_shared_vars_assn\<close>
   unfolding empty_shared_vars_int_def empty_vars_hm_def[symmetric]
-    strls_empty.fold_custom_empty
+    stras_empty.fold_custom_empty
   by sepref
 
 lemma empty_shared_vars_int_empty_shared_vars:
