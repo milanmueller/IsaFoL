@@ -39,17 +39,10 @@ lemma ll_urem_hash_snat_rule:
 
 end
 
-text \<open>Extraction form of \<open>bool.assn\<close> facts on \<^emph>\<open>literal\<close> 1-words (e.g. the member
-  flag consumed by \<open>llc_if\<close>).\<close>
-
 lemma pure_bool_assn_iff: \<open>\<flat>\<^sub>pbool.assn b w \<longleftrightarrow> b = to_bool w\<close>
   unfolding bool.assn_def by simp
 
 section \<open>Saturating element counter and table growth\<close>
-
-text \<open>Shared by the hash-set and the hash-map: a 63-bit element counter that saturates instead of overflowing.
-  This is used to increment the element counter which is only used for resizing and is not relevant to
-  the correctness of the refinement.\<close>
 
 abbreviation \<open>sat_max_count \<equiv> max_snat 64 - 1\<close>
 
@@ -162,7 +155,8 @@ text \<open>Like in IICF_Partial_Map, we first use abstract nested lists which w
 
 
 definition \<open>lshs_bucket_of n a \<equiv> unat (ahash a) mod n\<close>
-definition \<open>lshs_invar \<equiv> \<lambda>(xs, l). xs\<noteq>[] \<and> l = length (concat xs) \<and>
+text \<open>The counter \<open>l\<close> is only a hint for the resize heuristic; the invariant does not constrain it.\<close>
+definition \<open>lshs_invar \<equiv> \<lambda>(xs, l). xs\<noteq>[] \<and>
   (\<forall>i < length xs. \<forall>a \<in> set (xs!i). lshs_bucket_of (length xs) a = i)\<close>
 definition \<open>lshs_\<alpha> \<equiv> \<lambda>(xs,l). { a. \<exists>b\<in>set xs. a \<in> set b }\<close>
 definition \<open>lshs_rel \<equiv> br lshs_\<alpha> lshs_invar\<close>
@@ -180,10 +174,6 @@ lemma lshs_op_set_empty_refine:
     lshs_\<alpha>_def lshs_invar_def
   using assms by simp
 
-lemma length_concat_update_cons:
-  \<open>i < length xs \<Longrightarrow> length (concat (xs[i := a # xs!i])) = Suc (length (concat xs))\<close>
-  by (simp add: length_concat map_update sum_list_update)
-
 lemma lshs_op_set_insert_step:
   assumes \<open>lshs_invar s\<close>
   shows \<open>lshs_invar (lshs_op_set_insert a s)\<close>
@@ -194,7 +184,7 @@ proof -
   hence LT: \<open>lshs_bucket_of (length xs) a < length xs\<close> by (simp add: lshs_bucket_of_def)
   show \<open>lshs_invar (lshs_op_set_insert a s)\<close>
     using assms LT
-    by (auto simp: lshs_invar_def lshs_op_set_insert_def nth_list_update' length_concat_update_cons)
+    by (auto simp: lshs_invar_def lshs_op_set_insert_def nth_list_update')
   show \<open>lshs_\<alpha> (lshs_op_set_insert a s) = insert a (lshs_\<alpha> s)\<close>
     using LT
     apply (auto simp: lshs_\<alpha>_def lshs_op_set_insert_def)
@@ -245,7 +235,6 @@ lemma lshs_\<alpha>_concat: \<open>lshs_\<alpha> (xs, l) = set (concat xs)\<clos
 
 lemma lshs_op_set_resize_refine:
   assumes \<open>0 < n\<close>
-      and \<open>lshs_invar (xs,l)\<close>
     shows \<open>lshs_invar (lshs_op_set_resize n (xs,l))\<close>
       and \<open>lshs_\<alpha> (xs,l) = lshs_\<alpha> (lshs_op_set_resize n (xs,l))\<close>
 proof -
@@ -316,10 +305,6 @@ lemma hs_empty_hnr[sepref_fr_rules]:
   \<in> [\<lambda>n. 0 < n]\<^sub>a (snat_assn' TYPE(64))\<^sup>k \<rightarrow> \<upharpoonleft>hs_assn\<close>
   unfolding snat_rel_def snat.assn_is_rel[symmetric]
   by (sepref_to_hoare; vcg)
-
-(* We can not register against high level `op_set_empty_refine` *)
-(* Without resizing implemented, I think it might be better to use the explicit lshs_op_set_empty then *)
-(* lemmas hs_empty_hnr = hs_empty_hnr[FCOMP lshs_op_set_empty_refine] *)
 
 (* Instantiate Hashset with 2^14 elements (not sure if that number makes sense)*)
 lemma hs_empty_fref_2pow14:
@@ -407,8 +392,6 @@ lemma lshs_fold_insert_fst_ne[simp]: \<open>fst (fold lshs_op_set_insert ys hs) 
 
 lemma lshs_op_set_empty_fst_ne[simp]: \<open>fst (lshs_op_set_empty n) \<noteq> [] \<longleftrightarrow> 0 < n\<close>
   by (simp add: lshs_op_set_empty_def)
-
-text \<open>Drain one bucket into a hash-set. The bucket's nodes are freed on the way.\<close>
 
 definition hs_insert_bucket :: \<open>'b cl_list \<times> 'b hs_conc \<Rightarrow> 'b hs_conc llM\<close> where [llvm_code]:
   \<open>hs_insert_bucket \<equiv> MMonad.REC (\<lambda>ff (bi, s).
@@ -534,10 +517,6 @@ section \<open>Inserting with resizing\<close>
 text \<open>With insertion and resizing both in place, we combine the two to obtain a
   "proper" hashset implementation with automatic resizing.\<close>
 
-text \<open>Insert, then grow the table when the element counter reached the bucket count
-  and growing is still possible. The trigger condition is irrelevant for correctness
-  (resizing is the identity on the abstract set), so it is chosen to be cheap to implement.\<close>
-
 definition \<open>lshs_op_set_insert_resize a s \<equiv>
   let s = lshs_op_set_insert a s;
       n = lshs_size s;
@@ -555,7 +534,7 @@ lemma lshs_op_set_insert_resize_refine:
   \<open>(uncurry (RETURN oo lshs_op_set_insert_resize), uncurry (RETURN oo op_set_insert))
   \<in> Id \<times>\<^sub>r lshs_rel \<rightarrow>\<^sub>f \<langle>lshs_rel\<rangle>nres_rel\<close>
 proof (intro frefI nres_relI, clarsimp simp: lshs_rel_def in_br_conv)
-  fix a hs
+  fix a and hs :: \<open>'a list list \<times> nat\<close>
   assume I: \<open>lshs_invar hs\<close>
   let ?s = \<open>lshs_op_set_insert a hs\<close>
   obtain xs l where S: \<open>?s = (xs, l)\<close> by (cases ?s)

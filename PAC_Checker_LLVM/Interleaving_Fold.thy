@@ -1185,6 +1185,447 @@ proof -
     by (auto simp: LE)
 qed
 
+section \<open>Left consuming Interleaving Fold\<close>
+
+text \<open>The folds above keep both lists intact. In some cases the left list is owned by
+  the caller and should be consumed by the fold: the step function may then move the
+  left element into the accumulator instead of copying it, and once the right list is
+  exhausted the remaining left list is handed over as a whole (e.g. to link it into
+  the accumulator in place). The right list is still kept.
+
+  Consumption is direction dependent: on \<open>LEFT\<close>, \<open>BOTH\<close> and \<open>STOP\<close> the left element
+  is consumed by \<open>f\<close>, whereas on \<open>RIGHT\<close> the left element must survive for the next
+  iteration. Therefore the \<open>RIGHT\<close> step is a separate function \<open>fr\<close> that only reads
+  the left element. On \<open>STOP\<close>, the remainder of the left list is freed.\<close>
+
+fun ifoldl_ext_cl :: \<open>('a \<Rightarrow> 'b \<Rightarrow> 'c \<Rightarrow> 'd \<Rightarrow> direction \<Rightarrow> 'a) \<Rightarrow> ('a \<Rightarrow> 'b \<Rightarrow> 'c \<Rightarrow> 'd \<Rightarrow> 'a)
+  \<Rightarrow> ('b \<Rightarrow> 'c \<Rightarrow> 'd \<Rightarrow> direction)
+  \<Rightarrow> ('a \<Rightarrow> 'b list \<Rightarrow> 'a) \<Rightarrow> ('a \<Rightarrow> 'c \<Rightarrow> 'a)
+  \<Rightarrow> 'a \<Rightarrow> 'b list \<Rightarrow> 'c list \<Rightarrow> 'd \<Rightarrow> 'a\<close> where
+  \<open>ifoldl_ext_cl _ _  _   _  _  acc [] [] _             = acc\<close>
+| \<open>ifoldl_ext_cl _ _  _   f1 _  acc xs [] _             = f1 acc xs\<close>
+| \<open>ifoldl_ext_cl _ _  _   _  f2 acc [] ys _             = foldl f2 acc ys\<close>
+| \<open>ifoldl_ext_cl f fr dec f1 f2 acc (x # xs) (y # ys) d = (
+    case dec x y d of
+      STOP  \<Rightarrow> f acc x y d STOP
+    | LEFT  \<Rightarrow> ifoldl_ext_cl f fr dec f1 f2 (f acc x y d LEFT) xs (y # ys) d
+    | RIGHT \<Rightarrow> ifoldl_ext_cl f fr dec f1 f2 (fr acc x y d)    (x # xs) ys d
+    | BOTH  \<Rightarrow> ifoldl_ext_cl f fr dec f1 f2 (f acc x y d BOTH) xs ys d
+  )\<close>
+
+lemma ifoldl_ext_cl_Nil1: \<open>ifoldl_ext_cl f fr dec f1 f2 acc [] ys d = foldl f2 acc ys\<close>
+  by (cases ys) auto
+
+lemma ifoldl_ext_cl_Nil2: \<open>xs \<noteq> [] \<Longrightarrow> ifoldl_ext_cl f fr dec f1 f2 acc xs [] d = f1 acc xs\<close>
+  by (cases xs) auto
+
+subsection \<open>Monadic version of @{term ifoldl_ext_cl}\<close>
+
+definition ifoldl_ext_cl_nres ::
+  \<open>('a \<Rightarrow> 'b \<Rightarrow> 'c \<Rightarrow> 'd \<Rightarrow> direction \<Rightarrow> 'a nres) \<Rightarrow> ('a \<Rightarrow> 'b \<Rightarrow> 'c \<Rightarrow> 'd \<Rightarrow> 'a nres)
+  \<Rightarrow> ('b \<Rightarrow> 'c \<Rightarrow> 'd \<Rightarrow> direction nres)
+  \<Rightarrow> ('a \<Rightarrow> 'b list \<Rightarrow> 'a nres) \<Rightarrow> ('a \<Rightarrow> 'c \<Rightarrow> 'a nres)
+  \<Rightarrow> 'a \<Rightarrow> 'b list \<Rightarrow> 'c list \<Rightarrow> 'd \<Rightarrow> 'a nres\<close> where
+  \<open>ifoldl_ext_cl_nres f fr dec f1 f2 acc xs ys d \<equiv> doN {
+    (acc, xs, ys, stop) \<leftarrow> WHILEIT
+      (\<lambda>_. True)
+      (\<lambda>(acc, xs, ys, stop). xs \<noteq> [] \<and> ys \<noteq> [] \<and> \<not>stop)
+      (\<lambda>(acc, xs, ys, stop). doN {
+        ASSERT (xs \<noteq> [] \<and> ys \<noteq> []);
+        (x,xs) \<leftarrow> mop_list_pop_hd xs;
+        (y,ys) \<leftarrow> mop_list_pop_hd ys;
+        dir \<leftarrow> dec x y d;
+        case dir of
+          STOP  \<Rightarrow> doN { acc \<leftarrow> f acc x y d STOP; RETURN (acc, xs, ys, True) }
+        | LEFT  \<Rightarrow> doN { acc \<leftarrow> f acc x y d LEFT; RETURN (acc, xs, y # ys, False) }
+        | RIGHT \<Rightarrow> doN { acc \<leftarrow> fr acc x y d;    RETURN (acc, x # xs, ys, False) }
+        | BOTH  \<Rightarrow> doN { acc \<leftarrow> f acc x y d BOTH; RETURN (acc, xs, ys, False) }
+      })
+      (acc, xs, ys, False);
+    if stop then RETURN acc
+    else if xs = [] then foldl_nres f2 acc ys
+    else if ys = [] then f1 acc xs
+    else RETURN acc
+  }\<close>
+
+lemma ifoldl_ext_cl_nres_refine:
+  assumes f: \<open>\<And>acc x y dir. fn acc x y d dir \<le> SPEC (\<lambda>r. r = f acc x y d dir)\<close>
+      and fr: \<open>\<And>acc x y. frn acc x y d \<le> SPEC (\<lambda>r. r = fr acc x y d)\<close>
+      and dec: \<open>\<And>x y. decn x y d \<le> SPEC (\<lambda>r. r = dec x y d)\<close>
+      and f1: \<open>\<And>acc xs. f1n acc xs \<le> SPEC (\<lambda>r. r = f1 acc xs)\<close>
+      and f2: \<open>\<And>acc y. f2n acc y \<le> SPEC (\<lambda>r. r = f2 acc y)\<close>
+    shows \<open>ifoldl_ext_cl_nres fn frn decn f1n f2n acc xs ys d
+      \<le> SPEC (\<lambda>r. r = ifoldl_ext_cl f fr dec f1 f2 acc xs ys d)\<close>
+  unfolding ifoldl_ext_cl_nres_def
+  apply (rule bind_rule)
+  apply (rule WHILEIT_true_rule[where
+        I = \<open>\<lambda>(acc', xs', ys', stop).
+              (if stop then acc' else ifoldl_ext_cl f fr dec f1 f2 acc' xs' ys' d)
+                = ifoldl_ext_cl f fr dec f1 f2 acc xs ys d\<close>
+        and R = \<open>measure (\<lambda>(acc', xs', ys', stop).
+              (if stop then 0 else length xs' + length ys' + 1))\<close>])
+  subgoal by simp
+  subgoal by simp
+  subgoal for s
+    apply (cases s rule: prod_cases4)
+    apply (simp only: prod.case)
+    apply (elim conjE)
+    apply (cases \<open>fst (snd s)\<close>; cases \<open>fst (snd (snd s))\<close>)
+    apply (simp_all add: mop_list_pop_hd_def)
+    apply (rule bind_rule)
+    apply (rule order_trans[OF dec])
+    apply (rule SPEC_rule)
+    apply (auto split: direction.splits
+        intro!: bind_rule SPEC_rule order_trans[OF f] order_trans[OF fr])
+    done
+  subgoal for s
+    apply (cases s rule: prod_cases4)
+    apply (auto simp: ifoldl_ext_cl_Nil1 ifoldl_ext_cl_Nil2 split: if_splits
+        intro: order_trans[OF foldl_nres_refine[OF f2]] order_trans[OF f1])
+    done
+  done
+
+subsection \<open>Unfolding equations for @{term ifoldl_ext_cl_nres}\<close>
+
+lemma ifoldl_ext_cl_nres_Nil1:
+  \<open>ifoldl_ext_cl_nres fn frn decn f1n f2n acc [] ys d = foldl_nres f2n acc ys\<close>
+  unfolding ifoldl_ext_cl_nres_def by (subst WHILEIT_unfold) simp
+
+lemma ifoldl_ext_cl_nres_Nil2:
+  \<open>xs \<noteq> [] \<Longrightarrow> ifoldl_ext_cl_nres fn frn decn f1n f2n acc xs [] d = f1n acc xs\<close>
+  unfolding ifoldl_ext_cl_nres_def by (subst WHILEIT_unfold) simp
+
+lemma ifoldl_ext_cl_nres_Cons:
+  \<open>ifoldl_ext_cl_nres fn frn decn f1n f2n acc (x # xs) (y # ys) d = doN {
+    dir \<leftarrow> decn x y d;
+    case dir of
+      STOP  \<Rightarrow> fn acc x y d STOP
+    | LEFT  \<Rightarrow> doN { acc \<leftarrow> fn acc x y d LEFT;
+                    ifoldl_ext_cl_nres fn frn decn f1n f2n acc xs (y # ys) d }
+    | RIGHT \<Rightarrow> doN { acc \<leftarrow> frn acc x y d;
+                    ifoldl_ext_cl_nres fn frn decn f1n f2n acc (x # xs) ys d }
+    | BOTH  \<Rightarrow> doN { acc \<leftarrow> fn acc x y d BOTH;
+                    ifoldl_ext_cl_nres fn frn decn f1n f2n acc xs ys d }
+  }\<close>
+  unfolding ifoldl_ext_cl_nres_def
+  apply (subst WHILEIT_unfold)
+  apply (simp add: mop_list_pop_hd_def)
+  apply (intro bind_cong[OF refl] ext)
+  apply (auto split: direction.splits)
+  text \<open>Remaining: the \<open>STOP\<close> case, where the loop exits at once.\<close>
+  apply (subst WHILEIT_unfold)
+  apply simp
+  done
+
+section \<open>Implementation of @{term ifoldl_ext_cl} for Copying Lists\<close>
+
+definition cl_ifoldl_ext_cl ::
+  \<open>('a::llvm_rep \<Rightarrow> 'b::llvm_rep \<Rightarrow> 'c::llvm_rep \<Rightarrow> 'd::llvm_rep \<Rightarrow> 8 word \<Rightarrow> 'a llM)
+    \<Rightarrow> ('a \<Rightarrow> 'b \<Rightarrow> 'c \<Rightarrow> 'd \<Rightarrow> 'a llM)
+    \<Rightarrow> ('b \<Rightarrow> 'c \<Rightarrow> 'd \<Rightarrow> 8 word llM)
+    \<Rightarrow> ('a \<Rightarrow> 'b cl_list \<Rightarrow> 'a llM) \<Rightarrow> ('a \<Rightarrow> 'c \<Rightarrow> 'a llM)
+    \<Rightarrow> ('b cl_list \<Rightarrow> unit llM)
+    \<Rightarrow> 'a \<Rightarrow> 'b cl_list \<Rightarrow> 'c cl_list \<Rightarrow> 'd \<Rightarrow> 'a llM\<close>
+  where [llvm_code]:
+  \<open>cl_ifoldl_ext_cl f fr dec f1 f2 lfree acc xp yp d \<equiv> doM {
+    (acc, xp, yp, stop) \<leftarrow> llc_while cl_ifoldl_guard
+    (\<lambda>(acc, xp, yp, stop). doM {
+      xn \<leftarrow> ll_load xp;
+      yn \<leftarrow> ll_load yp;
+      let x = node.val xn;
+      let y = node.val yn;
+      dir \<leftarrow> dec x y d;
+      if dir = 2 then doM {
+        acc \<leftarrow> fr acc x y d;
+        Mreturn (acc, xp, node.next yn, 0)
+      } else doM {
+        ll_free xp;
+        acc \<leftarrow> f acc x y d dir;
+        if dir = 0 then
+          Mreturn (acc, node.next xn, node.next yn, 1)
+        else if dir = 1 then
+          Mreturn (acc, node.next xn, yp, 0)
+        else
+          Mreturn (acc, node.next xn, node.next yn, 0)
+      }
+    }) (acc, xp, yp, 0 :: 1 word);
+    if to_bool stop then doM {
+      lfree xp;
+      Mreturn acc
+    } else if xp = null then
+      cl_foldl_monadic' f2 (acc, yp)
+    else if yp = null then
+      f1 acc xp
+    else
+      Mreturn acc
+  }\<close>
+
+subsection \<open>Refinement rule for @{term cl_ifoldl_ext_cl} against @{term ifoldl_ext_cl_nres}\<close>
+
+lemma cl_ifoldl_ext_cl_f1_rule:
+  assumes F1: \<open>\<And>a ai bs bsi. nofail (f1n a bs) \<Longrightarrow> llvm_htriple
+    (A a ai ** cl_assn' B bs bsi) (f1i ai bsi)
+    (\<lambda>r. EXS x. A x r ** \<up>(RETURN x \<le> f1n a bs))\<close>
+  shows \<open>llvm_htriple
+    (A a ai ** cl_assn' B bs bsi
+      ** \<up>(bsi \<noteq> null \<and> nofail (ifoldl_ext_cl_nres fn frn decn f1n f2n a bs [] d)))
+    (f1i ai bsi)
+    (\<lambda>r. EXS x. A x r ** \<up>(RETURN x \<le> ifoldl_ext_cl_nres fn frn decn f1n f2n a bs [] d))\<close>
+proof (rule htriple_pure_preI)
+  assume \<open>pure_part (A a ai ** cl_assn' B bs bsi
+      ** \<up>(bsi \<noteq> null \<and> nofail (ifoldl_ext_cl_nres fn frn decn f1n f2n a bs [] d)))\<close>
+  then have NN: \<open>bsi \<noteq> null\<close>
+    and NF: \<open>nofail (ifoldl_ext_cl_nres fn frn decn f1n f2n a bs [] d)\<close>
+    and PP: \<open>pure_part (cl_assn' B bs bsi)\<close>
+    by (auto dest!: pure_part_split_conj)
+  have NE: \<open>bs \<noteq> []\<close>
+    using NN PP by (cases bs) (auto simp: cl_assn_simps)
+  note E = ifoldl_ext_cl_nres_Nil2[OF NE, of fn frn decn f1n f2n a d]
+  show \<open>llvm_htriple
+    (A a ai ** cl_assn' B bs bsi
+      ** \<up>(bsi \<noteq> null \<and> nofail (ifoldl_ext_cl_nres fn frn decn f1n f2n a bs [] d)))
+    (f1i ai bsi)
+    (\<lambda>r. EXS x. A x r ** \<up>(RETURN x \<le> ifoldl_ext_cl_nres fn frn decn f1n f2n a bs [] d))\<close>
+    unfolding E
+    apply (rule htriple_ent_pre[OF _ F1[OF NF[unfolded E]]])
+    by (auto simp: entails_def sep_algebra_simps pred_lift_extract_simps)
+qed
+
+lemma cl_assn'_cons_red':
+  \<open>is_sep_red \<box> (A x c ** cl_assn' A xs q) (\<upharpoonleft>ll_bpto (Node c q) p) (cl_assn' A (x # xs) p)\<close>
+proof (rule is_sep_redI)
+  fix Ps Qs
+  assume H: \<open>\<box> ** Ps \<turnstile> (A x c ** cl_assn' A xs q) ** Qs\<close>
+  have H': \<open>Ps \<turnstile> A x c ** cl_assn' A xs q ** Qs\<close>
+    using H by simp
+  have 1: \<open>\<upharpoonleft>ll_bpto (Node c q) p ** Ps
+      \<turnstile> (\<upharpoonleft>ll_bpto (Node c q) p ** A x c ** cl_assn' A xs q) ** Qs\<close>
+    using conj_entails_mono[OF entails_refl H'] unfolding sep_conj_assoc .
+  have 2: \<open>\<upharpoonleft>ll_bpto (Node c q) p ** A x c ** cl_assn' A xs q \<turnstile> cl_assn' A (x # xs) p\<close>
+    unfolding cl_assn_simps(3)
+    by (rule entails_exI[where x=c], rule entails_exI[where x=q], rule entails_refl)
+  show \<open>\<upharpoonleft>ll_bpto (Node c q) p ** Ps \<turnstile> cl_assn' A (x # xs) p ** Qs\<close>
+    by (rule entails_trans[OF 1 conj_entails_mono[OF 2 entails_refl]])
+qed
+
+lemma ifoldl_ext_cl_nres_Cons_hd:
+  \<open>xs \<noteq> [] \<Longrightarrow> ifoldl_ext_cl_nres fn frn decn f1n f2n acc xs (y # ys) d = doN {
+    dir \<leftarrow> decn (hd xs) y d;
+    case dir of
+      STOP  \<Rightarrow> fn acc (hd xs) y d STOP
+    | LEFT  \<Rightarrow> doN { acc \<leftarrow> fn acc (hd xs) y d LEFT;
+                    ifoldl_ext_cl_nres fn frn decn f1n f2n acc (tl xs) (y # ys) d }
+    | RIGHT \<Rightarrow> doN { acc \<leftarrow> frn acc (hd xs) y d;
+                    ifoldl_ext_cl_nres fn frn decn f1n f2n acc xs ys d }
+    | BOTH  \<Rightarrow> doN { acc \<leftarrow> fn acc (hd xs) y d BOTH;
+                    ifoldl_ext_cl_nres fn frn decn f1n f2n acc (tl xs) ys d }
+  }\<close>
+  by (cases xs) (simp_all add: ifoldl_ext_cl_nres_Cons)
+
+subsection \<open>Auxiliary lemmas for the verification condition generator\<close>
+
+lemma nofail_imp_inres_conv: \<open>(nofail m \<longrightarrow> inres m x) \<longleftrightarrow> inres m x\<close>
+  by (cases \<open>nofail m\<close>) (auto simp: nofail_def inres_def)
+
+lemma nofail_direction_cases:
+  \<open>nofail (f dr) \<longleftrightarrow> (case dr of LEFT \<Rightarrow> nofail (f LEFT) | RIGHT \<Rightarrow> nofail (f RIGHT)
+    | BOTH \<Rightarrow> nofail (f BOTH) | STOP \<Rightarrow> nofail (f STOP))\<close>
+  by (cases dr) simp_all
+
+lemma ex_direction_conv:
+  \<open>(\<exists>y. (y = LEFT \<longrightarrow> P1) \<and> (y = RIGHT \<longrightarrow> P2) \<and> (y = BOTH \<longrightarrow> P3) \<and> (y = STOP \<longrightarrow> P4))
+    \<longleftrightarrow> (P1 \<or> P2 \<or> P3 \<or> P4)\<close>
+  apply (rule iffI)
+  subgoal by (elim exE, case_tac y, simp_all)
+  subgoal
+    apply (elim disjE)
+    apply (rule exI[where x=LEFT]; simp)
+    apply (rule exI[where x=RIGHT]; simp)
+    apply (rule exI[where x=BOTH]; simp)
+    apply (rule exI[where x=STOP]; simp)
+    done
+  done
+
+lemma direction_eq_LEFT_conv:
+  \<open>\<lbrakk>dr \<noteq> RIGHT; dr \<noteq> STOP\<rbrakk> \<Longrightarrow> (dr = LEFT) \<longleftrightarrow> (dr \<noteq> BOTH)\<close>
+  by (cases dr) simp_all
+
+lemma cl_ifoldl_ext_cl_nres_rule:
+  assumes F: \<open>\<And>a ai b bi c ci dr dri. nofail (fn a b c d dr) \<Longrightarrow> llvm_htriple
+    (A a ai ** B b bi ** C c ci ** D d di ** dir_assn dr dri)
+    (fi ai bi ci di dri)
+    (\<lambda>r. C c ci ** D d di ** (EXS x. A x r ** \<up>(RETURN x \<le> fn a b c d dr)))\<close>
+    and FR: \<open>\<And>a ai b bi c ci. nofail (frn a b c d) \<Longrightarrow> llvm_htriple
+    (A a ai ** B b bi ** C c ci ** D d di)
+    (fri ai bi ci di)
+    (\<lambda>r. B b bi ** C c ci ** D d di ** (EXS x. A x r ** \<up>(RETURN x \<le> frn a b c d)))\<close>
+    and DEC: \<open>\<And>b bi c ci. nofail (decn b c d) \<Longrightarrow> llvm_htriple
+    (B b bi ** C c ci ** D d di)
+    (deci bi ci di)
+    (\<lambda>r. B b bi ** C c ci ** D d di ** (EXS dr. dir_assn dr r ** \<up>(RETURN dr \<le> decn b c d)))\<close>
+    and F1: \<open>\<And>a ai bs' bsi'. nofail (f1n a bs') \<Longrightarrow> llvm_htriple
+    (A a ai ** cl_assn' B bs' bsi')
+    (f1i ai bsi')
+    (\<lambda>r. EXS x. A x r ** \<up>(RETURN x \<le> f1n a bs'))\<close>
+    and F2: \<open>\<And>a ai c ci. nofail (f2n a c) \<Longrightarrow> llvm_htriple
+    (A a ai ** C c ci)
+    (f2i ai ci)
+    (\<lambda>r. C c ci ** (EXS x. A x r ** \<up>(RETURN x \<le> f2n a c)))\<close>
+    and FREE: \<open>\<And>bs' bsi'. llvm_htriple (cl_assn' B bs' bsi') (lfreei bsi') (\<lambda>_. \<box>)\<close>
+    and NF: \<open>nofail (ifoldl_ext_cl_nres fn frn decn f1n f2n acc bs cs d)\<close>
+  shows \<open>llvm_htriple
+    (A acc acci ** cl_assn' B bs bsi ** cl_assn' C cs csi ** D d di)
+    (cl_ifoldl_ext_cl fi fri deci f1i f2i lfreei acci bsi csi di)
+    (\<lambda>r. cl_assn' C cs csi ** D d di
+      ** (EXS x. A x r ** \<up>(RETURN x \<le> ifoldl_ext_cl_nres fn frn decn f1n f2n acc bs cs d)))\<close>
+proof -
+  interpret llvm_prim_ctrl_setup .
+  show ?thesis
+  using NF
+  unfolding cl_ifoldl_ext_cl_def
+  apply (rewrite annotate_llc_while [where
+    I = \<open>\<lambda>(acci', xp, yp, stop) t. EXS bs' j acc'.
+        A acc' acci'
+        ** cl_assn' B bs' xp
+        ** olseg C (take j cs) csi yp ** cl_assn' C (drop j cs) yp
+        ** D d di
+        ** \<up>((if stop = 0
+               then ifoldl_ext_cl_nres fn frn decn f1n f2n acc' bs' (drop j cs) d
+               else RETURN acc')
+              \<le> ifoldl_ext_cl_nres fn frn decn f1n f2n acc bs cs d)
+        ** \<up>\<^sub>!(t = (if stop = 0 then Suc (length bs' + (length cs - j)) else 0))\<close>
+    and R = \<open>measure id\<close>])
+  supply [vcg_rules] = F FR DEC FREE ll_icmp_eq_bool_rule cl_assn'_load_rule
+    cl_ifoldl_ext_cl_f1_rule[where A=A and B=B and f1i=f1i and f1n=f1n
+      and fn=fn and frn=frn and decn=decn and f2n=f2n and d=d, OF F1]
+    cl_fold_monadic'_nres_rule'[where A=A and B=C and fi=f2i and f=f2n, OF F2]
+  supply [simp] = cl_assn_simps olseg_nil sep_conj_exists drop_head
+    hd_drop_conv_nth drop_Suc[symmetric]
+    ifoldl_ext_cl_nres_Nil1 ifoldl_ext_cl_nres_Cons_hd
+    pw_le_iff refine_pw_simps nofail_imp_inres_conv
+  supply [fri_rules] = cl_assn'_cong_fri olseg_empty_fri olseg_cl_fri
+  text \<open>The index-based reduction rules are restricted to the right list: otherwise
+    @{thm cl_assn'_cons_red} also unifies with the (schematic) remainder of the left
+    list and its side condition gets solved with the wrong index.\<close>
+  supply [fri_red_rules] = olseg_snoc_red[where A=C and xs=cs]
+    olseg_cl_reassemble_red[where A=C and xs=cs] cl_assn'_cons_red[where A=C and xs=cs]
+    cl_assn'_cons_red'[where A=B]
+  text \<open>With the direction splits, the simplifier discharges the \<open>nofail\<close> side
+    conditions of \<open>DEC\<close> and \<open>FR\<close> from the unfolded invariant.\<close>
+  supply direction.splits[split]
+  apply vcg_monadify
+  apply vcg'
+  text \<open>The verification condition generator stops at the side condition
+    \<open>nofail (fn _ _ _ d dir)\<close> of \<open>F\<close>, where \<open>dir\<close> is only known to differ from
+    \<open>RIGHT\<close>; a case analysis on the direction discharges it.\<close>
+  apply (subst nofail_direction_cases)
+  apply auto []
+  apply vcg'
+  text \<open>Remaining: the pure invariant obligations deferred during the run.\<close>
+  apply (auto split: direction.splits simp: ex_direction_conv direction_eq_LEFT_conv)
+  done
+qed
+
+subsection \<open>hfref forms for @{term cl_ifoldl_ext_cl}\<close>
+
+lemma hfref_nres_htriple_d1_d2_k3_k4_k5:
+  assumes R: \<open>(uncurry4 fi, uncurry4 fn)
+      \<in> A\<^sup>d *\<^sub>a B\<^sup>d *\<^sub>a C\<^sup>k *\<^sub>a D\<^sup>k *\<^sub>a dir_assn\<^sup>k \<rightarrow>\<^sub>a A\<close>
+    and NF: \<open>nofail (fn a b c d dr)\<close>
+  shows \<open>llvm_htriple (A a ai ** B b bi ** C c ci ** D d di ** dir_assn dr dri)
+    (fi ai bi ci di dri)
+    (\<lambda>r. C c ci ** D d di ** (EXS x. A x r ** \<up>(RETURN x \<le> fn a b c d dr)))\<close>
+proof -
+  note HT = R[to_hnr, unfolded autoref_tag_defs, THEN hn_refineD, OF NF]
+  show ?thesis
+    apply (rule htriple_ent_pre[OF _ htriple_ent_post[OF _ HT]])
+    unfolding hn_ctxt_def
+    subgoal by (rule entails_refl)
+    subgoal
+      by (auto simp: entails_def sep_algebra_simps sep_conj_exists invalid_assn_def
+          pred_lift_extract_simps)
+    done
+qed
+
+lemma hfref_nres_htriple_d1_k2_k3_k4_gen:
+  assumes R: \<open>(uncurry3 fi, uncurry3 fn) \<in> A\<^sup>d *\<^sub>a B\<^sup>k *\<^sub>a C\<^sup>k *\<^sub>a D\<^sup>k \<rightarrow>\<^sub>a A\<close>
+    and NF: \<open>nofail (fn a b c d)\<close>
+  shows \<open>llvm_htriple (A a ai ** B b bi ** C c ci ** D d di) (fi ai bi ci di)
+    (\<lambda>r. B b bi ** C c ci ** D d di ** (EXS x. A x r ** \<up>(RETURN x \<le> fn a b c d)))\<close>
+proof -
+  note HT = R[to_hnr, unfolded autoref_tag_defs, THEN hn_refineD, OF NF]
+  show ?thesis
+    apply (rule htriple_ent_pre[OF _ htriple_ent_post[OF _ HT]])
+    unfolding hn_ctxt_def
+    subgoal by (rule entails_refl)
+    subgoal
+      by (auto simp: entails_def sep_algebra_simps sep_conj_exists invalid_assn_def
+          pred_lift_extract_simps)
+    done
+qed
+
+lemma hfref_nres_htriple_d1_d2:
+  assumes R: \<open>(uncurry fi, uncurry fn) \<in> A\<^sup>d *\<^sub>a B\<^sup>d \<rightarrow>\<^sub>a A\<close>
+    and NF: \<open>nofail (fn a b)\<close>
+  shows \<open>llvm_htriple (A a ai ** B b bi) (fi ai bi)
+    (\<lambda>r. EXS x. A x r ** \<up>(RETURN x \<le> fn a b))\<close>
+proof -
+  note HT = R[to_hnr, unfolded autoref_tag_defs, THEN hn_refineD, OF NF]
+  show ?thesis
+    apply (rule htriple_ent_pre[OF _ htriple_ent_post[OF _ HT]])
+    unfolding hn_ctxt_def
+    subgoal by (rule entails_refl)
+    subgoal
+      by (auto simp: entails_def sep_algebra_simps sep_conj_exists invalid_assn_def
+          pred_lift_extract_simps)
+    done
+qed
+
+lemma cl_ifoldl_ext_cl_nres_hfref:
+  assumes F: \<open>(uncurry4 fi, uncurry4 fn)
+      \<in> A\<^sup>d *\<^sub>a B\<^sup>d *\<^sub>a C\<^sup>k *\<^sub>a D\<^sup>k *\<^sub>a dir_assn\<^sup>k \<rightarrow>\<^sub>a A\<close>
+    and FR: \<open>(uncurry3 fri, uncurry3 frn) \<in> A\<^sup>d *\<^sub>a B\<^sup>k *\<^sub>a C\<^sup>k *\<^sub>a D\<^sup>k \<rightarrow>\<^sub>a A\<close>
+    and DEC: \<open>(uncurry2 deci, uncurry2 decn) \<in> B\<^sup>k *\<^sub>a C\<^sup>k *\<^sub>a D\<^sup>k \<rightarrow>\<^sub>a dir_assn\<close>
+    and F1: \<open>(uncurry f1i, uncurry f1n) \<in> A\<^sup>d *\<^sub>a (cl_assn' B)\<^sup>d \<rightarrow>\<^sub>a A\<close>
+    and F2: \<open>(uncurry f2i, uncurry f2n) \<in> A\<^sup>d *\<^sub>a C\<^sup>k \<rightarrow>\<^sub>a A\<close>
+    and FREE: \<open>MK_FREE (cl_assn' B) lfreei\<close>
+  shows \<open>(uncurry3 (cl_ifoldl_ext_cl fi fri deci f1i f2i lfreei),
+          uncurry3 (ifoldl_ext_cl_nres fn frn decn f1n f2n))
+    \<in> A\<^sup>d *\<^sub>a (cl_assn' B)\<^sup>d *\<^sub>a (cl_assn' C)\<^sup>k *\<^sub>a D\<^sup>k \<rightarrow>\<^sub>a A\<close>
+  supply [vcg_rules] = cl_ifoldl_ext_cl_nres_rule[where A=A and B=B and C=C and D=D
+      and fi=fi and fri=fri and deci=deci and f1i=f1i and f2i=f2i and lfreei=lfreei
+      and fn=fn and frn=frn and decn=decn and f1n=f1n and f2n=f2n,
+      OF hfref_nres_htriple_d1_d2_k3_k4_k5[OF F] hfref_nres_htriple_d1_k2_k3_k4_gen[OF FR]
+         hfref_nres_htriple_k1_k2_k3[OF DEC] hfref_nres_htriple_d1_d2[OF F1]
+         hfref_nres_htriple_d1_k2[OF F2] MK_FREED[OF FREE]]
+  by (sepref_to_hoare; vcg)
+
+lemma cl_ifoldl_ext_cl_hfref:
+  assumes F: \<open>(uncurry4 fi, uncurry4 (RETURN ooooo f))
+      \<in> A\<^sup>d *\<^sub>a B\<^sup>d *\<^sub>a C\<^sup>k *\<^sub>a D\<^sup>k *\<^sub>a dir_assn\<^sup>k \<rightarrow>\<^sub>a A\<close>
+    and FR: \<open>(uncurry3 fri, uncurry3 (RETURN oooo fr))
+      \<in> A\<^sup>d *\<^sub>a B\<^sup>k *\<^sub>a C\<^sup>k *\<^sub>a D\<^sup>k \<rightarrow>\<^sub>a A\<close>
+    and DEC: \<open>(uncurry2 deci, uncurry2 (RETURN ooo dec))
+      \<in> B\<^sup>k *\<^sub>a C\<^sup>k *\<^sub>a D\<^sup>k \<rightarrow>\<^sub>a dir_assn\<close>
+    and F1: \<open>(uncurry f1i, uncurry (RETURN oo f1)) \<in> A\<^sup>d *\<^sub>a (cl_assn' B)\<^sup>d \<rightarrow>\<^sub>a A\<close>
+    and F2: \<open>(uncurry f2i, uncurry (RETURN oo f2)) \<in> A\<^sup>d *\<^sub>a C\<^sup>k \<rightarrow>\<^sub>a A\<close>
+    and FREE: \<open>MK_FREE (cl_assn' B) lfreei\<close>
+  shows \<open>(uncurry3 (cl_ifoldl_ext_cl fi fri deci f1i f2i lfreei),
+          uncurry3 (RETURN oooo ifoldl_ext_cl f fr dec f1 f2))
+    \<in> A\<^sup>d *\<^sub>a (cl_assn' B)\<^sup>d *\<^sub>a (cl_assn' C)\<^sup>k *\<^sub>a D\<^sup>k \<rightarrow>\<^sub>a A\<close>
+proof -
+  note M = cl_ifoldl_ext_cl_nres_hfref[OF F FR DEC F1 F2 FREE]
+  have LE: \<open>ifoldl_ext_cl_nres (RETURN ooooo f) (RETURN oooo fr) (RETURN ooo dec)
+      (RETURN oo f1) (RETURN oo f2) acc bs cs d
+      \<le> RETURN (ifoldl_ext_cl f fr dec f1 f2 acc bs cs d)\<close> for acc bs cs d
+    by (rule order_trans[OF ifoldl_ext_cl_nres_refine])
+      (simp_all add: pw_le_iff refine_pw_simps)
+  show ?thesis
+    apply (rule hfrefI)
+    apply (rule hn_refine_ref[OF _ hfrefD[OF M]])
+    by (auto simp: LE)
+qed
+
 experiment
 begin
 
@@ -1275,6 +1716,75 @@ sepref_def test_ext_impl is \<open>uncurry2 (RETURN ooo test_ext)\<close>
   :: \<open>(cl_assn' u8_assn)\<^sup>k *\<^sub>a (cl_assn' u8_assn)\<^sup>k *\<^sub>a (cl_assn' u8_assn)\<^sup>k
       \<rightarrow>\<^sub>a cl_assn' u8_assn\<close>
   unfolding test_ext_def test_ifoldl_ext_def[symmetric]
+  by sepref
+
+end
+
+experiment
+begin
+
+text \<open>Left consuming version: the left list is destroyed, its elements are moved
+  into the accumulator, and its remainder is linked to the accumulator in place.\<close>
+abbreviation \<open>u8_assn \<equiv> unat_assn' TYPE(8)\<close>
+
+interpretation U: freeable_assn u8_assn \<open>\<lambda>_. Mreturn ()\<close>
+  by unfold_locales (rule mk_free_pure)
+
+definition \<open>ftest_cl a b c d dir \<equiv>
+  if dir = STOP then a
+  else if dir = LEFT then b # a
+  else if d = [] then a else b # c # a
+\<close>
+sepref_def ftest_cl_impl is \<open>uncurry4 (RETURN ooooo ftest_cl)\<close>
+  :: \<open>(cl_assn' u8_assn)\<^sup>d *\<^sub>a u8_assn\<^sup>d *\<^sub>a u8_assn\<^sup>k *\<^sub>a (cl_assn' u8_assn)\<^sup>k
+      *\<^sub>a dir_assn\<^sup>k \<rightarrow>\<^sub>a (cl_assn' u8_assn)\<close>
+  unfolding ftest_cl_def ls_emp'
+  by sepref
+
+definition \<open>frtest a b c d \<equiv> c # a\<close>
+sepref_def frtest_impl is \<open>uncurry3 (RETURN oooo frtest)\<close>
+  :: \<open>(cl_assn' u8_assn)\<^sup>d *\<^sub>a u8_assn\<^sup>k *\<^sub>a u8_assn\<^sup>k *\<^sub>a (cl_assn' u8_assn)\<^sup>k
+      \<rightarrow>\<^sub>a (cl_assn' u8_assn)\<close>
+  unfolding frtest_def
+  by sepref
+
+definition \<open>dirtest_cl a b d \<equiv>
+  if d = [] then STOP
+  else if a = b then BOTH
+  else if a < b then LEFT
+  else RIGHT
+\<close>
+sepref_def dirtest_cl_impl is \<open>uncurry2 (RETURN ooo dirtest_cl)\<close>
+  :: \<open>u8_assn\<^sup>k *\<^sub>a u8_assn\<^sup>k *\<^sub>a (cl_assn' u8_assn)\<^sup>k \<rightarrow>\<^sub>a dir_assn\<close>
+  unfolding dirtest_cl_def ls_emp'
+  by sepref
+
+definition \<open>f1test_cl a xs = xs @ a\<close>
+sepref_def f1test_cl_impl is \<open>uncurry (RETURN oo f1test_cl)\<close>
+  :: \<open>(cl_assn' u8_assn)\<^sup>d *\<^sub>a (cl_assn' u8_assn)\<^sup>d \<rightarrow>\<^sub>a cl_assn' u8_assn\<close>
+  unfolding f1test_cl_def
+  by sepref
+
+definition \<open>f2test_cl a c = c # a\<close>
+sepref_def f2test_cl_impl is \<open>uncurry (RETURN oo f2test_cl)\<close>
+  :: \<open>(cl_assn' u8_assn)\<^sup>d *\<^sub>a u8_assn\<^sup>k \<rightarrow>\<^sub>a cl_assn' u8_assn\<close>
+  unfolding f2test_cl_def
+  by sepref
+
+definition \<open>test_ifoldl_ext_cl \<equiv> ifoldl_ext_cl ftest_cl frtest dirtest_cl f1test_cl f2test_cl\<close>
+sepref_register test_ifoldl_ext_cl
+
+lemmas test_ifoldl_ext_cl_hnr[sepref_fr_rules] =
+  cl_ifoldl_ext_cl_hfref[OF ftest_cl_impl.refine frtest_impl.refine dirtest_cl_impl.refine
+    f1test_cl_impl.refine f2test_cl_impl.refine U.cl_assn_free,
+    folded test_ifoldl_ext_cl_def]
+
+definition \<open>test_ext_cl xs ys d \<equiv> ifoldl_ext_cl ftest_cl frtest dirtest_cl f1test_cl f2test_cl [] xs ys d\<close>
+
+sepref_def test_ext_cl_impl is \<open>uncurry2 (RETURN ooo test_ext_cl)\<close>
+  :: \<open>(cl_assn' u8_assn)\<^sup>d *\<^sub>a (cl_assn' u8_assn)\<^sup>k *\<^sub>a (cl_assn' u8_assn)\<^sup>k
+      \<rightarrow>\<^sub>a cl_assn' u8_assn\<close>
+  unfolding test_ext_cl_def test_ifoldl_ext_cl_def[symmetric]
   by sepref
 
 end
