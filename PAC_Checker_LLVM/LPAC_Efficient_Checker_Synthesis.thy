@@ -7,8 +7,6 @@ theory LPAC_Efficient_Checker_Synthesis
     LPAC_Step_Assn_Array
 begin
 
-sepref_register add_poly_l_s_ifoldl
-
 sepref_register mult_monoms_s_ifoldl
 
 lemmas [safe_constraint_rules] =
@@ -345,27 +343,46 @@ sepref_def add_poly_l_s_dir_impl is \<open>uncurry2 add_poly_l_s_dir\<close>
   unfolding add_poly_l_s_dir_def fold_ordered_discriminators
   by sepref
 
-sepref_def add_poly_l_s_f_impl is \<open>uncurry4 add_poly_l_s_f\<close>
-  :: \<open>(clt_assn' monomial_s_assn)\<^sup>d *\<^sub>a monomial_s_assn\<^sup>k *\<^sub>a monomial_s_assn\<^sup>k
-      *\<^sub>a shared_vars_assn\<^sup>k *\<^sub>a dir_assn\<^sup>k \<rightarrow>\<^sub>a clt_assn' monomial_s_assn\<close>
-  unfolding add_poly_l_s_f_def
+abbreviation \<open>poly_acc_s_assn \<equiv> clt_assn' monomial_s_assn \<times>\<^sub>a poly_s_assn\<close>
+
+sepref_def add_poly_l_s_lf_impl is \<open>uncurry4 add_poly_l_s_lf\<close>
+  :: \<open>poly_acc_s_assn\<^sup>d *\<^sub>a monomial_s_assn\<^sup>d *\<^sub>a monomial_s_assn\<^sup>k
+      *\<^sub>a shared_vars_assn\<^sup>k *\<^sub>a dir_assn\<^sup>k \<rightarrow>\<^sub>a poly_acc_s_assn\<close>
+  unfolding add_poly_l_s_lf_def
   by sepref
 
-sepref_def add_poly_l_s_cpy_impl is \<open>uncurry add_poly_l_s_cpy\<close>
-  :: \<open>(clt_assn' monomial_s_assn)\<^sup>d *\<^sub>a monomial_s_assn\<^sup>k \<rightarrow>\<^sub>a clt_assn' monomial_s_assn\<close>
-  unfolding add_poly_l_s_cpy_def
-  by sepref 
-
-lemmas add_poly_l_s_ifoldl_hnr[sepref_fr_rules] =
-  cl_ifoldl_ext_nres_hfref[OF add_poly_l_s_f_impl.refine add_poly_l_s_dir_impl.refine
-    add_poly_l_s_cpy_impl.refine add_poly_l_s_cpy_impl.refine,
-    folded add_poly_l_s_ifoldl_def]
-
-sepref_def add_poly_l_prep_impl
-  is \<open>uncurry add_poly_l_s\<close>
-  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a (poly_s_assn \<times>\<^sub>a poly_s_assn)\<^sup>k \<rightarrow>\<^sub>a poly_s_assn\<close>
-  unfolding add_poly_l_s_ifoldl_alt
+sepref_def add_poly_l_s_lfr_impl is \<open>uncurry3 add_poly_l_s_lfr\<close>
+  :: \<open>poly_acc_s_assn\<^sup>d *\<^sub>a monomial_s_assn\<^sup>k *\<^sub>a monomial_s_assn\<^sup>k
+      *\<^sub>a shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a poly_acc_s_assn\<close>
+  unfolding add_poly_l_s_lfr_def
   by sepref
+
+sepref_def add_poly_l_s_lf1_impl is \<open>uncurry add_poly_l_s_lf1\<close>
+  :: \<open>poly_acc_s_assn\<^sup>d *\<^sub>a poly_s_assn\<^sup>d \<rightarrow>\<^sub>a poly_acc_s_assn\<close>
+  supply [sepref_frame_free_rules] = poly_s.cl_assn_free
+  unfolding add_poly_l_s_lf1_def
+  by sepref
+
+sepref_def add_poly_l_s_lf2_impl is \<open>uncurry add_poly_l_s_lf2\<close>
+  :: \<open>poly_acc_s_assn\<^sup>d *\<^sub>a monomial_s_assn\<^sup>k \<rightarrow>\<^sub>a poly_acc_s_assn\<close>
+  unfolding add_poly_l_s_lf2_def
+  by sepref
+
+sepref_register add_poly_l_s_ifoldl_lc
+
+lemmas add_poly_l_s_ifoldl_lc_hnr[sepref_fr_rules] =
+  cl_ifoldl_ext_cl_nres_hfref[OF add_poly_l_s_lf_impl.refine add_poly_l_s_lfr_impl.refine
+    add_poly_l_s_dir_impl.refine add_poly_l_s_lf1_impl.refine add_poly_l_s_lf2_impl.refine
+    poly_s.cl_assn_free,
+    folded add_poly_l_s_ifoldl_lc_def]
+
+sepref_def add_poly_l_s_lc_impl
+  is \<open>uncurry2 add_poly_l_s_lc\<close>
+  :: \<open>shared_vars_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>d *\<^sub>a poly_s_assn\<^sup>k \<rightarrow>\<^sub>a poly_s_assn\<close>
+  unfolding add_poly_l_s_lc_def
+  by sepref
+
+sepref_register add_poly_l_s_lc
 
 sepref_def mult_monoms_s_dir_impl is \<open>uncurry2 mult_monoms_s_dir\<close>
   :: \<open>si64_assn\<^sup>k *\<^sub>a si64_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k \<rightarrow>\<^sub>a dir_assn\<close>
@@ -782,15 +799,15 @@ sepref_def mult_poly_full_s_impl
   by sepref
 
 lemmas [sepref_fr_rules] = mult_poly_full_s_impl.refine
-  add_poly_l_prep_impl.refine
+  add_poly_l_s_lc_impl.refine
 
 section \<open>Fused Lookup\<close>
 text \<open>In it's basic form, pasteque roughly does the following when checking linear combinations:
   \<open>p \<leftarrow> lookup A i  \<comment> \<open>To lookup polynomial p from A\<close>
   r \<leftarrow> add_poly r p \<comment> \<open>Update r to r + p\<close>\<close>
   Due to how the lookup map is implemented, (lookup copies the element out),
-  This amounts to copying \<open>p\<close> for every addition, even though addition is implemented
-  read-only (by use of interleaving fold) and does not consume \<open>p\<close>.
+  This amounts to copying \<open>p\<close> for every addition, even though addition does not
+  consume its second operand (by use of the left-consuming interleaving fold).
   As a solution, we implement a fused version of above code that will
   1. extract \<open>p\<close> from \<open>A\<close>, setting \<open>A[i := None]\<close>
   2. Update \<open>r \<leftarrow> r + p\<close>
@@ -804,17 +821,17 @@ definition fused_lookup_add
 where
   \<open>fused_lookup_add \<V> A i p \<equiv> doN {
     let r = the (fmlookup A i);
-    add_poly_l_s \<V> (p, r)
+    add_poly_l_s_lc \<V> p r
   }\<close>
 
 lemma fused_lookup_rewrite:
-  \<open>(let r = A \<propto> i in add_poly_l_s \<V> (p, r)) = fused_lookup_add \<V> A i p\<close>
-  unfolding fused_lookup_add_def by simp 
+  \<open>(let r = A \<propto> i in add_poly_l_s_lc \<V> p r) = fused_lookup_add \<V> A i p\<close>
+  unfolding fused_lookup_add_def by simp
 
 definition[llvm_code]: \<open>fused_lookup_add_alt_impl \<equiv> \<lambda>\<V>i Ai ii pi. doM {
   (bi, Ai) \<leftarrow> polys_s.bx.pmap_extract ii Ai;
   ri \<leftarrow> ll_load bi;
-  qi \<leftarrow> add_poly_l_prep_impl \<V>i (pi, ri);
+  qi \<leftarrow> add_poly_l_s_lc_impl \<V>i pi ri;
   Ai \<leftarrow> arl_upd Ai ii bi;
   Mreturn qi
 }\<close>
@@ -830,24 +847,7 @@ lemma box_assn_reassemble:
   apply (rule entails_exI[where x=c])
   by (rule entails_refl)
 
-lemma hfref_nres_htriple_k1_k2_pair:
-  assumes R: \<open>(uncurry fi, uncurry fn) \<in> P\<^sup>k *\<^sub>a (A \<times>\<^sub>a B)\<^sup>k \<rightarrow>\<^sub>a C\<close>
-    and NF: \<open>nofail (fn e (a, b))\<close>
-  shows \<open>llvm_htriple (P e ei ** A a ai ** B b bi) (fi ei (ai, bi))
-    (\<lambda>r. P e ei ** A a ai ** B b bi ** (EXS x. C x r ** \<up>(RETURN x \<le> fn e (a, b))))\<close>
-proof -
-  note HT = R[to_hnr, unfolded autoref_tag_defs, THEN hn_refineD, OF NF]
-  show ?thesis
-    apply (rule htriple_ent_pre[OF _ htriple_ent_post[OF _ HT]])
-    unfolding hn_ctxt_def
-    subgoal by (simp add: prod_assn_def sep_conj_assoc entails_refl)
-    subgoal
-      by (auto simp: entails_def sep_algebra_simps sep_conj_exists invalid_assn_def
-          prod_assn_def pred_lift_extract_simps)
-    done
-qed
-
-lemmas add_poly_l_prep_rule = hfref_nres_htriple_k1_k2_pair[OF add_poly_l_prep_impl.refine]
+lemmas add_poly_l_s_lc_rule = hfref_nres_htriple_k1_d2_k3[OF add_poly_l_s_lc_impl.refine]
 
 lemma opt_list_contains_key_lt:
   \<open>opt_list_contains_key i xs \<Longrightarrow> i < length xs\<close>
@@ -942,7 +942,7 @@ definition fused_lookup_add_ol
 where
   \<open>fused_lookup_add_ol \<V> xs i p \<equiv> doN {
     let r = opt_list_the_lookup i xs;
-    add_poly_l_s \<V> (p, r)
+    add_poly_l_s_lc \<V> p r
   }\<close>
 
 lemma fused_lookup_add_ol_rule:
@@ -953,11 +953,10 @@ lemma fused_lookup_add_ol_rule:
       poly_s_assn p pc)
     (fused_lookup_add_alt_impl \<V>i Ai ii pc)
     (\<lambda>q. shared_vars_assn \<V> \<V>i ** polys_s.bx.pmap_assn' xs Ai ** \<upharpoonleft>snat.assn i ii **
-      poly_s_assn p pc **
       (EXS x. poly_s_assn x q ** \<up>(RETURN x \<le> fused_lookup_add_ol \<V> xs i p)))\<close>
   unfolding fused_lookup_add_alt_impl_def
   supply [vcg_rules del] = polys_s.bx.pmap_extract_rule
-  supply [vcg_rules] = pmap_extract_present_rule ll_load_box_rule add_poly_l_prep_rule
+  supply [vcg_rules] = pmap_extract_present_rule ll_load_box_rule add_poly_l_s_lc_rule
     pmap_put_back_open_box_rule
   supply [simp] = polys_s.bx.opt_list_the_lookup_conv[OF K] opt_list_put_back[OF K]
     opt_list_contains_key_lt[OF K]
@@ -972,7 +971,6 @@ lemma fused_lookup_add_ol_rule':
       \<up>(nofail (fused_lookup_add_ol \<V> xs i p) \<and> opt_list_contains_key i xs))
     (fused_lookup_add_alt_impl \<V>i Ai ii pc)
     (\<lambda>q. shared_vars_assn \<V> \<V>i ** polys_s.bx.pmap_assn' xs Ai ** \<upharpoonleft>snat.assn i ii **
-      poly_s_assn p pc **
       (EXS x. poly_s_assn x q ** \<up>(RETURN x \<le> fused_lookup_add_ol \<V> xs i p)))\<close>
 proof (rule htriple_pure_preI)
   assume \<open>pure_part (shared_vars_assn \<V> \<V>i ** polys_s.bx.pmap_assn' xs Ai **
@@ -993,7 +991,6 @@ lemma fused_lookup_add_ol_rule'':
       \<up>(nofail (fused_lookup_add_ol \<V> xs i p) \<and> opt_list_contains_key i xs))
     (fused_lookup_add_alt_impl \<V>i Ai ii pc)
     (\<lambda>q. shared_vars_assn \<V> \<V>i ** polys_s.bx.pmap_assn' xs Ai ** snat_assn i ii **
-      poly_s_assn p pc **
       (EXS x. poly_s_assn x q ** \<up>(RETURN x \<le> fused_lookup_add_ol \<V> xs i p)))\<close>
   unfolding snat_rel_def snat.assn_is_rel[symmetric]
   by (rule fused_lookup_add_ol_rule'[unfolded snat_rel_def snat.assn_is_rel[symmetric]])
@@ -1002,7 +999,7 @@ lemma fused_lookup_add_ol_hnr:
   \<open>(uncurry3 fused_lookup_add_alt_impl, uncurry3 fused_lookup_add_ol)
   \<in> [\<lambda>(((\<V>, xs), i), p). opt_list_contains_key i xs]\<^sub>a
       shared_vars_assn\<^sup>k *\<^sub>a polys_s.bx.pmap_assn'\<^sup>k *\<^sub>a (snat_assn' TYPE(64))\<^sup>k *\<^sub>a
-        poly_s_assn\<^sup>k
+        poly_s_assn\<^sup>d
       \<rightarrow> poly_s_assn\<close>
   supply [vcg_rules] = fused_lookup_add_ol_rule''
   supply [simp] = pure_def
@@ -1014,7 +1011,7 @@ definition fused_lookup_add_m
 where
   \<open>fused_lookup_add_m \<V> m i p \<equiv> doN {
     let r = the (m i);
-    add_poly_l_s \<V> (p, r)
+    add_poly_l_s_lc \<V> p r
   }\<close>
 
 lemma fused_lookup_add_ol_refine:
@@ -1042,7 +1039,7 @@ lemmas fused_lookup_add_hnr_chain =
 lemma fused_lookup_add_alt_impl_hnr[sepref_fr_rules]:
   \<open>(uncurry3 fused_lookup_add_alt_impl, uncurry3 fused_lookup_add)
   \<in> [\<lambda>(((\<V>, A), i), p). i \<in># dom_m A]\<^sub>a
-      shared_vars_assn\<^sup>k *\<^sub>a polys_s_assn\<^sup>k *\<^sub>a (snat_assn' TYPE(64))\<^sup>k *\<^sub>a poly_s_assn\<^sup>k
+      shared_vars_assn\<^sup>k *\<^sub>a polys_s_assn\<^sup>k *\<^sub>a (snat_assn' TYPE(64))\<^sup>k *\<^sub>a poly_s_assn\<^sup>d
       \<rightarrow> poly_s_assn\<close>
   using fused_lookup_add_hnr_chain by (simp add: fmlookup_Some_dom_m)
 
@@ -1050,98 +1047,81 @@ sepref_register fused_lookup_add ::
   \<open>(nat, string) shared_vars \<Rightarrow> (nat, sllist_polynomial) f_map \<Rightarrow> nat \<Rightarrow>
     sllist_polynomial \<Rightarrow> (nat list \<times> int) list nres\<close>
 
-definition fused_lookup_mult :: 
+text \<open>The same fusion for the multiplication by a looked-up polynomial. The subsequent
+  addition is left to the synthesis: it consumes the running sum, and the product is
+  freed by the generated code.\<close>
+
+definition fused_lookup_mult ::
   \<open>(nat, string) shared_vars \<Rightarrow> (nat, sllist_polynomial) fmap \<Rightarrow> nat \<Rightarrow>
-    sllist_polynomial \<Rightarrow> sllist_polynomial \<Rightarrow> (nat list \<times> int) list nres\<close> where
-  \<open>fused_lookup_mult \<V> A i p q \<equiv> doN {
+    sllist_polynomial \<Rightarrow> (nat list \<times> int) list nres\<close> where
+  \<open>fused_lookup_mult \<V> A i q \<equiv> doN {
     let r = the (fmlookup A i);
-    q \<leftarrow> mult_poly_full_s \<V> q r;
-    add_poly_l_s \<V> (p, q) 
+    mult_poly_full_s \<V> q r
   }\<close>
 
 lemma fused_lookup_mult_rewrite:
   \<open>(let r = A \<propto> i in do {
       q \<leftarrow> mult_poly_full_s \<V> q r;
-      pq \<leftarrow> add_poly_l_s \<V> (p, q);
-      f pq
+      f q
     }) = do {
-      pq \<leftarrow> fused_lookup_mult \<V> A i p q;
-      f pq
+      q \<leftarrow> fused_lookup_mult \<V> A i q;
+      f q
     }\<close>
   unfolding fused_lookup_mult_def by (simp add: nres_monad_laws)
 
-definition[llvm_code]: \<open>fused_lookup_mult_impl \<equiv> \<lambda>\<V>i Ai ii pi qi. doM {
+definition[llvm_code]: \<open>fused_lookup_mult_impl \<equiv> \<lambda>\<V>i Ai ii qi. doM {
   (bi, Ai) \<leftarrow> polys_s.bx.pmap_extract ii Ai;
   ri \<leftarrow> ll_load bi;
   qri \<leftarrow> mult_poly_full_s_impl \<V>i qi ri;
-  si \<leftarrow> add_poly_l_prep_impl \<V>i (pi, qri);
-  poly_s.cl_free qri;
   Ai \<leftarrow> arl_upd Ai ii bi;
-  Mreturn si
+  Mreturn qri
   }\<close>
 
 lemmas mult_poly_full_s_rule = hfref_nres_htriple_k1_k2_k3[OF mult_poly_full_s_impl.refine]
 
 definition fused_lookup_mult_ol
   :: \<open>(nat, string) shared_vars \<Rightarrow> sllist_polynomial opt_list \<Rightarrow>
-       nat \<Rightarrow> sllist_polynomial \<Rightarrow> sllist_polynomial \<Rightarrow> (nat list \<times> int) list nres\<close>
+       nat \<Rightarrow> sllist_polynomial \<Rightarrow> (nat list \<times> int) list nres\<close>
 where
-  \<open>fused_lookup_mult_ol \<V> xs i p q \<equiv> doN {
+  \<open>fused_lookup_mult_ol \<V> xs i q \<equiv> doN {
     let r = opt_list_the_lookup i xs;
-    q \<leftarrow> mult_poly_full_s \<V> q r;
-    add_poly_l_s \<V> (p, q) 
+    mult_poly_full_s \<V> q r
   }\<close>
 
-lemma fused_lookup_mult_ol_nofailD:
-  assumes \<open>nofail (fused_lookup_mult_ol \<V> xs i p q)\<close>
-  shows \<open>nofail (mult_poly_full_s \<V> q (opt_list_the_lookup i xs))\<close>
-    and \<open>RETURN x \<le> mult_poly_full_s \<V> q (opt_list_the_lookup i xs) \<Longrightarrow>
-      nofail (add_poly_l_s \<V> (p, x))\<close>
-  using assms unfolding fused_lookup_mult_ol_def
-  by (auto simp: pw_le_iff refine_pw_simps)
-
-lemma fused_lookup_mult_ol_post:
-  assumes \<open>nofail (fused_lookup_mult_ol \<V> xs i p q)\<close>
-    and \<open>RETURN x \<le> mult_poly_full_s \<V> q (opt_list_the_lookup i xs)\<close>
-    and \<open>RETURN s \<le> add_poly_l_s \<V> (p, x)\<close>
-  shows \<open>RETURN s \<le> fused_lookup_mult_ol \<V> xs i p q\<close>
-  using assms unfolding fused_lookup_mult_ol_def
-  by (auto simp: pw_le_iff refine_pw_simps)
-
 lemma fused_lookup_mult_ol_rule:
-  assumes NF: \<open>nofail (fused_lookup_mult_ol \<V> xs i p q)\<close>
+  assumes NF: \<open>nofail (fused_lookup_mult_ol \<V> xs i q)\<close>
     and K: \<open>opt_list_contains_key i xs\<close>
   shows \<open>llvm_htriple
     (shared_vars_assn \<V> \<V>i ** polys_s.bx.pmap_assn' xs Ai ** \<upharpoonleft>snat.assn i ii **
-      poly_s_assn p pc ** poly_s_assn q qc)
-    (fused_lookup_mult_impl \<V>i Ai ii pc qc)
+      poly_s_assn q qc)
+    (fused_lookup_mult_impl \<V>i Ai ii qc)
     (\<lambda>s. shared_vars_assn \<V> \<V>i ** polys_s.bx.pmap_assn' xs Ai ** \<upharpoonleft>snat.assn i ii **
-      poly_s_assn p pc ** poly_s_assn q qc **
-      (EXS x. poly_s_assn x s ** \<up>(RETURN x \<le> fused_lookup_mult_ol \<V> xs i p q)))\<close>
+      poly_s_assn q qc **
+      (EXS x. poly_s_assn x s ** \<up>(RETURN x \<le> fused_lookup_mult_ol \<V> xs i q)))\<close>
   unfolding fused_lookup_mult_impl_def
   supply [vcg_rules del] = polys_s.bx.pmap_extract_rule
   supply [vcg_rules] = pmap_extract_present_rule ll_load_box_rule mult_poly_full_s_rule
-    add_poly_l_prep_rule pmap_put_back_open_box_rule MK_FREED[OF poly_s.cl_assn_free]
+    pmap_put_back_open_box_rule
   supply [simp] = polys_s.bx.opt_list_the_lookup_conv[OF K] opt_list_put_back[OF K]
-    opt_list_contains_key_lt[OF K] fused_lookup_mult_ol_nofailD[OF NF]
-    fused_lookup_mult_ol_post[OF NF]
+    opt_list_contains_key_lt[OF K]
+  using NF unfolding fused_lookup_mult_ol_def
   apply vcg
   done
 
 lemma fused_lookup_mult_ol_rule':
   \<open>llvm_htriple
     (shared_vars_assn \<V> \<V>i ** polys_s.bx.pmap_assn' xs Ai ** \<upharpoonleft>snat.assn i ii **
-      poly_s_assn p pc ** poly_s_assn q qc **
-      \<up>(nofail (fused_lookup_mult_ol \<V> xs i p q) \<and> opt_list_contains_key i xs))
-    (fused_lookup_mult_impl \<V>i Ai ii pc qc)
+      poly_s_assn q qc **
+      \<up>(nofail (fused_lookup_mult_ol \<V> xs i q) \<and> opt_list_contains_key i xs))
+    (fused_lookup_mult_impl \<V>i Ai ii qc)
     (\<lambda>s. shared_vars_assn \<V> \<V>i ** polys_s.bx.pmap_assn' xs Ai ** \<upharpoonleft>snat.assn i ii **
-      poly_s_assn p pc ** poly_s_assn q qc **
-      (EXS x. poly_s_assn x s ** \<up>(RETURN x \<le> fused_lookup_mult_ol \<V> xs i p q)))\<close>
+      poly_s_assn q qc **
+      (EXS x. poly_s_assn x s ** \<up>(RETURN x \<le> fused_lookup_mult_ol \<V> xs i q)))\<close>
 proof (rule htriple_pure_preI)
   assume \<open>pure_part (shared_vars_assn \<V> \<V>i ** polys_s.bx.pmap_assn' xs Ai **
-    \<upharpoonleft>snat.assn i ii ** poly_s_assn p pc ** poly_s_assn q qc **
-    \<up>(nofail (fused_lookup_mult_ol \<V> xs i p q) \<and> opt_list_contains_key i xs))\<close>
-  then have NF: \<open>nofail (fused_lookup_mult_ol \<V> xs i p q)\<close>
+    \<upharpoonleft>snat.assn i ii ** poly_s_assn q qc **
+    \<up>(nofail (fused_lookup_mult_ol \<V> xs i q) \<and> opt_list_contains_key i xs))\<close>
+  then have NF: \<open>nofail (fused_lookup_mult_ol \<V> xs i q)\<close>
     and K: \<open>opt_list_contains_key i xs\<close>
     by (auto dest!: pure_part_split_conj)
   show ?thesis
@@ -1152,20 +1132,20 @@ qed
 lemma fused_lookup_mult_ol_rule'':
   \<open>llvm_htriple
     (shared_vars_assn \<V> \<V>i ** polys_s.bx.pmap_assn' xs Ai ** snat_assn i ii **
-      poly_s_assn p pc ** poly_s_assn q qc **
-      \<up>(nofail (fused_lookup_mult_ol \<V> xs i p q) \<and> opt_list_contains_key i xs))
-    (fused_lookup_mult_impl \<V>i Ai ii pc qc)
+      poly_s_assn q qc **
+      \<up>(nofail (fused_lookup_mult_ol \<V> xs i q) \<and> opt_list_contains_key i xs))
+    (fused_lookup_mult_impl \<V>i Ai ii qc)
     (\<lambda>s. shared_vars_assn \<V> \<V>i ** polys_s.bx.pmap_assn' xs Ai ** snat_assn i ii **
-      poly_s_assn p pc ** poly_s_assn q qc **
-      (EXS x. poly_s_assn x s ** \<up>(RETURN x \<le> fused_lookup_mult_ol \<V> xs i p q)))\<close>
+      poly_s_assn q qc **
+      (EXS x. poly_s_assn x s ** \<up>(RETURN x \<le> fused_lookup_mult_ol \<V> xs i q)))\<close>
   unfolding snat_rel_def snat.assn_is_rel[symmetric]
   by (rule fused_lookup_mult_ol_rule'[unfolded snat_rel_def snat.assn_is_rel[symmetric]])
 
 lemma fused_lookup_mult_ol_hnr:
-  \<open>(uncurry4 fused_lookup_mult_impl, uncurry4 fused_lookup_mult_ol)
-  \<in> [\<lambda>((((\<V>, xs), i), p), q). opt_list_contains_key i xs]\<^sub>a
+  \<open>(uncurry3 fused_lookup_mult_impl, uncurry3 fused_lookup_mult_ol)
+  \<in> [\<lambda>(((\<V>, xs), i), q). opt_list_contains_key i xs]\<^sub>a
       shared_vars_assn\<^sup>k *\<^sub>a polys_s.bx.pmap_assn'\<^sup>k *\<^sub>a (snat_assn' TYPE(64))\<^sup>k *\<^sub>a
-        poly_s_assn\<^sup>k *\<^sub>a poly_s_assn\<^sup>k
+        poly_s_assn\<^sup>k
       \<rightarrow> poly_s_assn\<close>
   supply [vcg_rules] = fused_lookup_mult_ol_rule''
   supply [simp] = pure_def
@@ -1173,26 +1153,25 @@ lemma fused_lookup_mult_ol_hnr:
 
 definition fused_lookup_mult_m
   :: \<open>(nat, string) shared_vars \<Rightarrow> (nat \<rightharpoonup> sllist_polynomial) \<Rightarrow>
-       nat \<Rightarrow> sllist_polynomial \<Rightarrow> sllist_polynomial \<Rightarrow> (nat list \<times> int) list nres\<close>
+       nat \<Rightarrow> sllist_polynomial \<Rightarrow> (nat list \<times> int) list nres\<close>
 where
-  \<open>fused_lookup_mult_m \<V> m i p q \<equiv> doN {
+  \<open>fused_lookup_mult_m \<V> m i q \<equiv> doN {
     let r = the (m i);
-    q \<leftarrow> mult_poly_full_s \<V> q r;
-    add_poly_l_s \<V> (p, q)
+    mult_poly_full_s \<V> q r
   }\<close>
 
 lemma fused_lookup_mult_ol_refine:
-  \<open>(uncurry4 fused_lookup_mult_ol, uncurry4 fused_lookup_mult_m)
-   \<in> [\<lambda>((((_, m), i), _), _). m i \<noteq> None]\<^sub>f
-       (((Id \<times>\<^sub>r opt_list_map_rel) \<times>\<^sub>r nat_rel) \<times>\<^sub>r Id) \<times>\<^sub>r Id \<rightarrow> \<langle>Id\<rangle>nres_rel\<close>
+  \<open>(uncurry3 fused_lookup_mult_ol, uncurry3 fused_lookup_mult_m)
+   \<in> [\<lambda>(((_, m), i), _). m i \<noteq> None]\<^sub>f
+       ((Id \<times>\<^sub>r opt_list_map_rel) \<times>\<^sub>r nat_rel) \<times>\<^sub>r Id \<rightarrow> \<langle>Id\<rangle>nres_rel\<close>
   apply (intro frefI nres_relI)
   by (auto simp: fused_lookup_mult_ol_def fused_lookup_mult_m_def opt_list_map_rel_def
       in_br_conv opt_list_the_lookup_def opt_list_\<alpha>_def split: if_splits)
 
 lemma fused_lookup_mult_m_refine:
-  \<open>(uncurry4 fused_lookup_mult_m, uncurry4 fused_lookup_mult)
-   \<in> [\<lambda>((((_, A), i), _), _). i \<in># dom_m A]\<^sub>f
-       (((Id \<times>\<^sub>r map_fmap_rel) \<times>\<^sub>r Id) \<times>\<^sub>r Id) \<times>\<^sub>r Id \<rightarrow> \<langle>Id\<rangle>nres_rel\<close>
+  \<open>(uncurry3 fused_lookup_mult_m, uncurry3 fused_lookup_mult)
+   \<in> [\<lambda>(((_, A), i), _). i \<in># dom_m A]\<^sub>f
+       ((Id \<times>\<^sub>r map_fmap_rel) \<times>\<^sub>r Id) \<times>\<^sub>r Id \<rightarrow> \<langle>Id\<rangle>nres_rel\<close>
   apply (intro frefI nres_relI)
   by (auto simp: fused_lookup_mult_m_def fused_lookup_mult_def map_fmap_rel_def br_def
       fmap.Abs_fmap_inverse)
@@ -1201,18 +1180,16 @@ lemmas fused_lookup_mult_hnr_chain =
   fused_lookup_mult_ol_hnr[FCOMP fused_lookup_mult_ol_refine, FCOMP fused_lookup_mult_m_refine]
 
 lemma fused_lookup_mult_impl_hnr[sepref_fr_rules]:
-  \<open>(uncurry4 fused_lookup_mult_impl, uncurry4 fused_lookup_mult)
-  \<in> [\<lambda>((((\<V>, A), i), p), q). i \<in># dom_m A]\<^sub>a
-      shared_vars_assn\<^sup>k *\<^sub>a polys_s_assn\<^sup>k *\<^sub>a (snat_assn' TYPE(64))\<^sup>k *\<^sub>a poly_s_assn\<^sup>k *\<^sub>a
-        poly_s_assn\<^sup>k
+  \<open>(uncurry3 fused_lookup_mult_impl, uncurry3 fused_lookup_mult)
+  \<in> [\<lambda>(((\<V>, A), i), q). i \<in># dom_m A]\<^sub>a
+      shared_vars_assn\<^sup>k *\<^sub>a polys_s_assn\<^sup>k *\<^sub>a (snat_assn' TYPE(64))\<^sup>k *\<^sub>a poly_s_assn\<^sup>k
       \<rightarrow> poly_s_assn\<close>
   using fused_lookup_mult_hnr_chain by (simp add: fmlookup_Some_dom_m)
 
 sepref_register fused_lookup_mult ::
   \<open>(nat, string) shared_vars \<Rightarrow> (nat, sllist_polynomial) f_map \<Rightarrow> nat \<Rightarrow>
-    sllist_polynomial \<Rightarrow> sllist_polynomial \<Rightarrow> (nat list \<times> int) list nres\<close>
+    sllist_polynomial \<Rightarrow> (nat list \<times> int) list nres\<close>
 
-sepref_register add_poly_l_s
 sepref_def linear_combi_l_prep_s_impl
   is \<open>uncurry3 linear_combi_l_prep_s\<close>
   :: \<open>si64_assn\<^sup>k *\<^sub>a polys_s_assn\<^sup>k *\<^sub>a shared_vars_assn\<^sup>k *\<^sub>a
@@ -1221,6 +1198,7 @@ sepref_def linear_combi_l_prep_s_impl
   \<close>
   supply [[goals_limit=1]]
   unfolding linear_combi_l_prep_s_alt
+  unfolding add_poly_l_s_lc_fold
   unfolding fused_lookup_rewrite fused_lookup_mult_rewrite
   unfolding
     fmlookup'_def[symmetric]
@@ -1299,7 +1277,7 @@ sepref_def check_extension_l_impl
     stra_assn\<^sup>k *\<^sub>a polynomiala_assn\<^sup>k \<rightarrow>\<^sub>a status_assn \<times>\<^sub>a poly_s_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a si64_assn
   \<close>
   supply [[goals_limit=1]]
-  unfolding check_extension_l2_s_alt_def
+  unfolding check_extension_l2_s_alt_def add_poly_l_s_lc_fold
     in_dom_by_contains
     ls_emp ls_emp'
   apply (annot_snat_const \<open>TYPE(64)\<close>)
@@ -1322,7 +1300,7 @@ sepref_def check_step_s_impl
     status_assn \<times>\<^sub>a shared_vars_assn \<times>\<^sub>a polys_s_assn\<close>
   supply [[goals_limit=1]]
   supply [sepref_frame_free_rules] = poly.cl_assn_free (* Need this to force our custom free *)
-  unfolding PAC_checker_l_step_s_alt_def Let_def
+  unfolding PAC_checker_l_step_s_alt_def Let_def add_poly_l_s_lc_fold
     is_success_alt_def[symmetric]
     ls_emp ls_emp'
   by sepref

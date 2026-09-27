@@ -17,20 +17,23 @@
 # PAC_Checker2_Parser_Test (Parser_Test.thy). Rebuild/refresh them with
 # `isabelle build <session>` before rebuilding the corresponding C target.
 
-CC           ?= cc
+# The checker targets must be built with clang: -mllvm is clang-only, and the
+# exported .ll is fed to the same invocation as parser.c so that -O3/-flto
+# optimise the verified code together with the trusted parser (as IsaSAT does).
+# Assembling the .ll separately with `clang -c` would emit an -O0 native object
+# that the later -O3 -flto link cannot optimise (measured ~1.9x slower).
+CC           ?= clang
 CLANG        ?= clang
 CLANG_FORMAT ?= clang-format
-# DFLAGS       ?= -Omarch=native -Omtune=native
+# DFLAGS       ?= -march=native -mtune=native
 DFLAGS       ?=
 CFLAGS       ?= -std=c11 -O3 -flto -mllvm -inline-threshold=4000 -Wno-implicit-function-declaration
 
 DRIVER  := pasteque
 DRIVER_LL := pasteque.ll
-DRIVER_LL_OBJ := $(DRIVER_LL:.ll=.o)
 
 SHARED_DRIVER := pasteque_shared
 SHARED_DRIVER_LL := pasteque_shared.ll
-SHARED_DRIVER_LL_OBJ := $(SHARED_DRIVER_LL:.ll=.o)
 
 TEST    := parser_test
 TEST_LL := pasteque_parser_test.ll
@@ -49,24 +52,19 @@ format:
 format-check:
 	$(CLANG_FORMAT) --dry-run --Werror $(C_SRCS)
 
-# Isabelle/LLVM-exported IR: assemble with clang.
-$(DRIVER_LL_OBJ): $(DRIVER_LL)
-	$(CLANG) -c -o $@ $<
-
-$(SHARED_DRIVER_LL_OBJ): $(SHARED_DRIVER_LL)
-	$(CLANG) -c -o $@ $<
-
+# Isabelle/LLVM-exported IR for the smoke test: assemble with clang.
 $(TEST_LL_OBJ): $(TEST_LL)
-	$(CLANG) -c -o $@ $<
+	$(CLANG) $(CFLAGS) -c -o $@ $<
 
-# The checker: trusted parser.c (with its main) + the verified run_checker.
-$(DRIVER): parser.c parser.h pasteque.h $(DRIVER_LL_OBJ)
-	$(CC) $(CFLAGS) $(DFLAGS) -o $@ parser.c $(DRIVER_LL_OBJ)
+# The checker: trusted parser.c (with its main) + the verified run_checker,
+# compiled and LTO-linked in one invocation.
+$(DRIVER): parser.c parser.h pasteque.h $(DRIVER_LL)
+	$(CC) $(CFLAGS) $(DFLAGS) -o $@ parser.c $(DRIVER_LL)
 
 # Same driver against the shared-variables checker: -DPASTEQUE_SHARED makes
 # parser.c pull in pasteque_shared.h and call run_shared_checker.
-$(SHARED_DRIVER): parser.c parser.h pasteque_shared.h $(SHARED_DRIVER_LL_OBJ)
-	$(CC) $(CFLAGS) -DPASTEQUE_SHARED $(DFLAGS) -o $@ parser.c $(SHARED_DRIVER_LL_OBJ)
+$(SHARED_DRIVER): parser.c parser.h pasteque_shared.h $(SHARED_DRIVER_LL)
+	$(CC) $(CFLAGS) -DPASTEQUE_SHARED $(DFLAGS) -o $@ parser.c $(SHARED_DRIVER_LL)
 
 # Smoke test: test driver + parser-as-library (main dropped) + exported IR.
 parser_test.o: parser_test.c parser.h pasteque.h
@@ -80,5 +78,5 @@ $(TEST): parser_test.o parser_lib.o $(TEST_LL_OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 clean:
-	$(RM) $(DRIVER) $(DRIVER_LL_OBJ) $(SHARED_DRIVER) $(SHARED_DRIVER_LL_OBJ) \
+	$(RM) $(DRIVER) $(SHARED_DRIVER) \
 	      $(TEST) parser_test.o parser_lib.o $(TEST_LL_OBJ)

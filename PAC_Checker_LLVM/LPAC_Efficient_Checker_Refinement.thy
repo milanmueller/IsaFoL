@@ -574,24 +574,32 @@ definition \<open>add_poly_l_s_dir \<equiv> \<lambda>(xs, n) (ys, m) \<D>. doN{
       RETURN RIGHT
   }\<close>
 
-text \<open>Note that copying is genuinely needed here, as we actually need
-  to duplicate the respective monomials.\<close>
+text \<open>The addition consumes its left operand: on \<open>LEFT\<close> and \<open>BOTH\<close> the left
+  monomial is moved into the result, on \<open>RIGHT\<close> the right monomial is copied. The
+  accumulator is a pair \<open>(r, t)\<close>: \<open>r\<close> is the result prefix built by appending at the
+  end, \<open>t\<close> is the remainder of the left operand that is handed over unchanged once
+  the right operand is exhausted (\<open>t = []\<close> until then). Both parts are concatenated
+  after the fold, which is a constant-time operation on the implementation side.\<close>
 
-definition \<open>add_poly_l_s_f \<equiv> \<lambda>r (xs, n) (ys, m) \<D> dir. doN {
+definition \<open>add_poly_l_s_lf \<equiv> \<lambda>(r, t) (xs, n) (ys, m) \<D> dir. doN {
     if dir = BOTH then doN {
       let s = n + m;
       if s = 0 then
-        RETURN r
+        RETURN (r, t)
       else
-        RETURN (r@[(COPY xs, s)])    
-    } else if dir = LEFT then
-        RETURN (r@[(COPY xs, COPY n)])
-    else
-        RETURN (r@[(COPY ys, COPY m)])
+        RETURN (r @ [(xs, s)], t)
+    } else
+      RETURN (r @ [(xs, n)], t)
   }\<close>
 
-definition \<open>add_poly_l_s_cpy r x \<equiv> RETURN (r @ [COPY x])\<close>
+definition \<open>add_poly_l_s_lfr \<equiv> \<lambda>(r, t) (xs, n) (ys, m) \<D>.
+    RETURN (r @ [(COPY ys, COPY m)], t)\<close>
 
+text \<open>The suffix component is always empty when the hand-over happens; it is released
+  explicitly, because the synthesis cannot discard a component of a destructured pair.\<close>
+definition \<open>add_poly_l_s_lf1 \<equiv> \<lambda>(r, t) xs. doN { mop_free t; RETURN (r, xs) }\<close>
+
+definition \<open>add_poly_l_s_lf2 \<equiv> \<lambda>(r, t) y. RETURN (r @ [COPY y], t)\<close>
 lemma add_poly_l_s_simps:
   \<open>add_poly_l_s \<D> (p, []) = RETURN p\<close>
   \<open>add_poly_l_s \<D> ([], q) = RETURN q\<close>
@@ -623,13 +631,16 @@ lemma add_poly_l_s_simps:
     by simp
   done
 
-lemma foldl_nres_add_poly_l_s_cpy:
-  \<open>foldl_nres add_poly_l_s_cpy acc xs = RETURN (acc @ xs)\<close>
-  by (induction xs arbitrary: acc) (auto simp: foldl_nres_Cons add_poly_l_s_cpy_def)
+lemma foldl_nres_add_poly_l_s_lf2:
+  \<open>foldl_nres add_poly_l_s_lf2 (acc, t) ys = RETURN (acc @ ys, t)\<close>
+  by (induction ys arbitrary: acc) (auto simp: foldl_nres_Cons add_poly_l_s_lf2_def)
 
-lemma add_poly_l_s_ifoldl_acc:
-  \<open>ifoldl_ext_nres add_poly_l_s_f add_poly_l_s_dir add_poly_l_s_cpy add_poly_l_s_cpy acc p q \<D>
-    = do { r \<leftarrow> add_poly_l_s \<D> (p, q); RETURN (acc @ r) }\<close>
+lemma add_poly_l_s_ifoldl_lc_acc:
+  \<open>do {
+    (a, b) \<leftarrow> ifoldl_ext_cl_nres add_poly_l_s_lf add_poly_l_s_lfr add_poly_l_s_dir
+      add_poly_l_s_lf1 add_poly_l_s_lf2 (acc, []) p q \<D>;
+    RETURN (a @ b)
+  } = do { r \<leftarrow> add_poly_l_s \<D> (p, q); RETURN (acc @ r) }\<close>
 proof (induction \<open>length p + length q\<close> arbitrary: p q acc rule: less_induct)
   case less
   consider
@@ -641,11 +652,13 @@ proof (induction \<open>length p + length q\<close> arbitrary: p q acc rule: les
   proof cases
     case N2
     then show ?thesis
-      by (simp add: ifoldl_ext_nres_Nil2 foldl_nres_add_poly_l_s_cpy add_poly_l_s_simps)
+      by (cases p)
+        (simp_all add: ifoldl_ext_cl_nres_Nil1 ifoldl_ext_cl_nres_Nil2
+          foldl_nres_add_poly_l_s_lf2 add_poly_l_s_lf1_def mop_free_def add_poly_l_s_simps)
   next
     case N1
     then show ?thesis
-      by (simp add: ifoldl_ext_nres_Nil1 foldl_nres_add_poly_l_s_cpy add_poly_l_s_simps)
+      by (simp add: ifoldl_ext_cl_nres_Nil1 foldl_nres_add_poly_l_s_lf2 add_poly_l_s_simps)
   next
     case C
     obtain xs n where xx: \<open>xx = (xs, n)\<close> by (cases xx)
@@ -654,16 +667,23 @@ proof (induction \<open>length p + length q\<close> arbitrary: p q acc rule: les
       and L2: \<open>length p' + length ((ys, m) # q') < length p + length q\<close>
       and L3: \<open>length ((xs, n) # p') + length q' < length p + length q\<close>
       by (simp_all add: C)
-    have IH1: \<open>ifoldl_ext_nres add_poly_l_s_f add_poly_l_s_dir add_poly_l_s_cpy add_poly_l_s_cpy
-        acc' p' q' \<D> = do { r \<leftarrow> add_poly_l_s \<D> (p', q'); RETURN (acc' @ r) }\<close> for acc'
+    have IH1: \<open>do {
+        (a, b) \<leftarrow> ifoldl_ext_cl_nres add_poly_l_s_lf add_poly_l_s_lfr add_poly_l_s_dir
+          add_poly_l_s_lf1 add_poly_l_s_lf2 (acc', []) p' q' \<D>;
+        RETURN (a @ b)
+      } = do { r \<leftarrow> add_poly_l_s \<D> (p', q'); RETURN (acc' @ r) }\<close> for acc'
       using L1 less.hyps by auto
-    have IH2: \<open>ifoldl_ext_nres add_poly_l_s_f add_poly_l_s_dir add_poly_l_s_cpy add_poly_l_s_cpy
-        acc' p' ((ys, m) # q') \<D>
-        = do { r \<leftarrow> add_poly_l_s \<D> (p', (ys, m) # q'); RETURN (acc' @ r) }\<close> for acc'
+    have IH2: \<open>do {
+        (a, b) \<leftarrow> ifoldl_ext_cl_nres add_poly_l_s_lf add_poly_l_s_lfr add_poly_l_s_dir
+          add_poly_l_s_lf1 add_poly_l_s_lf2 (acc', []) p' ((ys, m) # q') \<D>;
+        RETURN (a @ b)
+      } = do { r \<leftarrow> add_poly_l_s \<D> (p', (ys, m) # q'); RETURN (acc' @ r) }\<close> for acc'
       using L2 less by presburger
-    have IH3: \<open>ifoldl_ext_nres add_poly_l_s_f add_poly_l_s_dir add_poly_l_s_cpy add_poly_l_s_cpy
-        acc' ((xs, n) # p') q' \<D>
-        = do { r \<leftarrow> add_poly_l_s \<D> ((xs, n) # p', q'); RETURN (acc' @ r) }\<close> for acc'
+    have IH3: \<open>do {
+        (a, b) \<leftarrow> ifoldl_ext_cl_nres add_poly_l_s_lf add_poly_l_s_lfr add_poly_l_s_dir
+          add_poly_l_s_lf1 add_poly_l_s_lf2 (acc', []) ((xs, n) # p') q' \<D>;
+        RETURN (a @ b)
+      } = do { r \<leftarrow> add_poly_l_s \<D> ((xs, n) # p', q'); RETURN (acc' @ r) }\<close> for acc'
       using L3 less by auto
     have dir_app: \<open>add_poly_l_s_dir (xs, n) (ys, m) \<D> = doN {
         comp \<leftarrow> perfect_shared_term_order_rel_s \<D> xs ys;
@@ -671,13 +691,14 @@ proof (induction \<open>length p + length q\<close> arbitrary: p q acc rule: les
         else if comp = LESS then RETURN LEFT
         else RETURN RIGHT }\<close>
       by (simp add: add_poly_l_s_dir_def)
-    have f_app: \<open>add_poly_l_s_f r (xs, n) (ys, m) \<D> dir =
-        (if dir = BOTH then (if n + m = 0 then RETURN r else RETURN (r @ [(xs, n + m)]))
-         else if dir = LEFT then RETURN (r @ [(xs, n)])
-         else RETURN (r @ [(ys, m)]))\<close> for r dir
-      by (simp add: add_poly_l_s_f_def Let_def)
+    have f_app: \<open>add_poly_l_s_lf (r, t) (xs, n) (ys, m) \<D> dir =
+        (if dir = BOTH then (if n + m = 0 then RETURN (r, t) else RETURN (r @ [(xs, n + m)], t))
+         else RETURN (r @ [(xs, n)], t))\<close> for r t dir
+      by (simp add: add_poly_l_s_lf_def Let_def)
+    have fr_app: \<open>add_poly_l_s_lfr (r, t) (xs, n) (ys, m) \<D> = RETURN (r @ [(ys, m)], t)\<close> for r t
+      by (simp add: add_poly_l_s_lfr_def)
     show ?thesis
-      unfolding C xx yy ifoldl_ext_nres_Cons add_poly_l_s_simps(3) dir_app f_app
+      unfolding C xx yy ifoldl_ext_cl_nres_Cons add_poly_l_s_simps(3) dir_app f_app fr_app
       apply (simp only: nres_monad_laws)
       apply (intro bind_cong[OF refl])
       subgoal for comp
@@ -686,21 +707,35 @@ proof (induction \<open>length p + length q\<close> arbitrary: p q acc rule: les
   qed
 qed
 
-definition add_poly_l_s_ifoldl
-  :: \<open>sllist_polynomial \<Rightarrow> sllist_polynomial \<Rightarrow> sllist_polynomial \<Rightarrow>
-      (nat, string) shared_vars \<Rightarrow> sllist_polynomial nres\<close>
+definition add_poly_l_s_ifoldl_lc
+  :: \<open>sllist_polynomial \<times> sllist_polynomial \<Rightarrow> sllist_polynomial \<Rightarrow> sllist_polynomial \<Rightarrow>
+      (nat, string) shared_vars \<Rightarrow> (sllist_polynomial \<times> sllist_polynomial) nres\<close>
 where
-  \<open>add_poly_l_s_ifoldl \<equiv>
-    ifoldl_ext_nres add_poly_l_s_f add_poly_l_s_dir add_poly_l_s_cpy add_poly_l_s_cpy\<close>
+  \<open>add_poly_l_s_ifoldl_lc \<equiv>
+    ifoldl_ext_cl_nres add_poly_l_s_lf add_poly_l_s_lfr add_poly_l_s_dir
+      add_poly_l_s_lf1 add_poly_l_s_lf2\<close>
 
-lemma add_poly_l_s_ifoldl_alt:
-  \<open>add_poly_l_s \<D> = (\<lambda>(p, q). doN {
-    rt \<leftarrow> add_poly_l_s_ifoldl op_clt_empty p q \<D>;
-    RETURN (op_clt_to_cl rt)
-  })\<close>
-  unfolding add_poly_l_s_ifoldl_def
-  by (auto simp: add_poly_l_s_ifoldl_acc nres_monad_laws split: prod.splits)
+text \<open>Curried, left-consuming form of @{term add_poly_l_s}: the first polynomial is
+  consumed, the second one is kept.\<close>
 
+definition add_poly_l_s_lc
+  :: \<open>(nat, string) shared_vars \<Rightarrow> sllist_polynomial \<Rightarrow> sllist_polynomial \<Rightarrow>
+      sllist_polynomial nres\<close>
+where
+  \<open>add_poly_l_s_lc \<V> p q = doN {
+    (a, b) \<leftarrow> add_poly_l_s_ifoldl_lc (op_clt_empty, []) p q \<V>;
+    RETURN (op_clt_cl_append a b)
+  }\<close>
+
+lemma add_poly_l_s_lc_add_poly_l_s:
+  \<open>add_poly_l_s_lc \<V> p q = add_poly_l_s \<V> (p, q)\<close>
+  unfolding add_poly_l_s_lc_def add_poly_l_s_ifoldl_lc_def
+  using add_poly_l_s_ifoldl_lc_acc[where acc = \<open>[]\<close> and p = p and q = q and \<D> = \<V>]
+  by (simp add: nres_monad_laws)
+
+lemma add_poly_l_s_lc_fold:
+  \<open>add_poly_l_s \<V> (p, q) = add_poly_l_s_lc \<V> p q\<close>
+  by (rule add_poly_l_s_lc_add_poly_l_s[symmetric])
 lemma add_poly_l_s_add_poly_l:
   fixes xs :: \<open>sllist_polynomial \<times> sllist_polynomial\<close>
   assumes \<open>(\<V>, \<V>\<D>) \<in> perfectly_shared_vars_rel\<close> and
@@ -2387,7 +2422,7 @@ lemma check_extension_l2_s_alt_def:
         do {
          p2 \<leftarrow> mult_poly_full_s \<V> p p;
          let p'' = uminus_poly_s (COPY p);
-         q \<leftarrow> add_poly_l_s \<V> (p2, COPY p'');
+         q \<leftarrow> add_poly_l_s \<V> (p2, p'');
          eq \<leftarrow> weak_equality_l_s q [];
          if eq then do {
            RETURN (CSUCCESS, p, \<V>, v')
