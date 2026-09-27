@@ -1,7 +1,7 @@
 # Makefile for the PAC checker C driver.
 #
 #   make pasteque   # the checker: trusted parser (parser.c) linked against the verified
-#                   # builders and checker exported by LLVM_Codegen.thy (term.ll,
+#                   # builders and checker exported by LPAC_Codegen.thy (term.ll,
 #                   # pasteque.ll). Refresh the .ll files with `isabelle build` first.
 #
 # Symbol hiding. Isabelle-LLVM names the auxiliary functions of every export_llvm

@@ -1,5 +1,5 @@
 /* Hand-written header for code/pasteque.ll, exported with `export_llvm (no_header)`
-   from LLVM_Codegen.thy. The signed big integer contains a 1-bit sign flag, which the
+   from LPAC_Codegen.thy. The signed big integer contains a 1-bit sign flag, which the
    Isabelle-LLVM header generator cannot express, and several values are LLVM aggregates.
    Therefore all types below are opaque: C code only handles them through pointers, and
    every function consumes (takes ownership of) the objects passed to it.
@@ -47,5 +47,10 @@ void           steps_append_cl(steps_builder*, srcsnode* srcs, int64_t idx, poly
 void           steps_append_ext(steps_builder*, int64_t idx, int64_t var_len, char* var, polynode* res);
 void           steps_append_del(steps_builder*, int64_t idx);
 stepnode*      steps_finish(steps_builder*);
+
+/* Checker entry point. Consumes all three objects. Returns the status tag (see
+   status_assn in PAC_Checker_Error.thy): 0 = SUCCESS, 1 = FOUND, 2 = FAILED. On FAILED a
+   length-carrying, not NUL-terminated error message is stored through msg. */
+char run_checker(polymap* inputs, stepnode* proof, polynode* target, stra* msg);
 
 #endif

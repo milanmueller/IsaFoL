@@ -1,7 +1,7 @@
 /* parser.h — public interface of the trusted C tokenizer/parser (parser.c).
  *
  * The parser does not build any data structure of its own: it drives the
- * verified builder functions exported from LLVM_Codegen.thy (pasteque.h and
+ * verified builder functions exported from LPAC_Codegen.thy (pasteque.h and
  * term.h) directly, so the objects it returns (polymap, stepnode, polynode) are
  * exactly the checker's own heap representation.
  */
@@ -43,7 +43,7 @@ stepnode *parse_proof(const token_array *ta);  /* proof  ::= (rule)* */
 polynode *parse_target(const token_array *ta); /* target ::= poly ';' */
 
 /* -- Checker entry point -----------------------------------------------------
- * Expected to be exported by LLVM_Codegen.thy (into pasteque.ll) over the
+ * Expected to be exported by LPAC_Codegen.thy (into pasteque.ll) over the
  * builder representation, once the checker entry point is added there. The
  * returned byte is the checker's status tag (see status_assn in
  * PAC_Checker_Error.thy): 0 = SUCCESS, 1 = FOUND, 2 = FAILED. On FAILED an

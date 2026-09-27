@@ -573,7 +573,7 @@ int main(int argc, char **argv) {
   }
   printf("%d\n", (int)status);
   fprintf(stderr, "run_checker: %s\n", status_msg);
-  if (msg.ptr != NULL) {
+  if (status == 2 && msg.ptr != NULL) { /* msg is only defined for FAILED */
     fprintf(stderr, "run_checker: %.*s\n", (int)msg.len, msg.ptr);
     isabelle_llvm_free(msg.ptr); // the checker allocated it, we own it
   }

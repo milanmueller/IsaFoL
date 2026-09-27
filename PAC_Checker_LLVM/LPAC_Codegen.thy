@@ -1,8 +1,9 @@
-theory LLVM_Codegen
-  imports LPAC_Efficient_Checker_Synthesis LPAC_CodeExport
+theory LPAC_Codegen
+  imports LPAC_Efficient_Checker_Synthesis
 begin
 
-text \<open>This theory exports all LLVM functions required for the c-parser alongside a c-header.\<close>
+text \<open>This theory exports all LLVM functions required for the C parser alongside a C header:
+  builder functions for the checker's inputs and the checker entry point itself.\<close>
 text \<open>The c-parser must by able to construct
   \<^item> @{term polynomiala_assn} - the target/spec polynomial.
   \<^item> @{term polysa_assn} - the given list of indexed polynomials.
@@ -187,6 +188,30 @@ definition steps_finish :: \<open>lpac_stepa_conc clt_list ptr \<Rightarrow> lpa
   where [llvm_code]:
   \<open>steps_finish = clt_builder_finish\<close>
 
+section \<open>Checker entry point\<close>
+text \<open>@{term full_checker_l_s2_impl} keeps the target and the input map and consumes the
+  proof. The entry point consumes all three: it unboxes the map, runs the checker, stores the
+  status message (only meaningful for the tag \<open>2\<close>, \<open>CFAILED\<close>) through the given pointer, frees
+  the target and the inputs and returns the status tag (\<open>0\<close> = \<open>CSUCCESS\<close>, \<open>1\<close> = \<open>CFOUND\<close>). The
+  shared variables and the final polynomials returned by the checker are not freed, as the
+  driver terminates afterwards.\<close>
+
+definition run_checker
+  :: \<open>polymap_conc ptr \<Rightarrow> lpac_stepa_conc cl_list \<Rightarrow> polya_conc \<Rightarrow> stra_conc ptr \<Rightarrow> 8 word llM\<close>
+  where [llvm_code]:
+  \<open>run_checker mp prf tgt msgp = doM {
+    m \<leftarrow> ll_load mp;
+    ll_free mp;
+    res \<leftarrow> full_checker_l_s2_impl tgt m prf;
+    case res of (stm, vsp) \<Rightarrow>
+    case stm of (st, msg) \<Rightarrow> doM {
+      ll_store msg msgp;
+      polya.cl_free tgt;
+      polysa.bx.pmap_free m;
+      Mreturn st
+    }
+  }\<close>
+
 section \<open>Export\<close>
 text \<open>The \<open>rewrites\<close> name every structure type occurring in the exported signatures, so the
   hand-written header \<^file>\<open>code/pasteque.h\<close> can use the same names as the LLVM file.\<close>
@@ -206,6 +231,7 @@ export_llvm (no_header)
   steps_append_ext is steps_append_ext
   steps_append_del is steps_append_del
   steps_finish is steps_finish
+  run_checker is run_checker
   rewrites \<open>8 word node\<close> = charnode
            \<open>stra_conc\<close> = stra
            \<open>stra_conc node\<close> = strnode
