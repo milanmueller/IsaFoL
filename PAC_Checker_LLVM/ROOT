@@ -62,6 +62,4 @@ session PAC_Checker_LLVM = "Isabelle_LLVM" +
     LPAC_Efficient_Checker_Synthesis
     LPAC_Efficient_Checker_Correctness
     LPAC_Checker_Synthesis
-    (* LLVM code export: writes code/pasteque.ll and code/pasteque_shared.ll
-       (plus the corresponding .h files) into the session directory *)
-    LPAC_CodeExport
+    LPAC_Codegen

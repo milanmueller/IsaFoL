@@ -23,31 +23,25 @@ definition fully_epac_assn where
 text \<open>
 
 Below is the full correctness theorems. It basically states that:
-
   \<^enum> assuming that the input polynomials have no duplicate variables
+  \<^enum> and no step adds a polynomomial with index \<ge> 2^63-1 
+    (this is new, compared to the SML backend.)
 
 Then:
 
-\<^enum> if the checker returns \<^term>\<open>CFOUND\<close>, the spec is in the ideal
-  and the PAC file is correct
-
-\<^enum> if the checker returns \<^term>\<open>CSUCCESS\<close>, the PAC file is correct (but
-there is no information on the spec, aka checking failed)
-
-\<^enum> if the checker return \<^term>\<open>CFAILED err\<close>, then checking failed (and
-\<^term>\<open>err\<close> \<^emph>\<open>might\<close> give you an indication of the error, but the correctness
-
-theorem does not say anything about that).
+  \<^enum> if the checker returns \<^term>\<open>CFOUND\<close>, the spec is in the ideal
+    and the PAC file is correct
+  \<^enum> if the checker returns \<^term>\<open>CSUCCESS\<close>, the PAC file is correct (but
+    there is no information on the spec, aka checking failed)
+  \<^enum> if the checker return \<^term>\<open>CFAILED err\<close>, then checking failed (and
+    \<^term>\<open>err\<close> \<^emph>\<open>might\<close> give you an indication of the error, but the correctness
+    theorem does not say anything about that).
 
 The input parameters are:
-
-\<^enum> the specification polynomial represented as a list
-
-\<^enum> the input polynomials as hash map (as an array of option polynomial)
-
-\<^enum> a represention of the PAC proofs.
-
-  \<close>
+  \<^enum> the specification polynomial represented as a list
+  \<^enum> the input polynomials as hash map (as an array of option polynomial)
+  \<^enum> a represention of the PAC proofs.
+\<close>
 
 subsection \<open>Relating the nested and the flat variable import\<close>
 
