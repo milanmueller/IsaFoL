@@ -229,13 +229,13 @@ void pst_report(double lex_parse_secs, double checker_secs,
   } else {
     /* The allocation columns count what the phase requested while it was the
        innermost active one, i.e. they are attributed like the self time. */
-    fprintf(stderr, "c %-32s %9s %9s %7s %12s %12s %10s\n", "phase", "incl (s)",
+    fprintf(stderr, "c %-38s %9s %9s %7s %12s %12s %10s\n", "phase", "incl (s)",
             "self (s)", "self %", "calls", "allocs", "alloc MiB");
     for (int64_t s = 0; s < PST_NPHASES; s++) {
       if (pst_calls[s] == 0)
         continue; /* phase not wrapped at the injected tier */
       fprintf(stderr,
-              "c %-32s %9.3f %9.3f %6.1f%% %12" PRIu64 " %12" PRIu64
+              "c %-38s %9.3f %9.3f %6.1f%% %12" PRIu64 " %12" PRIu64
               " %10.1f\n",
               pst_phase_label(s), pst_secs(pst_incl[s]), pst_secs(pst_self[s]),
               100.0 * pst_secs(pst_self[s]) / base, pst_calls[s], pst_acalls[s],
@@ -244,7 +244,7 @@ void pst_report(double lex_parse_secs, double checker_secs,
     /* Time inside run_checker that no wrapped phase accounts for. With CHECKER
      * wrapped this is the glue in run_checker itself and should be ~0; a large
      * value means a phase is missing from the table. */
-    fprintf(stderr, "c %-32s %9s %9.3f %6.1f%%\n", "(unattributed)", "",
+    fprintf(stderr, "c %-38s %9s %9.3f %6.1f%%\n", "(unattributed)", "",
             pst_secs(pst_outside), 100.0 * pst_secs(pst_outside) / base);
     if (pst_sp != 0 || pst_unbalanced != 0)
       fprintf(stderr,

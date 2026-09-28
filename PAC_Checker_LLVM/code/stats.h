@@ -62,14 +62,18 @@
  * report gives both the inclusive time (the phase and everything it calls) and
  * the self time (the phase minus the nested phases), so the self column sums to
  * the inclusive time of CHECKER.
+ *
+ * The indentation of the labels is the call nesting that dominates a run, not a
+ * strict tree: NORMALIZE_A for instance is reached from check_step, from
+ * normalize_poly_sharedS and once from the checker itself for the target
+ * polynomial. The self column is exact regardless of how a phase is reached;
+ * only the reading of the indentation as a hierarchy is approximate.
  */
 #define PST_PHASES(X)                                                          \
   X(CHECKER, "verified checker (total)", 0,                                    \
     "^LPAC_Efficient_Checker_Synthesis_full_checker_l_s2_impl$")               \
   X(REMAP, "  import input polynomials", 0,                                    \
     "^LPAC_Efficient_Checker_Synthesis_remap_polys_l2_with_err_s_impl$")       \
-  X(NORM_TARGET, "  normalize target", 0,                                      \
-    "^LLVM_Polynomials_Array_fully_normalize_polya_impl$")                     \
   X(STEP_LOOP, "  proof step loop", 0,                                         \
     "^LPAC_Efficient_Checker_Synthesis_PAC_checker_l_s_impl$")                 \
   X(STEP, "    check step (dispatch)", 1,                                      \
@@ -82,14 +86,16 @@
     "^LPAC_Efficient_Checker_Synthesis_check_extension_l_impl$")               \
   X(DEL, "      deletion", 1,                                                  \
     "^LPAC_Efficient_Checker_Synthesis_check_del_l_impl$")                     \
+  X(NORMALIZE_A, "      normalize polynomial", 1,                              \
+    "^LLVM_Polynomials_Array_fully_normalize_polya_impl$")                     \
   X(IMPORT_POLY, "        import polynomial", 2,                               \
     "^LPAC_Efficient_Checker_Synthesis_import_polyS_impl$")                    \
-  X(NORMALIZE, "        normalize polynomial", 2,                              \
+  X(NORMALIZE_S, "        normalize polynomial (shared)", 2,                   \
     "^LPAC_Efficient_Checker_Synthesis_normalize_poly_sharedS_impl$")          \
   X(SORT_COEFFS, "          sort coefficients", 2,                             \
     "^LPAC_Efficient_Checker_Synthesis_sort_all_coeffs_s_impl$")               \
   X(SORT_MONOMS, "          sort monomials", 2,                                \
-    "^LPAC_Efficient_Checker_Synthesis_msort_monoms_impl$")                     \
+    "^LPAC_Efficient_Checker_Synthesis_msort_monoms_impl$")                    \
   X(MULT_POLY, "        multiply polynomials", 2,                              \
     "^LPAC_Efficient_Checker_Synthesis_mult_poly_full_s_impl$")                \
   X(ADD_POLY, "        add polynomials", 2,                                    \

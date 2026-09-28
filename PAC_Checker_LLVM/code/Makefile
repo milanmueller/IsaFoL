@@ -11,19 +11,26 @@
 # the headers as `internal`; only the API named in term.h/pasteque.h/parser.h stays
 # external.
 
-CC           ?= clang
+# The compiler is named CLANG rather than CC: CFLAGS below are clang-only, and
+# a CC exported by the surrounding shell (a Nix devshell sets it to gcc) would
+# otherwise win over a `CC ?=` default and break the build.
+CLANG        ?= clang
 CLANG_FORMAT ?= clang-format
 # DFLAGS       ?= -march=native -mtune=native
 DFLAGS       ?=
 CFLAGS       ?= -std=c11 -O3 -flto -mllvm -inline-threshold=4000 -Wno-implicit-function-declaration
 
+# parser.c is the trusted parser, used as a library by both drivers; main.c is
+# the plain driver and stats.c the instrumented one, so each target names its
+# own driver.
 C_SRCS  := parser.c
 HEADERS := parser.h pasteque.h term.h
 # Isabelle-LLVM's support library defines the runtime hooks the exported code
-# declares (isabelle_llvm_calloc/free/abort). stats.c brings its own counting
-# hooks, so only the plain checker links it.
-ISABELLE_LLVM ?= ../../../isabelle_llvm
-LIB_ISABELLE_LLVM := $(ISABELLE_LLVM)/src/lib_isabelle_llvm.c
+# declares (isabelle_llvm_calloc/free/abort). The copy kept here is the one
+# that is built, so that this directory is self-contained and can be copied
+# elsewhere; it is a verbatim copy of isabelle_llvm/src/lib_isabelle_llvm.c.
+# stats.c brings its own counting hooks, so only the plain checker links it.
+LIB_ISABELLE_LLVM ?= lib_isabelle_llvm.c
 # stats.h is not in HEADERS: the internalization rule below derives the public
 # API of the .ll from HEADERS, and the stats hooks are declared (not defined) in
 # the .ll, so they must not be internalized -- but they are also not part of the
@@ -51,11 +58,11 @@ format-check:
 	api=$$(grep -ohE '\b[A-Za-z_0-9]+\(' $(HEADERS) | tr -d '(' | sort -u | paste -sd'|'); \
 	sed -E "/^define /{/@($$api)\(/!s/^define /define internal /}" $< > $@
 
-pasteque: $(C_SRCS) $(LIB_ISABELLE_LLVM) $(HEADERS) $(LL_INT)
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(DFLAGS) -o $@ $(C_SRCS) $(LIB_ISABELLE_LLVM) $(LL_INT)
+pasteque: $(C_SRCS) main.c $(LIB_ISABELLE_LLVM) $(HEADERS) $(LL_INT)
+	$(CLANG) $(CFLAGS) $(CPPFLAGS) $(DFLAGS) -o $@ $(C_SRCS) main.c $(LIB_ISABELLE_LLVM) $(LL_INT)
 
-# The instrumented driver (stats.c). parser.c is reused as a library, so its own
-# main and its own runtime hooks are dropped with -DPARSER_NO_MAIN.
+# The instrumented driver (stats.c). It replaces main.c and brings its own
+# runtime hooks, so neither main.c nor lib_isabelle_llvm.c is linked here.
 #
 # STATS_LL_INT selects the .ll to measure. By default it is the injected one, so
 # that the report contains the breakdown inside the verified code. Point it at
@@ -79,7 +86,7 @@ pasteque_stats.ll: pasteque.ll stats.h inject_stats.py
 	./inject_stats.py $< -o $@ --tier $(STATS_TIER)
 
 pasteque_stats: $(C_SRCS) stats.c $(HEADERS) stats.h $(STATS_LL_INT)
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(DFLAGS) -DPARSER_NO_MAIN -o $@ \
+	$(CLANG) $(CFLAGS) $(CPPFLAGS) $(DFLAGS) -o $@ \
 	    $(C_SRCS) stats.c $(STATS_LL_INT)
 
 clean:

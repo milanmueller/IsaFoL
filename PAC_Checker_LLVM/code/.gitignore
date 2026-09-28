@@ -1,1 +1,3 @@
 *.o
+*_int.ll
+pasteque_stats.ll
