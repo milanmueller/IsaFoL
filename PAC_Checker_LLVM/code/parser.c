@@ -4,9 +4,8 @@
  * The parser builds the checker's data structures through the verified builder
  * functions exported from LLVM_Codegen.thy (pasteque.h, term.h): polynomials,
  * the map of input polynomials and the list of proof steps are appended to in
- * O(1) while the token stream is consumed in a single left-to-right pass. This
- * file also carries a standalone driver (main), guarded by PARSER_NO_MAIN so
- * parser.c can be reused as a library (e.g. by stats.c).
+ * O(1) while the token stream is consumed in a single left-to-right pass. The
+ * drivers (main.c, stats.c) link against this file; it defines no main.
  */
 
 /* We implement a tokenizer for the syntax given in the paper
@@ -31,9 +30,6 @@
  * target       ::= poly ‘;’
  */
 
-/* clock_gettime()/CLOCK_MONOTONIC are POSIX, not ISO C — request them. */
-#define _POSIX_C_SOURCE 200809L
-
 #include <assert.h>
 #include <ctype.h>
 #include <inttypes.h>
@@ -42,7 +38,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 #include "parser.h"
 
@@ -73,14 +68,11 @@ static const char *kind_name(kind k) {
   return names[k];
 }
 
-/* A view into the file buffer; the parser copies the bytes of every variable
- * name into a fresh, checker-owned buffer before handing them over. */
 typedef struct {
   size_t len;
   const char *ptr;
 } slice;
 
-// `token` is forward-declared in parser.h (opaque to callers); define it here.
 struct token {
   kind kind;
   slice content;
@@ -187,9 +179,6 @@ static token_array tv_freeze(token_vec *v) {
 
 // -- Parsing ------------------------------------------------------------
 
-/* The parser walks the token array with a cursor. The lexer always terminates
- * the array with a T_EOF token, so `peek` is total: past the end it keeps
- * reporting T_EOF and the `pos < len` guard is only defensive. */
 typedef struct {
   const token_array *ta;
   size_t pos;
@@ -230,9 +219,7 @@ static slice expect(cursor *c, kind k, const char *want) {
  * Every object below is produced by a verified builder and afterwards owned by
  * the enclosing object (the checker frees it), so nothing is freed here. */
 
-/* Variable names are stored as arrays (stra) owned by the term/step they occur
- * in and freed by the checker through isabelle_llvm_free, so every occurrence
- * gets its own copy allocated through the matching allocator. */
+// Build a string from a slice (chars are copied)
 static char *dup_bytes(slice s) {
   char *p = isabelle_llvm_calloc(s.len, 1);
   if (p == NULL) {
@@ -264,10 +251,8 @@ static int64_t parse_index(cursor *c) {
   return (int64_t)v;
 }
 
-/* Coefficients are arbitrary-precision: the decimal digits, with a leading '-'
- * for a negative monomial, are passed as a character list to the verified
- * string -> big-integer conversion (which requires exactly this shape,
- * is_ascii_snum_str in LLVM_ASCII_String.thy). */
+/* Coefficients are arbitrary-precision, we use the exported `str_sval` for
+ * string -> big-integer conversion. */
 static sbi *make_coeff(slice digits, bool neg) {
   strl_builder *b = strl_builder_new();
   if (neg)
@@ -335,7 +320,7 @@ static polynode *poly_one(void) {
 
 /* inputs ::= (id poly ';')*
  * Later occurrences of an index overwrite earlier ones (the map is updated in
- * order), as with the previous importer. */
+ * order). */
 polymap *parse_inputs(const token_array *ta) {
   cursor c = {ta, 0};
   polymap *m = polymap_emp();
@@ -491,119 +476,3 @@ int lex_file(const char *path, char **buf_out, token_array *ta_out) {
   *ta_out = tv_freeze(&tv);
   return 0;
 }
-
-/* The standalone checker driver below (main) is compiled only when parser.c is
- * built as its own program. When parser.c is reused as a library (e.g. by
- * stats.c), define PARSER_NO_MAIN to drop it — the other driver brings its own
- * main and its own copies of the runtime hooks. */
-#ifndef PARSER_NO_MAIN
-
-/* -- Runtime hooks expected by the Isabelle-LLVM-exported code ---------------
- * The verified code allocates/frees its heap structures through these hooks;
- * the code generator leaves them as external declarations (see pasteque.ll). */
-void *isabelle_llvm_calloc(uint64_t nmemb, uint64_t size) {
-  return calloc(nmemb, size);
-}
-void isabelle_llvm_free(void *ptr) { free(ptr); }
-
-int main(int argc, char **argv) {
-  if (argc != 4) {
-    fprintf(stderr, "usage: %s <file.input> <file.proof> <file.target>\n",
-            argv[0]);
-    return 2;
-  }
-
-  /* Lex the three files. The text buffers only need to live until parsing is
-   * done: the parser copies every string it hands to the verified code. */
-  char *ibuf = NULL, *pbuf = NULL, *tbuf = NULL;
-  token_array ita = {0}, pta = {0}, tta = {0};
-  struct timespec t0, t1, t2, t3, t4;
-  clock_gettime(CLOCK_MONOTONIC, &t0);
-  if (lex_file(argv[1], &ibuf, &ita) != 0)
-    return 2;
-  if (lex_file(argv[2], &pbuf, &pta) != 0)
-    return 2;
-  if (lex_file(argv[3], &tbuf, &tta) != 0)
-    return 2;
-  clock_gettime(CLOCK_MONOTONIC, &t1);
-
-  /* Parse directly into the checker's data structures. */
-  polymap *ins = parse_inputs(&ita);
-  stepnode *prf = parse_proof(&pta);
-  polynode *tgt = parse_target(&tta);
-  clock_gettime(CLOCK_MONOTONIC, &t2);
-
-  free((void *)ita.data);
-  free(ibuf);
-  free((void *)pta.data);
-  free(pbuf);
-  free((void *)tta.data);
-  free(tbuf);
-
-  int exit_code;
-#ifndef PASTEQUE_NO_CHECKER
-  /* Hand the parsed structures to the verified checker (which consumes them).
-   * The returned byte is the checker's status tag (see status_assn in
-   * PAC_Checker_Error.thy):
-   *   0 = SUCCESS  proof steps all check, but the target was not derived
-   *   1 = FOUND    proof valid *and* it derives the target polynomial
-   *   2 = FAILED   some proof step did not check
-   * On FAILED the checker also stores an error message through the out-param:
-   * a length-carrying (NOT NUL-terminated) string it allocated through
-   * isabelle_llvm_calloc, owned by us afterwards. On SUCCESS/FOUND it is left
-   * as {0, NULL}. */
-  stra msg = {0};
-  char status = run_checker(ins, prf, tgt, &msg);
-  clock_gettime(CLOCK_MONOTONIC, &t3);
-
-  const char *status_msg;
-  switch (status) {
-  case 0:
-    status_msg = "SUCCESS (all steps check, but the target was not derived)";
-    break;
-  case 1:
-    status_msg = "FOUND (proof valid and derives the target)";
-    break;
-  case 2:
-    status_msg = "FAILED (a proof step did not check)";
-    break;
-  default:
-    status_msg = "unknown status";
-    break;
-  }
-  printf("%d\n", (int)status);
-  fprintf(stderr, "run_checker: %s\n", status_msg);
-  if (status == 2 && msg.ptr != NULL) { /* msg is only defined for FAILED */
-    fprintf(stderr, "run_checker: %.*s\n", (int)msg.len, msg.ptr);
-    isabelle_llvm_free(msg.ptr); // the checker allocated it, we own it
-  }
-  /* Exit 0 iff the proof is a valid derivation of the target (FOUND). */
-  exit_code = status == 1 ? 0 : 1;
-#else
-  /* Parse-only build: the structures are leaked deliberately, there are no
-   * C-side destructors and the process ends here. */
-  (void)ins;
-  (void)prf;
-  (void)tgt;
-  clock_gettime(CLOCK_MONOTONIC, &t3);
-  fprintf(stderr, "parsed (built without the checker)\n");
-  exit_code = 0;
-#endif
-  clock_gettime(CLOCK_MONOTONIC, &t4);
-
-  /* Phase timings (wall clock), in the style of the SML driver's stats block.
-   */
-#define SECS(a, b)                                                             \
-  ((double)((b).tv_sec - (a).tv_sec) +                                         \
-   1e-9 * (double)((b).tv_nsec - (a).tv_nsec))
-  fprintf(stderr, "c ***** stats *****\n");
-  fprintf(stderr, "c lexing: %.3f s\n", SECS(t0, t1));
-  fprintf(stderr, "c parsing (incl. building): %.3f s\n", SECS(t1, t2));
-  fprintf(stderr, "c checker: %.3f s\n", SECS(t2, t3));
-  fprintf(stderr, "c teardown: %.3f s\n", SECS(t3, t4));
-  fprintf(stderr, "c overall: %.3f s\n", SECS(t0, t4));
-#undef SECS
-
-  return exit_code;
-}
-#endif /* PARSER_NO_MAIN */
