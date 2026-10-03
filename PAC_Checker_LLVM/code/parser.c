@@ -1,11 +1,5 @@
 /* parser.c — trusted C tokenizer/parser for the PAC checker.
  * Author: Milan Müller - ALU Freiburg
- *
- * The parser builds the checker's data structures through the verified builder
- * functions exported from LLVM_Codegen.thy (pasteque.h, term.h): polynomials,
- * the map of input polynomials and the list of proof steps are appended to in
- * O(1) while the token stream is consumed in a single left-to-right pass. The
- * drivers (main.c, stats.c) link against this file; it defines no main.
  */
 
 /* We implement a tokenizer for the syntax given in the paper

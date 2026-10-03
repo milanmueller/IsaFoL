@@ -1,38 +1,22 @@
 /* stats.c — instrumented driver for the PAC checker.
- * Author: Milan Müller - ALU Freiburg
  *
  * Same program as main.c, but it additionally reports where the time inside the
  * verified checker goes. It links parser.c like main.c does, and defines its
  * own counting runtime hooks in place of lib_isabelle_llvm.c.
  *
- *   make pasteque_stats
- *
  * Three kinds of numbers are produced:
  *
  *   1. Driver phases (lexing and parsing per input file, checking, teardown).
- *      These need no instrumentation of the verified code; they come from
- *      clock_gettime around the calls made here, and they are what makes the
- *      output comparable to the SML checker's stats block.
  *
  *   2. Checker phases. The verified code is a single call, so these come from
  *      the wrappers that inject_stats.py synthesizes into pasteque.ll; see
- *      stats.h for the phase table and the wrapper shape. Without injection the
- *      hooks below are never called and the phase table is reported as empty,
- *      so this driver also works against an uninstrumented pasteque.ll.
+ *      stats.h for the phase table and the wrapper shape.
  *
  *   3. Allocator counters. The verified code reaches the allocator exclusively
  *      through isabelle_llvm_calloc/isabelle_llvm_free, which are defined here,
  *      so counting allocations and attributing their volume to the enclosing
  *      checker phase costs one array increment and no instrumentation at all.
- *      This is the closest counterpart to the SML checker's GC line.
  *
- * Perturbation. A wrapped function cannot be inlined into its callers and is an
- * optimization barrier for LTO, so an instrumented binary is not the production
- * binary. Keep this in mind when reading absolute numbers: the phase shares are
- * the meaningful output, and the total should be cross-checked against a run of
- * the uninstrumented `pasteque`. The tier mechanism in stats.h exists to keep
- * the default instrumentation at O(#proof steps) calls, where the cost is
- * negligible.
  */
 
 /* clock_gettime()/CLOCK_MONOTONIC and getrusage() are POSIX, not ISO C. */
@@ -52,11 +36,6 @@
 
 // -- clock ----------------------------------------------------------------
 
-/* CLOCK_MONOTONIC is read through the vDSO on Linux (~20 ns), i.e. no system
- * call per phase boundary. CLOCK_PROCESS_CPUTIME_ID would separate user from
- * system time but costs a real system call, which at tier 2 (millions of calls)
- * would dominate what is being measured; user/system time is therefore only
- * reported for the process as a whole, from getrusage. */
 static inline uint64_t pst_now_ns(void) {
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -167,12 +146,6 @@ const char *pst_phase_label(int64_t slot) {
 
 // -- runtime hooks of the Isabelle-LLVM-exported code ----------------------
 
-/* The verified code allocates and frees every heap cell through these two
- * functions (the code generator leaves them as external declarations). Counting
- * here is free; timing here is not, because the allocator is on the hot path —
- * a clock_gettime pair per allocation would cost more than the allocation. Set
- * PST_TIME_ALLOC to measure it anyway, and read the result as an upper bound.
- */
 static uint64_t pst_calloc_calls, pst_calloc_bytes, pst_free_calls;
 #ifdef PST_TIME_ALLOC
 static uint64_t pst_alloc_ns;

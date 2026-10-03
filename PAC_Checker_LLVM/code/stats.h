@@ -35,10 +35,7 @@
  * order. Fields:
  *
  *   id     C identifier; becomes the enum constant PST_<id> and thus the slot
- *          number passed to pst_enter/pst_exit. Slot numbers are positional,
- *          so INSERTING A PHASE RENUMBERS THE FOLLOWING ONES — the .ll must be
- *          re-injected after any edit here (the Makefile rule depends on
- *          stats.h, so this happens by itself).
+ *          number passed to pst_enter/pst_exit.
  *   label  what the report prints.
  *   tier   how often the function runs; inject_stats.py wraps everything up to
  *          the tier given with --tier (default 1):
@@ -48,10 +45,6 @@
  *            2  O(#polynomial ops)     — millions of calls; measurable
  *                                        perturbation, and wrapping makes the
  *                                        function an LTO optimization barrier
- *          Nothing hotter than tier 2 should ever be listed here: the leaf
- *          operations (mult_monoms, the add_poly fold bodies, the coefficient
- *          merge steps) are called often enough that timing them costs more
- *          than they take.
  *   regex  POSIX ERE matched against the function names defined in
  *          pasteque.ll. Isabelle-LLVM mangles instance copies with a hash
  *          suffix (..._f_041791690) that changes on every re-export, so the
@@ -63,11 +56,6 @@
  * the self time (the phase minus the nested phases), so the self column sums to
  * the inclusive time of CHECKER.
  *
- * The indentation of the labels is the call nesting that dominates a run, not a
- * strict tree: NORMALIZE_A for instance is reached from check_step, from
- * normalize_poly_sharedS and once from the checker itself for the target
- * polynomial. The self column is exact regardless of how a phase is reached;
- * only the reading of the indentation as a hierarchy is approximate.
  */
 #define PST_PHASES(X)                                                          \
   X(CHECKER, "verified checker (total)", 0,                                    \
@@ -113,25 +101,12 @@ enum {
 };
 
 /* -- Hooks called by the injected wrappers ---------------------------------
- * Both are called with a slot number from the enum above. They must be reached
- * in matching pairs; unbalanced or out-of-range calls are ignored rather than
- * trusted, so a mis-injected .ll degrades the report instead of corrupting the
- * process. Re-entrant phases (a phase reached again from inside itself) are
- * counted once: the inclusive time is only accumulated when the outermost
- * activation returns. */
 void pst_enter(int64_t slot);
 void pst_exit(int64_t slot);
 
 /* Label of a slot, or "?" if out of range. */
 const char *pst_phase_label(int64_t slot);
 
-/* Print the phase breakdown, the allocator counters and the resource usage of
-   the process to stderr, in the "c "-prefixed style of the SML checker.
-   `teardown_secs` covers everything after the checker returned; it is reported
-   separately because it is not negligible: the first allocation after the
-   checker has freed its heap makes the allocator consolidate several hundred
-   megabytes of free list, which on btor128 costs about as much as parsing the
-   input polynomials. */
 void pst_report(double lex_parse_secs, double checker_secs,
                 double teardown_secs, double total_secs);
 

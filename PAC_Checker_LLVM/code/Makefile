@@ -11,36 +11,17 @@
 # the headers as `internal`; only the API named in term.h/pasteque.h/parser.h stays
 # external.
 
-# The compiler is named CLANG rather than CC: CFLAGS below are clang-only, and
-# a CC exported by the surrounding shell (a Nix devshell sets it to gcc) would
-# otherwise win over a `CC ?=` default and break the build.
 CLANG        ?= clang
 CLANG_FORMAT ?= clang-format
 # DFLAGS       ?= -march=native -mtune=native
 DFLAGS       ?=
 CFLAGS       ?= -std=c11 -O3 -flto -mllvm -inline-threshold=4000 -Wno-implicit-function-declaration
 
-# parser.c is the trusted parser, used as a library by both drivers; main.c is
-# the plain driver and stats.c the instrumented one, so each target names its
-# own driver.
 C_SRCS  := parser.c
 HEADERS := parser.h pasteque.h term.h
-# Isabelle-LLVM's support library defines the runtime hooks the exported code
-# declares (isabelle_llvm_calloc/free/abort). The copy kept here is the one
-# that is built, so that this directory is self-contained and can be copied
-# elsewhere; it is a verbatim copy of isabelle_llvm/src/lib_isabelle_llvm.c.
-# stats.c brings its own counting hooks, so only the plain checker links it.
 LIB_ISABELLE_LLVM ?= lib_isabelle_llvm.c
-# stats.h is not in HEADERS: the internalization rule below derives the public
-# API of the .ll from HEADERS, and the stats hooks are declared (not defined) in
-# the .ll, so they must not be internalized -- but they are also not part of the
-# exported API.
 LL      := pasteque.ll term.ll
 LL_INT  := $(LL:.ll=_int.ll)
-
-ifeq ($(shell grep -c '^define .*@run_checker\b' pasteque.ll),0)
-CPPFLAGS += -DPASTEQUE_NO_CHECKER
-endif
 
 .PHONY: all clean format format-check
 all: pasteque
@@ -63,19 +44,7 @@ pasteque: $(C_SRCS) main.c $(LIB_ISABELLE_LLVM) $(HEADERS) $(LL_INT)
 
 # The instrumented driver (stats.c). It replaces main.c and brings its own
 # runtime hooks, so neither main.c nor lib_isabelle_llvm.c is linked here.
-#
-# STATS_LL_INT selects the .ll to measure. By default it is the injected one, so
-# that the report contains the breakdown inside the verified code. Point it at
-# $(LL_INT) to measure the code as exported: the driver then still reports the
-# per-file parsing times and the allocator counters, and states that no checker
-# phase was entered.
-#
-#   make pasteque_stats STATS_LL_INT="$(LL_INT)"     # no wrappers at all
-#   make pasteque_stats STATS_TIER=2                 # also the per-operation phases
-#
 # STATS_TIER selects how deep to instrument; see the phase table in stats.h.
-# Tier 2 wraps functions called once per polynomial operation, which perturbs
-# the measurement noticeably — compare the total against ./pasteque.
 STATS_TIER   ?= 1
 STATS_LL_INT ?= pasteque_stats_int.ll term_int.ll
 

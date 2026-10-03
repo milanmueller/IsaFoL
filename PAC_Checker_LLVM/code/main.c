@@ -1,5 +1,4 @@
 /* main.c — standalone driver for the PAC checker.
- * Author: Milan Müller - ALU Freiburg
  *
  * Lexes and parses the three input files with the trusted parser (parser.c),
  * hands the built structures to the verified checker (run_checker, exported by
