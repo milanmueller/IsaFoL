@@ -1,5 +1,5 @@
-theory Printing_Setup
-  imports Char_Assn
+theory LLVM_DS_Char_Literals
+  imports LLVM_DS_Char
 begin
 
 text \<open>Constant-table synthesis for character literals.\<close>

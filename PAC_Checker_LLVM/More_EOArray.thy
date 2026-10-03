@@ -1,6 +1,6 @@
 theory More_EOArray
   imports Isabelle_LLVM.Proto_EOArray
-    LLVM_String
+    LLVM_DS_String
 begin
 
 text \<open>This theory contains a variation of @{term nao_assn} that stores elements directly

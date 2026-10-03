@@ -1,5 +1,5 @@
-theory IICF_Copying_List
-  imports Assn_Env
+theory LLVM_DS_Copying_List
+  imports LLVM_Assn_Env
     Isabelle_LLVM.Proto_EOArray
     Isabelle_LLVM.LLVM_DS_Open_List
 begin
@@ -665,7 +665,7 @@ lemma cl_pop_hnr_op[sepref_fr_rules]:
   by (sepref_to_hoare; vcg)
 
 text \<open>Operations that need to free elements live in the \<open>freeable_assn\<close> context
-  (see theory \<open>Assn_Env\<close>).\<close>
+  (see theory \<open>LLVM_Assn_Env\<close>).\<close>
 
 context freeable_assn
 begin
@@ -733,7 +733,7 @@ end
 
 text \<open>Operations that additionally need to copy elements live in the
   \<open>copyable_assn\<close> context. (The copying setup \<open>is_copy\<close> itself lives in
-  theory \<open>Assn_Env\<close>.)\<close>
+  theory \<open>LLVM_Assn_Env\<close>.)\<close>
 
 context copyable_assn
 begin

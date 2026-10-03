@@ -1,8 +1,8 @@
 theory LLVM_List_Sorting
-  imports IICF_Copying_List
+  imports LLVM_DS_Copying_List
 begin
 
-text \<open>Generic mergesort implementation tailored to use with @{theory \<open>PAC_Checker_LLVM.IICF_Copying_List\<close>}.\<close>
+text \<open>Generic mergesort implementation tailored to use with @{theory \<open>PAC_Checker_LLVM.LLVM_DS_Copying_List\<close>}.\<close>
 
 section \<open>Abstract mergesort implementation\<close>
 

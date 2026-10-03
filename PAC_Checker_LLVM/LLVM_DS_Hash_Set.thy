@@ -1,11 +1,11 @@
-theory IICF_HashSet
-  imports IICF_Copying_List Isabelle_LLVM.Array_of_Array_List 
+theory LLVM_DS_Hash_Set
+  imports LLVM_DS_Copying_List Isabelle_LLVM.Array_of_Array_List 
 begin
 
 text \<open>This theory defines Hash-Sets for arbitrary (possibly impure)
   objects, using @{term \<open>cl_assn\<close>} for buckets.
   The element interface is the \<open>hashset_env\<close> locale below, which combines the
-  \<open>copyable_assn\<close>, \<open>eq_assn\<close> and \<open>hashable_assn\<close> locales from theory \<open>Assn_Env\<close>:
+  \<open>copyable_assn\<close>, \<open>eq_assn\<close> and \<open>hashable_assn\<close> locales from theory \<open>LLVM_Assn_Env\<close>:
   insertion stores a copy of the (borrowed) element, deallocation frees the
   elements, bucket scans need equality and the bucket index needs a hash.\<close>
 

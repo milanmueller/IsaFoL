@@ -1,10 +1,10 @@
-theory IICF_PartialMap
+theory LLVM_DS_Partial_Map
   imports
     Isabelle_LLVM.IICF
     Isabelle_LLVM.Proto_EOArray
     Isabelle_LLVM.LLVM_DS_Block_Alloc
-    IICF_Copying_List
-    (* TODO: We only really use IICF_Copying_List for the copying setup, maybe that should live somewhere else? *)
+    LLVM_DS_Copying_List
+    (* TODO: We only really use LLVM_DS_Copying_List for the copying setup, maybe that should live somewhere else? *)
 begin
 
 text \<open>This theory implement a key-value map.

@@ -3,7 +3,7 @@ theory LPAC_Efficient_Checker_Synthesis
     LPAC_Efficient_Checker_Refinement
     LPAC_Perfectly_Shared_Vars
     PAC_Checker_Synthesis
-    LPAC_Error
+    LPAC_Checker_Error
     LPAC_Step_Assn_Array
 begin
 

@@ -4,7 +4,7 @@
   Maintainer:   Mathias Fleury, JKU
 *)
 theory LPAC_Checker_Synthesis
-  imports LPAC_Error
+  imports LPAC_Checker_Error
 begin
 hide_fact (open) PAC_Checker.PAC_checker_l_def
 hide_const (open) PAC_Checker.PAC_checker_l

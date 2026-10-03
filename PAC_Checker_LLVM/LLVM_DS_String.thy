@@ -1,5 +1,5 @@
-theory LLVM_String
-  imports Printing_Setup IICF_Copying_List Isabelle_LLVM.IICF
+theory LLVM_DS_String
+  imports LLVM_DS_Char_Literals LLVM_DS_Copying_List Isabelle_LLVM.IICF
     LLVM_List_Sorting
 begin
 

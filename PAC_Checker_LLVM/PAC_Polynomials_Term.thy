@@ -7,7 +7,7 @@ theory PAC_Polynomials_Term
   imports 
     PAC_Polynomials
     Aux_Lemmas
-    Char_Assn
+    LLVM_DS_Char
     (*Refine_Imperative_HOL.IICF*)
 begin
 

@@ -1,4 +1,4 @@
-theory Char_Assn 
+theory LLVM_DS_Char 
   imports Isabelle_LLVM.IICF 
 begin
 
@@ -259,7 +259,7 @@ qed
 lemma char_of_word_in_char_rel:
   \<open>(w, char_of_word w) \<in> char_rel\<close>
   unfolding char_rel_def
-  by (simp add: Char_Assn.char_of_nat_def char_nat_rel_def char_of_word_in_char_rel_raw unat.rel_def unat_rel_def)
+  by (simp add: LLVM_DS_Char.char_of_nat_def char_nat_rel_def char_of_word_in_char_rel_raw unat.rel_def unat_rel_def)
 
 sepref_register Char
 

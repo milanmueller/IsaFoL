@@ -1,5 +1,5 @@
 theory LLVM_ASCII_String
-  imports LLVM_String BigInt_LLVM.LLVM_CodeGen_Signed
+  imports LLVM_DS_String BigInt_LLVM.LLVM_CodeGen_Signed
 begin
 
 text \<open>This theory defines the relation between ascii strings in LLVM (lists of 8-bit words)

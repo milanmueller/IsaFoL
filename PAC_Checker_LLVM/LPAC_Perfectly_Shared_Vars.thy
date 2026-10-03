@@ -3,7 +3,7 @@ theory LPAC_Perfectly_Shared_Vars
     PAC_Checker_Relation
     PAC_Map_Rel
     More_EOArray
-    IICF_HashMap
+    LLVM_DS_Hash_Map
 begin
 
 type_synonym ('string2, 'nat) shared_vars_c = \<open>'string2 list \<times> ('string2, 'nat) fmap\<close>

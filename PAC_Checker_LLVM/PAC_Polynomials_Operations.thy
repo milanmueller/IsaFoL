@@ -2,7 +2,7 @@ theory PAC_Polynomials_Operations
   imports 
     PAC_Polynomials_Term 
     PAC_Checker_Specification
-    LLVM_Polynomials
+    PAC_Polynomials_Assn
 begin
 
 subsection \<open>Addition\<close>

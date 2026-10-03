@@ -1,9 +1,9 @@
-theory LLVM_Polynomials_Array
-  imports LLVM_Polynomials PAC_Checker_Synthesis More_EOArray
+theory PAC_Polynomials_Assn_Array
+  imports PAC_Polynomials_Assn PAC_Checker_Synthesis More_EOArray
 begin
 
 text \<open>Array-string variants of the polynomial refinement targets of
-  \<open>LLVM_Polynomials\<close>: variable names are \<open>stra_assn\<close> (contiguous arrays, as
+  \<open>PAC_Polynomials_Assn\<close>: variable names are \<open>stra_assn\<close> (contiguous arrays, as
   handed over by the C parser) instead of \<open>strl_assn'\<close> (linked lists). The
   efficient shared checker works on these targets; the original checker keeps
   the list-string targets.\<close>
@@ -14,7 +14,7 @@ abbreviation \<open>monoma_assn \<equiv> cl_assn' stra_assn\<close>
 lemmas [safe_constraint_rules] = CN_FALSEI[of is_pure monoma_assn]
 
 text \<open>\<open>stra\<close> (\<open>More_EOArray\<close>) provides the copyable instance of \<open>stra_assn\<close> with the
-  exportable free \<open>stra_free\<close>, \<open>strla_ls\<close> (\<open>LLVM_String\<close>) the linorder instance; the
+  exportable free \<open>stra_free\<close>, \<open>strla_ls\<close> (\<open>LLVM_DS_String\<close>) the linorder instance; the
   comparison environment for sorting is added here.\<close>
 
 interpretation monoma: cmp_env_impl

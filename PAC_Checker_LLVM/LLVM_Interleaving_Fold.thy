@@ -1,5 +1,5 @@
-theory Interleaving_Fold
-  imports IICF_Copying_List
+theory LLVM_Interleaving_Fold
+  imports LLVM_DS_Copying_List
 begin
 
 text \<open>This theory defines a generalization of the

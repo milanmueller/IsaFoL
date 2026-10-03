@@ -2,7 +2,7 @@ theory LPAC_Efficient_Checker_Refinement
   imports
     LPAC_Efficient_Checker
     LPAC_Efficient_Checker_Sorting
-    Interleaving_Fold
+    LLVM_Interleaving_Fold
     PAC_Checker_Synthesis
 begin
 

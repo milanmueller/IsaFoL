@@ -1,5 +1,5 @@
 theory LPAC_Step_Assn_Array
-  imports LPAC_Step_Assn LLVM_Polynomials_Array
+  imports LPAC_Step_Assn PAC_Polynomials_Assn_Array
 begin
 
 text \<open>Array-string variant of \<open>LPAC_Step_Assn\<close>: the result polynomials use

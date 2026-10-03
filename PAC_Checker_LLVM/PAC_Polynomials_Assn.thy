@@ -1,6 +1,6 @@
-theory LLVM_Polynomials
-  imports LLVM_String BigInt_LLVM.LLVM_CodeGen_Signed IICF_PartialMap
-    PAC_Polynomials_Term LLVM_ASCII_String IICF_Copying_List
+theory PAC_Polynomials_Assn
+  imports LLVM_DS_String BigInt_LLVM.LLVM_CodeGen_Signed LLVM_DS_Partial_Map
+    PAC_Polynomials_Term LLVM_ASCII_String LLVM_DS_Copying_List
 begin
 
 text \<open>This theory defines refinment targets for polynomials in LLVM.

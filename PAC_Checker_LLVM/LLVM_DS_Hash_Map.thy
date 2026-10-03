@@ -1,9 +1,9 @@
-theory IICF_HashMap
-  imports IICF_PartialMap IICF_HashSet Isabelle_LLVM.Proto_EOArray
+theory LLVM_DS_Hash_Map
+  imports LLVM_DS_Partial_Map LLVM_DS_Hash_Set Isabelle_LLVM.Proto_EOArray
 begin
 
-text \<open>Hashmap implementation, based on the existing {IICF_PartialMap} and the Hashable interface.
-  We reuse the bucket implementation from {IICF_HashSet}.\<close>
+text \<open>Hashmap implementation, based on the existing {LLVM_DS_Partial_Map} and the Hashable interface.
+  We reuse the bucket implementation from {LLVM_DS_Hash_Set}.\<close>
 
 text \<open>TODO list \<emdash> coverage of the @{theory Isabelle_LLVM.IICF_Map} interface
   \<^item> [x] \<open>op_map_empty\<close> (\<open>lshm_empty\<close>, parametric in the initial number of buckets)
@@ -1026,7 +1026,7 @@ lemma lshm_empty_hnr[sepref_fr_rules]:
 subsection \<open>Free\<close>
 
 text \<open>\<open>nulled_prefix\<close> and its bookkeeping are redefined here because the
-  originals are scoped inside the \<open>array_pmap\<close> locale of \<open>IICF_PartialMap\<close>.\<close>
+  originals are scoped inside the \<open>array_pmap\<close> locale of \<open>LLVM_DS_Partial_Map\<close>.\<close>
 
 definition \<open>nulled_prefix (xs :: 'c option list) i = replicate i None @ drop i xs\<close>
 

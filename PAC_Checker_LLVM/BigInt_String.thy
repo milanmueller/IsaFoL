@@ -1,8 +1,8 @@
 theory BigInt_String
   imports
     BigInt_LLVM.LLVM_CodeGen_Signed
-    LLVM_String
-    Char_Assn
+    LLVM_DS_String
+    LLVM_DS_Char
 begin
 
 text \<open>In this theory we implement conversions from and to strings\<close>
@@ -307,7 +307,7 @@ text \<open>On the HOL side, we want to reason on @{term char}, but
   on the LLVM side we work with @{term \<open>8 word\<close>}, so we first
   need to define a bijective mapping between the two.
   The direction from words to chars, @{const char_of_word}, is provided
-  by \<open>Char_Assn\<close> (where it also gets its sepref setup); here we add the
+  by \<open>LLVM_DS_Char\<close> (where it also gets its sepref setup); here we add the
   inverse direction.\<close>
 
 definition \<open>word_of_char (c :: char) \<equiv> (of_char :: char \<Rightarrow> 8 word) c\<close>

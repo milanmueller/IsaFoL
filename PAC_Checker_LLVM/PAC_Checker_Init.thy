@@ -4,7 +4,7 @@
   Maintainer:   Mathias Fleury, JKU
 *)
 theory PAC_Checker_Init
-  imports  PAC_Polynomials_Operations LLVM_Polynomials
+  imports  PAC_Polynomials_Operations PAC_Polynomials_Assn
 begin
 
 text \<open>This theory had some significant changes: It used to implement sorting for

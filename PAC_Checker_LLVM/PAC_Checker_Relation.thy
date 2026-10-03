@@ -6,7 +6,7 @@
 theory PAC_Checker_Relation
   imports
     PAC_Checker
-    LLVM_Polynomials
+    PAC_Polynomials_Assn
 begin
 
 text \<open>This theory is essentially rewritten entirely and does not really share anything with

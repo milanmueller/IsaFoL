@@ -1,11 +1,11 @@
 theory PAC_Polynomials_Sort
-  imports IICF_Copying_List
+  imports LLVM_DS_Copying_List
 begin
 (* TODO: This theory should be named Copying_List_Sort or something *)
 
 text \<open>This theory defines a bottom-up merge sort using WHILE loops
   instead of recursion. It is designed to work with only the operations
-  supported in \<open>IICF_Copying_List.thy\<close> (which in particular does not
+  supported in \<open>LLVM_DS_Copying_List.thy\<close> (which in particular does not
   hold the length of the list).
   
   We define each function once recursively, then with a loop, proving

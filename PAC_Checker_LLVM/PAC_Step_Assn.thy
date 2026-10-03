@@ -1,6 +1,6 @@
 theory PAC_Step_Assn
-  imports IICF_Copying_List BigInt_LLVM.LLVM_CodeGen_Signed
-    PAC_Checker LLVM_Polynomials PAC_Checker_Specification
+  imports LLVM_DS_Copying_List BigInt_LLVM.LLVM_CodeGen_Signed
+    PAC_Checker PAC_Polynomials_Assn PAC_Checker_Specification
 begin
 
 text \<open>This theory defines the low-level implementation for the higher order @{typ \<open>('a, 'b, 'lbls) pac_step\<close>}.

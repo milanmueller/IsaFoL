@@ -4,9 +4,9 @@
   Maintainer:   Mathias Fleury, JKU
 *)
 theory PAC_Checker_Error
-  imports PAC_Checker IICF_HashSet PAC_Step_Assn
-    PAC_Checker_Init More_Loops LLVM_String
-    IICF_PartialMap PAC_Checker_Relation
+  imports PAC_Checker LLVM_DS_Hash_Set PAC_Step_Assn
+    PAC_Checker_Init More_Loops LLVM_DS_String
+    LLVM_DS_Partial_Map PAC_Checker_Relation
 begin
 
 section \<open>Synthesis of the Error Messages\<close>

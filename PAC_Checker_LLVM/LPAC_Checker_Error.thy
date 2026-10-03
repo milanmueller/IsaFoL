@@ -1,11 +1,11 @@
-theory LPAC_Error
+theory LPAC_Checker_Error
   imports LPAC_Checker LPAC_Version
     LPAC_Checker_Init
     More_Loops
     PAC_Checker_Relation
     PAC_Checker_Synthesis
     LPAC_Efficient_Checker_Refinement
-    LLVM_Polynomials_Array
+    PAC_Polynomials_Assn_Array
 begin
 hide_fact (open) PAC_Checker.PAC_checker_l_def
 hide_const (open) PAC_Checker.PAC_checker_l

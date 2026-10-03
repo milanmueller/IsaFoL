@@ -1,4 +1,4 @@
-theory Assn_Env
+theory LLVM_Assn_Env
   imports Isabelle_LLVM.IICF
 begin
 
