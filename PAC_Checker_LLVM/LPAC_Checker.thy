@@ -174,10 +174,26 @@ definition PAC_checker_l_step_inv where
   \<open>PAC_checker_l_step_inv spec st' \<V> A \<longleftrightarrow>
   (\<forall>i\<in>#dom_m A. vars_llist (the (fmlookup A i)) \<subseteq> \<V>)\<close>
 
+text \<open>The LLVM implementation stores polynomial identifiers in signed 64-bit words and
+  indexes arrays by them. A step that introduces an identifier at or above the largest such
+  word is rejected at runtime: the checker fails instead of requiring a precondition on
+  the proof.\<close>
+definition step_id_max :: nat where
+  \<open>step_id_max = max_snat 64 - 1\<close>
+
+definition step_id_overflow :: \<open>(llist_polynomial, string, nat) pac_step \<Rightarrow> bool\<close> where
+  \<open>step_id_overflow st \<longleftrightarrow> \<not>is_Del st \<and> new_id st \<ge> step_id_max\<close>
+
+definition step_id_overflow_err :: string where
+  \<open>step_id_overflow_err = ''id too large''\<close>
+
 definition PAC_checker_l_step ::  \<open>_ \<Rightarrow> string code_status \<times> string set \<times> _ \<Rightarrow> (llist_polynomial, string, nat) pac_step \<Rightarrow> _\<close> where
   \<open>PAC_checker_l_step = (\<lambda>spec (st', \<V>, A) st. do {
     ASSERT(\<not>is_cfailed st');
     ASSERT(PAC_checker_l_step_inv spec st' \<V> A);
+    if step_id_overflow st
+    then RETURN (error_msg (new_id st) step_id_overflow_err, \<V>, A)
+    else
     case st of
      CL _ _ _ \<Rightarrow>
        do {
@@ -1508,8 +1524,33 @@ proof -
     using distinct_mset_dom[of B]
     by (cases \<open>x3a \<in># dom_m B\<close>) (auto dest!: multi_member_split)
   show ?thesis
+  proof (cases \<open>step_id_overflow st\<close>)
+    case True
+    text \<open>The abstract checks are specifications that may always answer \<open>False\<close>, so the
+      abstract step can fail whenever the concrete step rejects the identifier.\<close>
+    have abs: \<open>RETURN (FAILED, \<V>', B) \<le> PAC_checker_step spec' (cst', \<V>', B) st'\<close>
+      using assms(2) True
+      unfolding PAC_checker_step_def check_linear_comb_def check_extension_precalc_def
+        normalize_poly_spec_def step_id_overflow_def check_del_def
+      by (cases st; cases st')
+        (auto simp: pw_le_iff refine_pw_simps p2rel_def ideal.span_zero
+          pac_step_rel_raw.simps
+          intro!: exI[of _ False] exI[of _ \<open>pac_res st'\<close>] exI[of _ FAILED]
+          dest: HOL.spec[of _ FAILED])
+    have conc: \<open>PAC_checker_l_step spec Ast st \<le>
+      \<Down>{((err, \<V>, A), (err', \<V>', A')). ((err, \<V>, A), (err', \<V>', A')) \<in> (code_status_status_rel \<times>\<^sub>r \<langle>var_rel\<rangle>set_rel \<times>\<^sub>r fmap_polys_rel2 err \<V>)}
+        (RETURN (FAILED, \<V>', B))\<close>
+      using assms(1) fail True
+      unfolding PAC_checker_l_step_def PAC_checker_l_step_inv_def Ast prod.case
+      by (auto simp: fmap_polys_rel2_def Ast Bst error_msg_def pw_le_iff refine_pw_simps
+          dest!: multi_member_split)
+    show ?thesis
+      using ref_two_step[OF conc abs] unfolding Bst .
+  next
+    case False
+    show ?thesis
     using assms(2)
-    unfolding PAC_checker_l_step_def PAC_checker_step_def Ast Bst prod.case
+    unfolding PAC_checker_l_step_def PAC_checker_step_def Ast Bst prod.case if_not_P[OF False]
     apply (cases st; cases st'; simp only: p2rel_def pac_step.case
       pac_step_rel_raw_def mem_Collect_eq prod.case pac_step_rel_raw.simps)
     subgoal
@@ -1580,6 +1621,7 @@ proof -
           fmap_rel_fmdrop_fmap_rel simp: fmap_polys_rel2_def)
       done
     done
+  qed
 qed
 
 

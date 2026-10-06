@@ -60,6 +60,6 @@ session PAC_Checker_LLVM = "Isabelle_LLVM" +
     LPAC_Checker_Init
     LPAC_Efficient_Checker_Refinement
     LPAC_Efficient_Checker_Synthesis
-    (*LPAC_Efficient_Checker_Correctness*)
+    LPAC_Efficient_Checker_Correctness
     LPAC_Checker_Synthesis
     LPAC_Codegen

@@ -353,4 +353,27 @@ sepref_def memory_out_msg_impl is \<open>uncurry0 (RETURN memory_out_msg)\<close
   unfolding memory_out_msg_def
   by sepref
 
+text \<open>Bound and error message of the runtime check on step identifiers
+  (\<^term>\<open>step_id_overflow\<close>).\<close>
+
+lemma step_id_max_val: \<open>step_id_max = 9223372036854775807\<close>
+  unfolding step_id_max_def max_snat_def by auto
+
+sepref_def step_id_max_impl is \<open>uncurry0 (RETURN step_id_max)\<close>
+  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a snat_assn' TYPE(64)\<close>
+  unfolding step_id_max_val
+  apply (annot_snat_const \<open>TYPE(64)\<close>)
+  by sepref
+
+lemma step_id_overflow_err_alt:
+  \<open>step_id_overflow_err = cl_to_clt ''id too large''\<close>
+  unfolding step_id_overflow_err_def by (simp add: cl_to_clt_id)
+
+sepref_def step_id_overflow_err_impl is \<open>uncurry0 (RETURN step_id_overflow_err)\<close>
+  :: \<open>unit_assn\<^sup>k \<rightarrow>\<^sub>a strlt_assn\<close>
+  unfolding step_id_overflow_err_alt
+  by sepref
+
+sepref_register step_id_max step_id_overflow_err
+
 end

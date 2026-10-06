@@ -556,6 +556,9 @@ definition PAC_checker_l_step_prep ::  \<open>_ \<Rightarrow> string code_status
   \<open>PAC_checker_l_step_prep = (\<lambda>spec (st', \<V>, A) st. do {
     ASSERT (PAC_checker_l_step_inv spec st' (set_mset \<V>) A);
     ASSERT (\<not>is_cfailed st');
+    if step_id_overflow st
+    then RETURN (error_msg (new_id st) step_id_overflow_err, \<V>, A)
+    else
     case st of
      CL _ _ _ \<Rightarrow>
       do {
@@ -600,9 +603,21 @@ proof -
   have H: \<open>f=g \<Longrightarrow> f \<le> \<Down>Id g\<close> for f g
     by auto
   show ?thesis
+  proof (cases \<open>step_id_overflow step\<close>)
+    case True
+    then show ?thesis
+      using assms
+      unfolding PAC_checker_l_step_prep_def PAC_checker_l_step_def
+      by (auto simp: pw_le_iff refine_pw_simps error_msg_def split: prod.splits)
+  next
+    case False
+    then have False': \<open>\<not>step_id_overflow step'\<close>
+      using assms(3) by auto
+    show ?thesis
     using assms apply -
     unfolding PAC_checker_l_step_prep_def PAC_checker_l_step_def Let_def[of "LPAC_Checker_Specification.pac_step.new_id _"]
     apply (simp only: split: prod.splits)
+    apply (simp only: if_not_P[OF False] if_not_P[OF False'])
     apply (simp only: split:prod.splits pac_step.splits)
     apply (intro conjI impI allI)
     subgoal
@@ -656,6 +671,7 @@ proof -
       subgoal by auto
       done
     done
+  qed
 qed
 
 definition (in -) remap_polys_l2_with_err

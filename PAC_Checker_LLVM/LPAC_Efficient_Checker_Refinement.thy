@@ -1593,6 +1593,9 @@ definition PAC_checker_l_step_s
 where
   \<open>PAC_checker_l_step_s = (\<lambda>spec (st', \<V>, A) st. do {
     ASSERT (\<not>is_cfailed st');
+    if step_id_overflow st
+    then RETURN (error_msg (new_id st) step_id_overflow_err, \<V>, A)
+    else
     case st of
      CL _ _ _ \<Rightarrow>
        do {
@@ -1657,9 +1660,21 @@ proof -
   have HID: \<open>f = f' \<Longrightarrow> f \<le> \<Down>Id f'\<close> for f f'
     by auto
   show ?thesis
+  proof (cases \<open>step_id_overflow st\<close>)
+    case True
+    then show ?thesis
+      using assms
+      unfolding PAC_checker_l_step_s_def PAC_checker_l_step_prep_def
+      by (auto simp: pw_le_iff refine_pw_simps error_msg_def)
+  next
+    case False
+    then have False': \<open>\<not>step_id_overflow st'\<close>
+      using assms(5) by auto
+    show ?thesis
     unfolding PAC_checker_l_step_s_def PAC_checker_l_step_prep_def pac_step.case_eq_if
       prod.simps Let_def[of \<open>LPAC_Checker_Specification.pac_step.new_id _\<close>]
       Let_def[of \<open>pac_srcs _\<close>] Let_def[of \<open>pac_res _\<close>]
+      if_not_P[OF False] if_not_P[OF False']
     apply (refine_rcg check_linear_combi_l_s_check_linear_combi_l
       check_extension_l2_s_check_extension_l2 add_poly_l_s_add_poly_l)
     subgoal using assms by auto
@@ -1693,6 +1708,7 @@ proof -
     subgoal using assms by (auto intro!: fmap_rel_fmdrop_fmap_rel)
     subgoal by auto
     done
+  qed
 qed
 
 lemma PAC_checker_l_step_s_PAC_checker_l_step_s2:
@@ -2527,22 +2543,23 @@ proof -
     unfolding import_polyS_def COPY_def nres_monad1 body_eq ..
 qed
 
-definition step_id_bounded :: \<open>lpac_step_hol \<Rightarrow> bool\<close> where
-  \<open>step_id_bounded st \<longleftrightarrow> (\<not>is_Del st \<longrightarrow> new_id st + 1 < max_snat 64)\<close>
-
 definition PAC_checker_l_step_s_alt where
   \<open>PAC_checker_l_step_s_alt spec st' \<V> A st = (
     if is_CL st then doN {
       (srcs, ni, res) \<leftarrow> mop_dest_cl st;
-      ASSERT (ni + 1 < max_snat 64);
-      r \<leftarrow> full_normalize_poly res;
-      (eq, r) \<leftarrow> check_linear_combi_l_s spec A \<V> ni srcs r;
-      if \<not>is_cfailed eq then doN {
-        let st'' = merge_cstatus st' eq;
-        let A' = fmupd ni (BOX r) A;
-        RETURN (st'', \<V>, A')
+      if ni \<ge> step_id_max
+      then RETURN (error_msg ni step_id_overflow_err, \<V>, A)
+      else doN {
+        ASSERT (ni + 1 < max_snat 64);
+        r \<leftarrow> full_normalize_poly res;
+        (eq, r) \<leftarrow> check_linear_combi_l_s spec A \<V> ni srcs r;
+        if \<not>is_cfailed eq then doN {
+          let st'' = merge_cstatus st' eq;
+          let A' = fmupd ni (BOX r) A;
+          RETURN (st'', \<V>, A')
+        }
+        else RETURN (eq, \<V>, A)
       }
-      else RETURN (eq, \<V>, A)
     }
     else if is_Del st then doN {
       s1 \<leftarrow> mop_dest_ldel st;
@@ -2556,26 +2573,29 @@ definition PAC_checker_l_step_s_alt where
     }
     else doN {
       (ni, v, res) \<leftarrow> mop_dest_lextension st;
-      ASSERT (ni + 1 < max_snat 64);
-      r \<leftarrow> full_normalize_poly res;
-      (eq, r, \<V>, v') \<leftarrow> check_extension_l2_s spec A \<V> ni v r;
-      if \<not>is_cfailed eq then doN {
-        r \<leftarrow> add_poly_l_s \<V> ([([v'], -1)], r);
-        let A' = fmupd ni (BOX r) A;
-        RETURN (st', \<V>, A')
+      if ni \<ge> step_id_max
+      then RETURN (error_msg ni step_id_overflow_err, \<V>, A)
+      else doN {
+        ASSERT (ni + 1 < max_snat 64);
+        r \<leftarrow> full_normalize_poly res;
+        (eq, r, \<V>, v') \<leftarrow> check_extension_l2_s spec A \<V> ni v r;
+        if \<not>is_cfailed eq then doN {
+          r \<leftarrow> add_poly_l_s \<V> ([([v'], -1)], r);
+          let A' = fmupd ni (BOX r) A;
+          RETURN (st', \<V>, A')
+        }
+        else RETURN (eq, \<V>, A)
       }
-      else RETURN (eq, \<V>, A)
     })\<close>
 
 definition PAC_checker_l_step_s' where
   \<open>PAC_checker_l_step_s' a b c d = PAC_checker_l_step_s a (b, c, d)\<close>
 
 lemma PAC_checker_l_step_s_alt_PAC_checker_l_step_s':
-  \<open>step_id_bounded st \<Longrightarrow>
-     PAC_checker_l_step_s_alt spec st' \<V> A st \<le> \<Down>Id (PAC_checker_l_step_s' spec st' \<V> A st)\<close>
+  \<open>PAC_checker_l_step_s_alt spec st' \<V> A st \<le> \<Down>Id (PAC_checker_l_step_s' spec st' \<V> A st)\<close>
   unfolding PAC_checker_l_step_s_alt_def PAC_checker_l_step_s'_def PAC_checker_l_step_s_def
     mop_dest_cl_def mop_dest_lextension_def mop_dest_ldel_def
-    step_id_bounded_def BOX_def COPY_def
+    step_id_overflow_def step_id_max_def BOX_def COPY_def
   apply (cases st)
   apply (auto simp: dest_cl_def dest_lextension_def dest_ldel_def Let_def
     pw_le_iff refine_pw_simps)
@@ -2583,7 +2603,7 @@ lemma PAC_checker_l_step_s_alt_PAC_checker_l_step_s':
 
 lemma PAC_checker_l_step_s_fref:
   \<open>(uncurry4 PAC_checker_l_step_s_alt, uncurry4 PAC_checker_l_step_s')
-    \<in> [\<lambda>((((_, _), _), _), st). step_id_bounded st]\<^sub>f Id \<rightarrow> \<langle>Id\<rangle>nres_rel\<close>
+    \<in> Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
   apply (intro frefI nres_relI)
   using PAC_checker_l_step_s_alt_PAC_checker_l_step_s' by auto
 
@@ -2611,7 +2631,6 @@ definition PAC_checker_l_s_loop
        (\<lambda>((bA), n). do {
           ASSERT(n \<noteq> []);
           (nh, nt) \<leftarrow> mop_list_pop_hd n;
-          ASSERT(step_id_bounded nh);
           S \<leftarrow> PAC_checker_l_step_s spec bA nh;
           RETURN (S, nt)
         })
@@ -2625,20 +2644,14 @@ lemma PAC_checker_l_step_s_rel_id:
   by auto
 
 lemma PAC_checker_l_s_loop_PAC_checker_l_s':
-  assumes \<open>list_all step_id_bounded st\<close>
-  shows \<open>PAC_checker_l_s_loop spec \<V> A b st \<le> \<Down>Id (PAC_checker_l_s' spec \<V> A b st)\<close>
+  \<open>PAC_checker_l_s_loop spec \<V> A b st \<le> \<Down>Id (PAC_checker_l_s' spec \<V> A b st)\<close>
   unfolding PAC_checker_l_s_loop_def PAC_checker_l_s'_def PAC_checker_l_s_def
     mop_list_pop_hd_def
-  apply (simp add: ASSERT_dup)
-  apply (rule refine_IdD)
-  apply (refine_rcg
-      WHILET_refine[where R = \<open>Id \<times>\<^sub>r {(n, n'). n' = n \<and> list_all step_id_bounded n}\<close>]
-      PAC_checker_l_step_s_rel_id)
-  using assms by (auto simp: neq_Nil_conv)
+  by (simp add: ASSERT_dup)
 
 lemma PAC_checker_l_s_loop_fref:
   \<open>(uncurry4 PAC_checker_l_s_loop, uncurry4 PAC_checker_l_s')
-    \<in> [\<lambda>((((_, _), _), _), st). list_all step_id_bounded st]\<^sub>f Id \<rightarrow> \<langle>Id\<rangle>nres_rel\<close>
+    \<in> Id \<rightarrow>\<^sub>f \<langle>Id\<rangle>nres_rel\<close>
   apply (intro frefI nres_relI)
   using PAC_checker_l_s_loop_PAC_checker_l_s' by auto
 
@@ -2778,7 +2791,6 @@ definition full_checker_l_s2
     (string code_status \<times> _) nres\<close>
 where
   \<open>full_checker_l_s2 spec A st = do {
-    ASSERT (list_all step_id_bounded st);
     spec' \<leftarrow> full_normalize_poly (COPY spec);
     (b, \<V>, A, spec') \<leftarrow> remap_polys_l2_with_err_s spec' spec A ({#}, fmempty, fmempty);
     if is_cfailed b

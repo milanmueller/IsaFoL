@@ -1,8 +1,6 @@
 /* Hand-written header for code/pasteque.ll, exported with `export_llvm (no_header)`
    from LPAC_Codegen.thy. The signed big integer contains a 1-bit sign flag, which the
    Isabelle-LLVM header generator cannot express, and several values are LLVM aggregates.
-   Therefore all types below are opaque: C code only handles them through pointers, and
-   every function consumes (takes ownership of) the objects passed to it.
    The type names match the `rewrites` clause of the export, i.e. the %-types in the .ll.
 
    Lists are built with a builder: X_builder_new() creates it, X_append(builder, ...) appends
